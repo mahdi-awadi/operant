@@ -60,7 +60,7 @@ export function resolveAutopilotDefaults(config: HubConfig): AutopilotDefaults {
     vetoWindowMs: override.vetoWindowMs ?? DEFAULT_AUTOPILOT_DEFAULTS.vetoWindowMs,
     btwTimeoutMs: override.btwTimeoutMs ?? DEFAULT_AUTOPILOT_DEFAULTS.btwTimeoutMs,
     maxDurationMinutes: override.maxDurationMinutes ?? DEFAULT_AUTOPILOT_DEFAULTS.maxDurationMinutes,
-    riskKeywords: override.riskKeywords ?? DEFAULT_AUTOPILOT_DEFAULTS.riskKeywords,
+    riskKeywords: override.riskKeywords ? [...override.riskKeywords] : [...DEFAULT_AUTOPILOT_DEFAULTS.riskKeywords],
   }
 }
 
