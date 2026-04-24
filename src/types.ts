@@ -34,6 +34,27 @@ export type Profile = {
 
 export type ProfileOverrides = Partial<Omit<Profile, 'name' | 'description'>>
 
+export type AutopilotConfig = {
+  enabled: boolean
+  vetoWindowMs: number        // 0 = no veto, send immediately
+  btwTimeoutMs: number        // per-/btw timeout
+  maxDurationMinutes: number  // cap before asking user to continue
+  riskKeywords: string[]      // case-insensitive substring match on outgoing question
+  riskOverride?: boolean      // per-session: bypass risk filter (default false)
+}
+
+export type AutopilotDefaults = Omit<AutopilotConfig, 'enabled' | 'riskOverride'>
+
+export const DEFAULT_AUTOPILOT_DEFAULTS: AutopilotDefaults = {
+  vetoWindowMs: 30_000,
+  btwTimeoutMs: 30_000,
+  maxDurationMinutes: 60,
+  riskKeywords: [
+    'delete', 'force push', 'drop table', 'production', 'prod deploy',
+    'billing', 'credit card', 'api key', 'secret', 'revoke', 'uninstall',
+  ],
+}
+
 export type SessionConfig = {
   name: string
   trust: TrustLevel
@@ -63,27 +84,6 @@ export type HubConfig = {
   defaultTrust: TrustLevel
   defaultUploadDir: string
   autopilot?: Partial<AutopilotDefaults>   // optional overrides of DEFAULT_AUTOPILOT_DEFAULTS
-}
-
-export type AutopilotConfig = {
-  enabled: boolean
-  vetoWindowMs: number        // 0 = no veto, send immediately
-  btwTimeoutMs: number        // per-/btw timeout
-  maxDurationMinutes: number  // cap before asking user to continue
-  riskKeywords: string[]      // case-insensitive substring match on outgoing question
-  riskOverride?: boolean      // per-session: bypass risk filter (default false)
-}
-
-export type AutopilotDefaults = Omit<AutopilotConfig, 'enabled' | 'riskOverride'>
-
-export const DEFAULT_AUTOPILOT_DEFAULTS: AutopilotDefaults = {
-  vetoWindowMs: 30_000,
-  btwTimeoutMs: 30_000,
-  maxDurationMinutes: 60,
-  riskKeywords: [
-    'delete', 'force push', 'drop table', 'production', 'prod deploy',
-    'billing', 'credit card', 'api key', 'secret', 'revoke', 'uninstall',
-  ],
 }
 
 export type InboundMessage = {
