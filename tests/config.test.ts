@@ -1,7 +1,9 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { loadHubConfig, saveHubConfig, loadSessions, saveSessions, HUB_DIR } from '../src/config'
-import { mkdirSync, rmSync, existsSync } from 'fs'
+import { loadHubConfig, saveHubConfig, loadSessions, saveSessions, resolveAutopilotDefaults, HUB_DIR } from '../src/config'
+import type { HubConfig } from '../src/types'
+import { mkdirSync, rmSync, existsSync, writeFileSync, mkdtempSync } from 'fs'
 import { join } from 'path'
+import { tmpdir } from 'os'
 
 const TEST_DIR = join(import.meta.dir, '.test-hub-config')
 
@@ -82,4 +84,49 @@ describe('config', () => {
     saveHubConfig(config, TEST_DIR)
     expect(existsSync(TEST_DIR)).toBe(true)
   })
+})
+
+test('loadHubConfig reads autopilot section', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cfg-autopilot-'))
+  try {
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({
+      webPort: 3000,
+      defaultTrust: 'ask',
+      defaultUploadDir: '.',
+      telegramToken: '',
+      telegramAllowFrom: ['123'],
+      autopilot: { vetoWindowMs: 5000, maxDurationMinutes: 120 },
+    }))
+    const cfg = loadHubConfig(dir)
+    expect(cfg.autopilot?.vetoWindowMs).toBe(5000)
+    expect(cfg.autopilot?.maxDurationMinutes).toBe(120)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('loadHubConfig without autopilot key returns undefined for autopilot', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cfg-noauto-'))
+  try {
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({
+      webPort: 3000, defaultTrust: 'ask', defaultUploadDir: '.',
+      telegramToken: '', telegramAllowFrom: [],
+    }))
+    const cfg = loadHubConfig(dir)
+    expect(cfg.autopilot).toBeUndefined()
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('resolveAutopilotDefaults merges user overrides with built-in defaults', () => {
+  const cfg: HubConfig = {
+    webPort: 3000, defaultTrust: 'ask', defaultUploadDir: '.',
+    telegramToken: '', telegramAllowFrom: [],
+    autopilot: { vetoWindowMs: 1000 },
+  }
+  const resolved = resolveAutopilotDefaults(cfg)
+  expect(resolved.vetoWindowMs).toBe(1000)
+  expect(resolved.btwTimeoutMs).toBe(30_000)
+  expect(resolved.riskKeywords.length).toBeGreaterThan(5)
 })

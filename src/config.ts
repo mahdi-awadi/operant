@@ -1,7 +1,8 @@
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
-import type { HubConfig, SessionConfig, TrustLevel } from './types'
+import { DEFAULT_AUTOPILOT_DEFAULTS } from './types'
+import type { HubConfig, SessionConfig, TrustLevel, AutopilotDefaults } from './types'
 
 export const HUB_DIR = process.env.CLAUDE_PLUGIN_DATA
   ?? process.env.HUB_DIR
@@ -49,6 +50,17 @@ export function loadHubConfig(dir: string = HUB_DIR): HubConfig {
     telegramAllowFrom: raw.telegramAllowFrom ?? [],
     defaultTrust: raw.defaultTrust ?? 'ask',
     defaultUploadDir: raw.defaultUploadDir ?? '.',
+    autopilot: raw.autopilot,   // pass through as-is
+  }
+}
+
+export function resolveAutopilotDefaults(config: HubConfig): AutopilotDefaults {
+  const override = config.autopilot ?? {}
+  return {
+    vetoWindowMs: override.vetoWindowMs ?? DEFAULT_AUTOPILOT_DEFAULTS.vetoWindowMs,
+    btwTimeoutMs: override.btwTimeoutMs ?? DEFAULT_AUTOPILOT_DEFAULTS.btwTimeoutMs,
+    maxDurationMinutes: override.maxDurationMinutes ?? DEFAULT_AUTOPILOT_DEFAULTS.maxDurationMinutes,
+    riskKeywords: override.riskKeywords ?? DEFAULT_AUTOPILOT_DEFAULTS.riskKeywords,
   }
 }
 
