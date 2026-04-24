@@ -31,6 +31,7 @@ Commands:
   prefix <name> <text>         Set a prefix for a session
   rename <oldName> <newName>   Rename a session
   upload <name> <file>         Upload a file to a session
+  autopilot <name> on|off      Enable or disable autopilot for a session
   start                        Start the daemon in background
   help                         Show this help text
 `.trim()
@@ -246,6 +247,30 @@ async function main() {
       }
       const json = await res.json() as { path: string }
       console.log(`File uploaded to ${json.path}`)
+    } catch (err) {
+      console.error('Failed:', err)
+      process.exit(1)
+    }
+    return
+  }
+
+  if (command === 'autopilot') {
+    const [name, mode] = cmdArgs
+    if (!name || !mode || (mode !== 'on' && mode !== 'off')) {
+      console.error('Usage: autopilot <name> on|off')
+      process.exit(1)
+    }
+    try {
+      const res = await fetch(`${HUB_URL}/api/autopilot`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, enabled: mode === 'on' }),
+      })
+      if (!res.ok) {
+        console.error(`autopilot request failed: ${res.status} ${await res.text()}`)
+        process.exit(1)
+      }
+      console.log(`autopilot ${mode} for ${name}`)
     } catch (err) {
       console.error('Failed:', err)
       process.exit(1)
