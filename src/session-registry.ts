@@ -1,6 +1,6 @@
 // src/session-registry.ts
 import { basename } from 'path'
-import type { SessionState, SessionConfig, TrustLevel, Profile, FrontendSource } from './types'
+import type { SessionState, SessionConfig, TrustLevel, Profile, FrontendSource, AutopilotConfig } from './types'
 
 type RegistryOptions = {
   defaultTrust: TrustLevel
@@ -120,6 +120,20 @@ export class SessionRegistry {
     if (s) s.prefix = prefix
   }
 
+  setAutopilot(path: string, config: Partial<AutopilotConfig> | undefined): void {
+    const s = this.sessions.get(path)
+    if (!s) return
+    if (config === undefined) {
+      delete s.autopilot
+    } else {
+      s.autopilot = config
+    }
+  }
+
+  getAutopilot(path: string): Partial<AutopilotConfig> | undefined {
+    return this.sessions.get(path)?.autopilot
+  }
+
   // Rules & facts live on profileOverrides — setting them here materializes
   // an override that shadows whatever the applied profile specifies. Reading
   // via getEffectiveRules/Facts falls back to the profile when no override.
@@ -216,6 +230,7 @@ export class SessionRegistry {
         teamSize: s.teamSize,
         appliedProfile: s.appliedProfile,
         profileOverrides: s.profileOverrides,
+        autopilot: s.autopilot,    // new
       }
     }
     return result

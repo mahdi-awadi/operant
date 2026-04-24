@@ -246,4 +246,39 @@ describe('SessionRegistry', () => {
       expect(() => registry.clearChannelOverride('/nope', 'telegram')).not.toThrow()
     })
   })
+
+  test('setAutopilot stores config, getAutopilot returns it', () => {
+    const reg = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
+    reg.register('/p:0')
+    reg.setAutopilot('/p:0', { enabled: true, vetoWindowMs: 5000 })
+    const a = reg.getAutopilot('/p:0')
+    expect(a?.enabled).toBe(true)
+    expect(a?.vetoWindowMs).toBe(5000)
+  })
+
+  test('getAutopilot returns undefined when not set', () => {
+    const reg = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
+    reg.register('/p:0')
+    expect(reg.getAutopilot('/p:0')).toBeUndefined()
+  })
+
+  test('toSaveFormat includes autopilot; restoreFrom restores it', () => {
+    const reg1 = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
+    reg1.register('/p:0')
+    reg1.setAutopilot('/p:0', { enabled: true, vetoWindowMs: 10_000 })
+    const saved = reg1.toSaveFormat()
+
+    const reg2 = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
+    reg2.restoreFrom(saved)
+    expect(reg2.getAutopilot('/p:0')?.enabled).toBe(true)
+    expect(reg2.getAutopilot('/p:0')?.vetoWindowMs).toBe(10_000)
+  })
+
+  test('setAutopilot with undefined clears it', () => {
+    const reg = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
+    reg.register('/p:0')
+    reg.setAutopilot('/p:0', { enabled: true })
+    reg.setAutopilot('/p:0', undefined)
+    expect(reg.getAutopilot('/p:0')).toBeUndefined()
+  })
 })
