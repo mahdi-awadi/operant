@@ -42,7 +42,15 @@ export class AutopilotRunner {
     }
 
     // 2. Fire /btw into the session's tmux pane.
-    await this.sm.sendKeysRaw(sessionName, `/btw ${wrappedQuestion}`, true)
+    // Flatten newlines first — tmux treats \n as Enter, which would submit the
+    // slash command after the first line only.
+    const singleLine = wrappedQuestion.replace(/\s*\n+\s*/g, ' ').trim()
+    // Claude Code's input treats a burst of ~800 chars as a "paste block" and
+    // the paste captures the trailing Enter, so the /btw never fires. Send the
+    // text first (no Enter), then a separate Enter as its own keystroke.
+    await this.sm.sendKeysRaw(sessionName, `/btw ${singleLine}`, false)
+    await new Promise(r => setTimeout(r, 150))
+    await this.sm.sendKeysRaw(sessionName, '', true)
 
     // 3. Poll capture-pane until the overlay is settled or we time out.
     const deadline = Date.now() + this.btwTimeoutMs

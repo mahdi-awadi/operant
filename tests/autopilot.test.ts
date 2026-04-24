@@ -42,7 +42,9 @@ describe('AutopilotRunner.runBtw', () => {
       expect(result.answer).toContain('Bun')
     }
     expect(sm.sentKeys[0]?.text).toContain('/btw wrapped question text')
-    expect(sm.sentKeys[0]?.withEnter).toBe(true)
+    expect(sm.sentKeys[0]?.withEnter).toBe(false)  // text first, no Enter
+    expect(sm.sentKeys[1]?.text).toBe('')          // then a standalone Enter
+    expect(sm.sentKeys[1]?.withEnter).toBe(true)
     expect(sm.escapes).toBe(1)
   })
 

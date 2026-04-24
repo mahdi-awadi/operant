@@ -309,7 +309,9 @@ export class ScreenManager {
 
   async sendKeysRaw(sessionName: string, text: string, withEnter: boolean): Promise<void> {
     try {
-      if (withEnter) {
+      if (text === '' && withEnter) {
+        await $`tmux send-keys -t ${sessionName} Enter`.quiet()
+      } else if (withEnter) {
         await $`tmux send-keys -t ${sessionName} ${text} Enter`.quiet()
       } else {
         await $`tmux send-keys -t ${sessionName} ${text}`.quiet()

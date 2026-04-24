@@ -13,6 +13,7 @@ import { ScreenManager, isValidSessionId, type ResumeSpec } from '../screen-mana
 import type { PermissionRequest, TrustLevel } from '../types'
 import type { TaskMonitor } from '../task-monitor'
 import type { VetoController } from '../veto-controller'
+import type { EscalationController } from '../escalation-controller'
 import type { AutopilotRunner } from '../autopilot'
 import { saveSessions } from '../config'
 import { listPriorSessions } from '../claude-sessions'
@@ -111,6 +112,7 @@ type WebFrontendDeps = {
   telegramAllowFrom: string[]
   taskMonitor: TaskMonitor | null
   vetoController?: VetoController
+  escalationController?: EscalationController
   autopilotRunner?: AutopilotRunner
   projectsRootOverride?: string  // test-only: override ~/.claude/projects root
 }
@@ -267,6 +269,10 @@ export class WebFrontend {
           return self.handleAutopilotVeto(req)
         }
 
+        if (url.pathname === '/api/autopilot/escalate' && req.method === 'POST') {
+          return self.handleAutopilotEscalate(req)
+        }
+
         if (url.pathname === '/api/team/add' && req.method === 'POST') {
           return req.json().then(async (body: any) => {
             const newName = await self.deps.screenManager?.addTeammate(body.leadName)
@@ -360,6 +366,23 @@ export class WebFrontend {
       sessionName,
       draft,
       expiresAt: Date.now() + vetoMs,
+    })
+  }
+
+  deliverAutopilotEscalation(
+    path: string,
+    sessionName: string,
+    rawQuestion: string,
+    reason: string,
+    reasonKind: 'risk' | 'escalate_token' | 'parse_error' | 'timeout' | 'other',
+  ): void {
+    this.broadcastToClients({
+      type: 'autopilot:escalate',
+      path,
+      sessionName,
+      rawQuestion,
+      reason,
+      reasonKind,
     })
   }
 
@@ -693,7 +716,9 @@ export class WebFrontend {
       if (!path) return new Response(`Session not found: ${name}`, { status: 404 })
       if (enabled) {
         if (this.deps.autopilotRunner) {
-          const probeResult = await this.deps.autopilotRunner.probe(`hub-${name}`, 5_000)
+          const managed = this.deps.screenManager?.getManagedByPath(this.deps.registry.folderPath(path))
+          const tmuxName = managed?.sessionName ?? `hub-${name}`
+          const probeResult = await this.deps.autopilotRunner.probe(tmuxName, 5_000)
           if (!probeResult.ok) {
             return Response.json({ ok: false, reason: probeResult.reason }, { status: 400 })
           }
@@ -761,6 +786,64 @@ export class WebFrontend {
         })
       }
       // action === 'cancel': no injection, just drop the draft
+
+      return Response.json({ ok: true })
+    } catch (err) {
+      return new Response(String(err), { status: 500 })
+    }
+  }
+
+  private async handleAutopilotEscalate(req: Request): Promise<Response> {
+    try {
+      const body = (await req.json()) as {
+        name: string
+        action: 'proceed' | 'answer' | 'dismiss'
+        text?: string
+      }
+      const path = this.deps.registry.findByName(body.name)
+      if (!path) return new Response(`Session not found: ${body.name}`, { status: 404 })
+
+      const ec = this.deps.escalationController
+      if (!ec) return new Response('Escalation controller not available', { status: 503 })
+
+      const pending = ec.clear(path)
+      if (!pending) return Response.json({ ok: false, reason: 'no pending' }, { status: 404 })
+
+      if (body.action === 'dismiss') {
+        return Response.json({ ok: true })
+      }
+
+      if (body.action === 'answer') {
+        const text = (body.text ?? '').trim()
+        if (!text) return Response.json({ ok: false, reason: 'empty answer' }, { status: 400 })
+        // Route the user's answer through the normal message path — same as
+        // typing in the web chat input.
+        this.deps.router?.routeToSession(body.name, text, 'web', 'web-user')
+        return Response.json({ ok: true })
+      }
+
+      // action === 'proceed': re-run /btw for the same wrapped question, this
+      // time with the risk filter bypassed. Reuse the main autopilot-answer
+      // handling via the injection code path.
+      const runner = this.deps.autopilotRunner
+      if (!runner) return new Response('Autopilot runner not available', { status: 503 })
+
+      runner.runBtw(pending.tmuxName, pending.wrappedQuestion, {
+        rawQuestion: pending.rawQuestion,
+        riskKeywords: [],       // explicitly empty
+        riskOverride: true,     // bypass pre-fire check
+      }).then(result => {
+        if (result.status === 'answered') {
+          this.deps.socketServer?.sendToSession(path, {
+            type: 'channel_message',
+            content: result.answer,
+            meta: { source: 'autopilot', frontend: 'web' },
+          })
+          this.deliverToUser(pending.sessionName, `🤖 Autopilot answered (risk override): ${result.answer}`)
+        } else {
+          this.deliverToUser(pending.sessionName, `🟡 Autopilot still can't answer (${result.status}). Type a reply.`)
+        }
+      }).catch(err => process.stderr.write(`hub: escalate-proceed failed: ${err}\n`))
 
       return Response.json({ ok: true })
     } catch (err) {

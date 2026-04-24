@@ -17,6 +17,7 @@ import { VerificationRunner } from './verification'
 import { AutopilotRunner } from './autopilot'
 import { wrapQuestion } from './autopilot-risk'
 import { VetoController } from './veto-controller'
+import { EscalationController } from './escalation-controller'
 
 const DRIFT_RATE_LIMIT_MS = 2 * 60 * 1000 // 2 minutes between alerts per session
 const lastDriftNotif = new Map<string, number>()
@@ -101,6 +102,7 @@ const screenManager = new ScreenManager()
 // Autopilot
 const autopilotDefaults = resolveAutopilotDefaults(config)
 const vetoController = new VetoController()
+const escalationController = new EscalationController()
 const autopilotRunner = new AutopilotRunner({
   screenManager,
   btwTimeoutMs: autopilotDefaults.btwTimeoutMs,
@@ -265,7 +267,8 @@ socketServer.on('tool_call', (path: string, name: string, args: Record<string, u
         }
       }
       const sessionName = session.name
-      const tmuxName = `hub-${sessionName}`
+      const managed = screenManager.getManagedByPath(registry.folderPath(path))
+      const tmuxName = managed?.sessionName ?? `hub-${sessionName}`
       const prefs = loadProjectPreferences(registry.folderPath(path))
       const wrapped = wrapQuestion(text, prefs)
       const riskKeywords = ap.riskKeywords ?? autopilotDefaults.riskKeywords
@@ -298,11 +301,24 @@ socketServer.on('tool_call', (path: string, name: string, args: Record<string, u
             webFrontend?.deliverToUser(sessionName, `🤖 Autopilot answered: ${result.answer}`)
           }
         } else if (result.status === 'escalate') {
+          const reasonKind = /risk keyword/i.test(result.reason) ? 'risk'
+            : /^proxy escalated/i.test(result.reason) ? 'escalate_token'
+            : 'other'
+          escalationController.record({
+            path, sessionName, rawQuestion: text, wrappedQuestion: wrapped,
+            tmuxName, reason: result.reason, reasonKind, createdAt: Date.now(),
+          })
           telegramFrontend?.deliverToUser(sessionName, `🟡 Autopilot escalated: ${result.reason}`)
-          webFrontend?.deliverToUser(sessionName, `🟡 Autopilot escalated: ${result.reason}`)
+          webFrontend?.deliverAutopilotEscalation?.(path, sessionName, text, result.reason, reasonKind)
         } else {
+          const kind: 'parse_error' | 'timeout' = result.status
+          escalationController.record({
+            path, sessionName, rawQuestion: text, wrappedQuestion: wrapped,
+            tmuxName, reason: `${result.status}: /btw did not complete`, reasonKind: kind,
+            createdAt: Date.now(),
+          })
           telegramFrontend?.deliverToUser(sessionName, `🟡 Autopilot failed (${result.status}); please answer directly.`)
-          webFrontend?.deliverToUser(sessionName, `🟡 Autopilot failed (${result.status}); please answer directly.`)
+          webFrontend?.deliverAutopilotEscalation?.(path, sessionName, text, `autopilot /btw failed (${result.status})`, kind)
         }
       }).catch(err => {
         process.stderr.write(`hub: autopilot error for ${sessionName}: ${err}\n`)
@@ -368,6 +384,7 @@ async function start(): Promise<void> {
     telegramAllowFrom: config.telegramAllowFrom,
     taskMonitor,
     vetoController,
+    escalationController,
     autopilotRunner,
   })
   await webFrontend.start()
@@ -394,6 +411,7 @@ async function start(): Promise<void> {
         taskMonitor,
         verificationRunner,
         vetoController,
+        escalationController,
         autopilotRunner,
       })
       telegramFrontend.start().catch(err => {
