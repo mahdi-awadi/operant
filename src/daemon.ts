@@ -1,7 +1,7 @@
 // src/daemon.ts
 import { join } from 'path'
-import { readFileSync, statSync } from 'fs'
-import { loadHubConfig, loadSessions, saveSessions, loadProfilesForHub, saveProfilesForHub, HUB_DIR } from './config'
+import { readFileSync, statSync, existsSync } from 'fs'
+import { loadHubConfig, loadSessions, saveSessions, loadProfilesForHub, saveProfilesForHub, HUB_DIR, resolveAutopilotDefaults } from './config'
 import { SessionRegistry } from './session-registry'
 import { SocketServer } from './socket-server'
 import { PermissionEngine } from './permission-engine'
@@ -14,6 +14,8 @@ import type { PermissionRequest, Profile, FrontendSource } from './types'
 import { getProfile, resolveSession, injectContext } from './profiles'
 import { detectDrift } from './analysis'
 import { VerificationRunner } from './verification'
+import { AutopilotRunner } from './autopilot'
+import { wrapQuestion } from './autopilot-risk'
 
 const DRIFT_RATE_LIMIT_MS = 2 * 60 * 1000 // 2 minutes between alerts per session
 const lastDriftNotif = new Map<string, number>()
@@ -94,6 +96,26 @@ const permissions = new PermissionEngine(registry, (req: PermissionRequest) => {
 
 // Screen manager
 const screenManager = new ScreenManager()
+
+// Autopilot
+const autopilotDefaults = resolveAutopilotDefaults(config)
+const autopilotRunner = new AutopilotRunner({
+  screenManager,
+  btwTimeoutMs: autopilotDefaults.btwTimeoutMs,
+})
+
+function loadProjectPreferences(projectPath: string): string {
+  const candidates = [
+    join(projectPath, 'autopilot.md'),
+    join(process.env.HOME ?? '', '.claude', 'autopilot.md'),
+  ]
+  for (const p of candidates) {
+    try {
+      if (existsSync(p)) return readFileSync(p, 'utf8')
+    } catch { /* ignore */ }
+  }
+  return ''
+}
 
 // Task monitor
 const taskMonitor = new TaskMonitor()
@@ -221,6 +243,39 @@ socketServer.on('tool_call', (path: string, name: string, args: Record<string, u
           }
         }
       }
+    }
+    // Autopilot: if this session is in autopilot mode, proxy the user's answer
+    // via /btw instead of waiting for a human.
+    const ap = registry.getAutopilot(path)
+    if (ap?.enabled) {
+      const sessionName = session.name
+      const tmuxName = `hub-${sessionName}`
+      const prefs = loadProjectPreferences(registry.folderPath(path))
+      const wrapped = wrapQuestion(text, prefs)
+      const riskKeywords = ap.riskKeywords ?? autopilotDefaults.riskKeywords
+      autopilotRunner.runBtw(tmuxName, wrapped, {
+        rawQuestion: text,
+        riskKeywords,
+        riskOverride: ap.riskOverride,
+      }).then(result => {
+        if (result.status === 'answered') {
+          socketServer.sendToSession(path, {
+            type: 'channel_message',
+            content: result.answer,
+            meta: { source: 'autopilot', frontend: 'web' },
+          })
+          telegramFrontend?.deliverToUser(sessionName, `🤖 Autopilot answered: ${result.answer}`)
+          webFrontend?.deliverToUser(sessionName, `🤖 Autopilot answered: ${result.answer}`)
+        } else if (result.status === 'escalate') {
+          telegramFrontend?.deliverToUser(sessionName, `🟡 Autopilot escalated: ${result.reason}`)
+          webFrontend?.deliverToUser(sessionName, `🟡 Autopilot escalated: ${result.reason}`)
+        } else {
+          telegramFrontend?.deliverToUser(sessionName, `🟡 Autopilot failed (${result.status}); please answer directly.`)
+          webFrontend?.deliverToUser(sessionName, `🟡 Autopilot failed (${result.status}); please answer directly.`)
+        }
+      }).catch(err => {
+        process.stderr.write(`hub: autopilot error for ${sessionName}: ${err}\n`)
+      })
     }
   } else if (name === 'edit_message') {
     telegramFrontend?.deliverToUser(session.name, `(edited) ${args.text as string}`)
