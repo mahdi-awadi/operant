@@ -318,6 +318,21 @@
       margin: 4px 0;
     }
 
+    /* Autopilot */
+    .ap-badge { margin-left: 4px; font-size: 13px; flex-shrink: 0; }
+    .ap-toggle {
+      padding: 2px 8px;
+      font-size: 0.75em;
+      border: 1px solid #444;
+      background: #222;
+      color: #ddd;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-left: 4px;
+      flex-shrink: 0;
+    }
+    .ap-toggle[data-enabled="1"] { background: #224422; border-color: #4a4; color: #8f8; }
+
     /* Mobile */
     @media (max-width: 768px) {
       #sidebar {
@@ -543,6 +558,15 @@
           item.appendChild(dot)
           item.appendChild(name)
 
+          // Autopilot badge (shown inline next to name when enabled)
+          if (s.autopilot?.enabled) {
+            const apBadge = document.createElement('span')
+            apBadge.className = 'ap-badge'
+            apBadge.title = 'Autopilot on'
+            apBadge.textContent = '🤖'
+            item.appendChild(apBadge)
+          }
+
           if (isLead && isTeam) {
             const addBtn = document.createElement('button')
             addBtn.textContent = '[+]'
@@ -576,6 +600,32 @@
             closeBtn.onclick = (e) => { e.stopPropagation(); closeSession(s.name) }
             item.appendChild(closeBtn)
           }
+
+          // Autopilot toggle button
+          const apEnabled = !!(s.autopilot?.enabled)
+          const apToggle = document.createElement('button')
+          apToggle.className = 'ap-toggle'
+          apToggle.dataset.name = s.name
+          apToggle.dataset.enabled = apEnabled ? '1' : '0'
+          apToggle.title = apEnabled ? 'Turn off autopilot' : 'Turn on autopilot'
+          apToggle.textContent = apEnabled ? 'AP: ON' : 'AP: OFF'
+          apToggle.onclick = async (e) => {
+            e.stopPropagation()
+            const btn = e.currentTarget
+            const name = btn.dataset.name
+            const enabled = btn.dataset.enabled === '1'
+            try {
+              await fetch('/api/autopilot', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, enabled: !enabled }),
+              })
+              // Session list will refresh via existing WebSocket push
+            } catch (err) {
+              console.error('Autopilot toggle failed', err)
+            }
+          }
+          item.appendChild(apToggle)
 
           const unread = unreadBySession[s.name]
           if (unread && s.name !== activeSession) {
