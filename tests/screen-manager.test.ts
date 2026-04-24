@@ -103,6 +103,42 @@ describe('isValidSessionId', () => {
   })
 })
 
+test('capturePane returns text from tmux when session exists', async () => {
+  const sm = new ScreenManager()
+  // Create a throwaway tmux session with a known pane content
+  const s = `test-capture-${Date.now()}`
+  await $`tmux new-session -d -s ${s} "bash -c 'echo HELLOWORLD; sleep 30'"`.quiet()
+  try {
+    // Wait briefly for the echo to hit the pane
+    await new Promise(r => setTimeout(r, 200))
+    const pane = await sm.capturePane(s, 20)
+    expect(pane).toContain('HELLOWORLD')
+  } finally {
+    try { await $`tmux kill-session -t ${s}`.quiet() } catch {}
+  }
+})
+
+test('sendKeysRaw writes a line and capturePane sees it', async () => {
+  const sm = new ScreenManager()
+  const s = `test-sendkeys-${Date.now()}`
+  // cat will echo whatever we type
+  await $`tmux new-session -d -s ${s} "cat"`.quiet()
+  try {
+    await sm.sendKeysRaw(s, 'HELLO-FROM-TEST', true)
+    await new Promise(r => setTimeout(r, 200))
+    const pane = await sm.capturePane(s)
+    expect(pane).toContain('HELLO-FROM-TEST')
+  } finally {
+    try { await $`tmux kill-session -t ${s}`.quiet() } catch {}
+  }
+})
+
+test('sendEscape does not throw when session is missing', async () => {
+  const sm = new ScreenManager()
+  await sm.sendEscape('nonexistent-session-xyz-' + Date.now())
+  // No assertion needed — test passes if no exception is thrown
+})
+
 describe('buildClaudeCmd', () => {
   test('no resume → bare claude', () => {
     const cmd = buildClaudeCmd({ team: false })

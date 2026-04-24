@@ -299,6 +299,26 @@ export class ScreenManager {
     this.managed.delete(name)
   }
 
+  async capturePane(sessionName: string, lines: number = 200): Promise<string> {
+    try {
+      return await $`tmux capture-pane -t ${sessionName} -p -S -${lines}`.quiet().text()
+    } catch {
+      return ''
+    }
+  }
+
+  async sendKeysRaw(sessionName: string, text: string, withEnter: boolean): Promise<void> {
+    if (withEnter) {
+      await $`tmux send-keys -t ${sessionName} ${text} Enter`.quiet()
+    } else {
+      await $`tmux send-keys -t ${sessionName} ${text}`.quiet()
+    }
+  }
+
+  async sendEscape(sessionName: string): Promise<void> {
+    try { await $`tmux send-keys -t ${sessionName} Escape`.quiet() } catch {}
+  }
+
   isManaged(name: string): boolean {
     return this.managed.has(name)
   }
