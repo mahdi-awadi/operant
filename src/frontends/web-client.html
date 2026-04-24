@@ -333,6 +333,53 @@
     }
     .ap-toggle[data-enabled="1"] { background: #224422; border-color: #4a4; color: #8f8; }
 
+    /* Autopilot veto card */
+    #autopilot-veto-card {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      background: #1a2a3a;
+      border: 1px solid #2a5a8a;
+      border-radius: 10px;
+      padding: 12px 14px;
+      margin-bottom: 8px;
+      max-width: 520px;
+      align-self: flex-start;
+    }
+    #autopilot-veto-card h4 {
+      color: #4acfcf;
+      font-size: 13px;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    #autopilot-veto-countdown {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    #autopilot-veto-draft {
+      width: 100%;
+      background: rgba(0,0,0,0.3);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      color: var(--text);
+      font-size: 12px;
+      resize: vertical;
+      min-height: 60px;
+      margin-bottom: 8px;
+      font-family: inherit;
+    }
+    #autopilot-veto-draft:focus { outline: none; border-color: #4acfcf; }
+    .veto-actions { display: flex; gap: 8px; }
+    .veto-send { background: #1a4a3a; color: #4acf90; border: 1px solid #4acf90; padding: 5px 14px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+    .veto-send:hover { background: #2a6a5a; }
+    .veto-edit { background: #1a3a4a; color: #4a9eff; border: 1px solid #4a9eff; padding: 5px 14px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+    .veto-edit:hover { background: #2a5a6a; }
+    .veto-cancel { background: #4a1a1a; color: #f44336; border: 1px solid #f44336; padding: 5px 14px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+    .veto-cancel:hover { background: #6a2a2a; }
+
     /* Mobile */
     @media (max-width: 768px) {
       #sidebar {
@@ -517,6 +564,72 @@
       } else if (msg.type === 'tasks') {
         currentTasks = msg.data
         renderSidebar()
+      } else if (msg.type === 'autopilot:draft') {
+        showAutopilotVetoCard(msg)
+      }
+    }
+
+    // Autopilot veto card state
+    let _vetoTimer = null
+    let _vetoData = null
+
+    function showAutopilotVetoCard(msg) {
+      // Remove any existing card
+      dismissVetoCard()
+
+      _vetoData = msg
+
+      const area = document.getElementById('messages')
+      const card = document.createElement('div')
+      card.id = 'autopilot-veto-card'
+
+      const secondsLeft = () => Math.max(0, Math.round((msg.expiresAt - Date.now()) / 1000))
+
+      card.innerHTML = `
+        <h4>🤖 Autopilot draft — <span style="font-weight:400">${escapeHtml(msg.sessionName)}</span>
+          <span id="autopilot-veto-countdown" style="font-size:11px;color:var(--text-muted);margin-left:auto;">(${secondsLeft()}s)</span>
+        </h4>
+        <textarea id="autopilot-veto-draft">${escapeHtml(msg.draft)}</textarea>
+        <div class="veto-actions">
+          <button class="veto-send" onclick="submitVeto('${escapeHtml(msg.sessionName)}','send')">✅ Send</button>
+          <button class="veto-edit" onclick="submitVeto('${escapeHtml(msg.sessionName)}','edit')">✏️ Edit &amp; send</button>
+          <button class="veto-cancel" onclick="submitVeto('${escapeHtml(msg.sessionName)}','cancel')">❌ Cancel</button>
+        </div>
+      `
+
+      area.insertBefore(card, area.firstChild)
+
+      // Countdown ticker
+      _vetoTimer = setInterval(() => {
+        const s = secondsLeft()
+        const el = document.getElementById('autopilot-veto-countdown')
+        if (el) el.textContent = `(${s}s)`
+        if (s <= 0) {
+          // Server already fired; just clean up the card
+          dismissVetoCard()
+        }
+      }, 1000)
+    }
+
+    function dismissVetoCard() {
+      if (_vetoTimer) { clearInterval(_vetoTimer); _vetoTimer = null }
+      _vetoData = null
+      const existing = document.getElementById('autopilot-veto-card')
+      if (existing) existing.remove()
+    }
+
+    async function submitVeto(sessionName, action) {
+      const textarea = document.getElementById('autopilot-veto-draft')
+      const edited = textarea ? textarea.value : ''
+      dismissVetoCard()
+      try {
+        await fetch('/api/autopilot/veto', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: sessionName, action, edited }),
+        })
+      } catch (err) {
+        console.error('Veto action failed', err)
       }
     }
 

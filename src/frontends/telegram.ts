@@ -10,6 +10,7 @@ import type { TaskMonitor } from '../task-monitor'
 import { getProfile } from '../profiles'
 import { loadProfilesForHub, saveProfilesForHub, saveSessions } from '../config'
 import type { VerificationRunner, VerificationResult } from '../verification'
+import type { VetoController } from '../veto-controller'
 
 // ── Pure helper functions ────────────────────────────────────────────────────
 
@@ -140,6 +141,7 @@ export type TelegramFrontendDeps = {
   allowFrom: string[]
   taskMonitor: TaskMonitor | null
   verificationRunner: VerificationRunner
+  vetoController?: VetoController
 }
 
 export class TelegramFrontend {
@@ -152,6 +154,7 @@ export class TelegramFrontend {
   private allowFrom: string[]
   private taskMonitor: TaskMonitor | null
   private verificationRunner: VerificationRunner
+  private vetoController: VetoController | undefined
 
   // Per-user active session: telegram user id → session name
   private userActiveSessions = new Map<string, string>()
@@ -171,6 +174,7 @@ export class TelegramFrontend {
     this.allowFrom = deps.allowFrom
     this.taskMonitor = deps.taskMonitor
     this.verificationRunner = deps.verificationRunner
+    this.vetoController = deps.vetoController
 
     this.registerHandlers()
   }
@@ -724,6 +728,40 @@ export class TelegramFrontend {
             await ctx.answerCallbackQuery({ text: 'Reminder sent' })
             await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {})
           }
+          return
+        }
+
+        const apMatch = data.match(/^ap-(send|cancel):(.+)$/)
+        if (apMatch) {
+          const [, apAction, sessionName] = apMatch
+          const path = this.registry.findByName(sessionName)
+          if (!path || !this.vetoController) {
+            await ctx.answerCallbackQuery({ text: 'no pending' })
+            return
+          }
+          const pending = this.vetoController.cancel(path)
+          if (!pending) {
+            await ctx.answerCallbackQuery({ text: 'no pending' })
+            await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {})
+            return
+          }
+          if (apAction === 'send') {
+            this.socketServer.sendToSession(path, {
+              type: 'channel_message',
+              content: pending.draft,
+              meta: { source: 'autopilot', frontend: 'telegram' },
+            })
+            await ctx.answerCallbackQuery({ text: 'Sent' })
+            await ctx.editMessageText(
+              `[${sessionName}] ✅ Autopilot draft sent:\n${pending.draft}`,
+            ).catch(() => {})
+          } else {
+            // cancel
+            await ctx.answerCallbackQuery({ text: 'cancelled' })
+            await ctx.editMessageText(
+              `[${sessionName}] ❌ Autopilot draft cancelled — answer yourself.`,
+            ).catch(() => {})
+          }
         }
       }
     })
@@ -951,6 +989,31 @@ export class TelegramFrontend {
     result: VerificationResult,
   ): Promise<void> {
     await renderVerificationResult(ctx.reply.bind(ctx), sessionName, result)
+  }
+
+  async deliverAutopilotDraft(sessionName: string, draft: string, vetoMs: number): Promise<void> {
+    const recipients = this.allowFrom.length > 0 ? this.allowFrom : [...this.knownUsers]
+    if (recipients.length === 0) return
+
+    const seconds = Math.round(vetoMs / 1000)
+    const text =
+      `🤖 <b>Autopilot draft</b> for <b>${sessionName}</b> (auto-sends in ${seconds}s):\n\n` +
+      `<blockquote>${draft.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</blockquote>`
+
+    const keyboard = new InlineKeyboard()
+      .text('✅ Send', `ap-send:${sessionName}`)
+      .text('❌ Cancel', `ap-cancel:${sessionName}`)
+
+    for (const userId of recipients) {
+      try {
+        await this.bot.api.sendMessage(userId, text, {
+          parse_mode: 'HTML',
+          reply_markup: keyboard,
+        })
+      } catch (err) {
+        process.stderr.write(`telegram: deliverAutopilotDraft failed: ${err}\n`)
+      }
+    }
   }
 
   async deliverPermissionRequest(req: PermissionRequest): Promise<void> {

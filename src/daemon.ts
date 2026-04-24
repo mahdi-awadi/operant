@@ -16,6 +16,7 @@ import { detectDrift } from './analysis'
 import { VerificationRunner } from './verification'
 import { AutopilotRunner } from './autopilot'
 import { wrapQuestion } from './autopilot-risk'
+import { VetoController } from './veto-controller'
 
 const DRIFT_RATE_LIMIT_MS = 2 * 60 * 1000 // 2 minutes between alerts per session
 const lastDriftNotif = new Map<string, number>()
@@ -99,6 +100,7 @@ const screenManager = new ScreenManager()
 
 // Autopilot
 const autopilotDefaults = resolveAutopilotDefaults(config)
+const vetoController = new VetoController()
 const autopilotRunner = new AutopilotRunner({
   screenManager,
   btwTimeoutMs: autopilotDefaults.btwTimeoutMs,
@@ -259,13 +261,28 @@ socketServer.on('tool_call', (path: string, name: string, args: Record<string, u
         riskOverride: ap.riskOverride,
       }).then(result => {
         if (result.status === 'answered') {
-          socketServer.sendToSession(path, {
-            type: 'channel_message',
-            content: result.answer,
-            meta: { source: 'autopilot', frontend: 'web' },
-          })
-          telegramFrontend?.deliverToUser(sessionName, `🤖 Autopilot answered: ${result.answer}`)
-          webFrontend?.deliverToUser(sessionName, `🤖 Autopilot answered: ${result.answer}`)
+          const vetoMs = ap.vetoWindowMs ?? autopilotDefaults.vetoWindowMs
+          if (vetoMs > 0) {
+            const veto = vetoController.schedule(path, sessionName, result.answer, vetoMs, (v) => {
+              socketServer.sendToSession(v.path, {
+                type: 'channel_message',
+                content: v.draft,
+                meta: { source: 'autopilot', frontend: 'web' },
+              })
+              telegramFrontend?.deliverToUser(v.sessionName, `🤖 Autopilot sent: ${v.draft}`)
+              webFrontend?.deliverToUser(v.sessionName, `🤖 Autopilot sent: ${v.draft}`)
+            })
+            telegramFrontend?.deliverAutopilotDraft(sessionName, veto.draft, vetoMs)
+            webFrontend?.deliverAutopilotDraft(path, sessionName, veto.draft, vetoMs)
+          } else {
+            socketServer.sendToSession(path, {
+              type: 'channel_message',
+              content: result.answer,
+              meta: { source: 'autopilot', frontend: 'web' },
+            })
+            telegramFrontend?.deliverToUser(sessionName, `🤖 Autopilot answered: ${result.answer}`)
+            webFrontend?.deliverToUser(sessionName, `🤖 Autopilot answered: ${result.answer}`)
+          }
         } else if (result.status === 'escalate') {
           telegramFrontend?.deliverToUser(sessionName, `🟡 Autopilot escalated: ${result.reason}`)
           webFrontend?.deliverToUser(sessionName, `🟡 Autopilot escalated: ${result.reason}`)
@@ -336,6 +353,7 @@ async function start(): Promise<void> {
     telegramBotUsername,
     telegramAllowFrom: config.telegramAllowFrom,
     taskMonitor,
+    vetoController,
   })
   await webFrontend.start()
   process.stderr.write(`hub: web UI at http://localhost:${webFrontend.port}\n`)
@@ -360,6 +378,7 @@ async function start(): Promise<void> {
         allowFrom: config.telegramAllowFrom,
         taskMonitor,
         verificationRunner,
+        vetoController,
       })
       telegramFrontend.start().catch(err => {
         process.stderr.write(`hub: telegram failed to start: ${err}\n`)

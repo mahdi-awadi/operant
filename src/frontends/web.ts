@@ -12,6 +12,7 @@ import type { SocketServer } from '../socket-server'
 import { ScreenManager, isValidSessionId, type ResumeSpec } from '../screen-manager'
 import type { PermissionRequest, TrustLevel } from '../types'
 import type { TaskMonitor } from '../task-monitor'
+import type { VetoController } from '../veto-controller'
 import { saveSessions } from '../config'
 import { listPriorSessions } from '../claude-sessions'
 
@@ -108,6 +109,7 @@ type WebFrontendDeps = {
   telegramBotUsername: string
   telegramAllowFrom: string[]
   taskMonitor: TaskMonitor | null
+  vetoController?: VetoController
   projectsRootOverride?: string  // test-only: override ~/.claude/projects root
 }
 
@@ -259,6 +261,10 @@ export class WebFrontend {
           return self.handleAutopilot(req)
         }
 
+        if (url.pathname === '/api/autopilot/veto' && req.method === 'POST') {
+          return self.handleAutopilotVeto(req)
+        }
+
         if (url.pathname === '/api/team/add' && req.method === 'POST') {
           return req.json().then(async (body: any) => {
             const newName = await self.deps.screenManager?.addTeammate(body.leadName)
@@ -343,6 +349,16 @@ export class WebFrontend {
 
   deliverTaskUpdate(tasks: Record<string, any[]>): void {
     this.broadcastToClients({ type: 'tasks', data: tasks })
+  }
+
+  deliverAutopilotDraft(path: string, sessionName: string, draft: string, vetoMs: number): void {
+    this.broadcastToClients({
+      type: 'autopilot:draft',
+      path,
+      sessionName,
+      draft,
+      expiresAt: Date.now() + vetoMs,
+    })
   }
 
   private handleWsMessage(ws: import('bun').ServerWebSocket<unknown>, msg: Record<string, unknown>): void {
@@ -676,6 +692,45 @@ export class WebFrontend {
       const existing = this.deps.registry.getAutopilot(path) ?? {}
       this.deps.registry.setAutopilot(path, { ...existing, enabled })
       this.refreshSessions()
+      return Response.json({ ok: true })
+    } catch (err) {
+      return new Response(String(err), { status: 500 })
+    }
+  }
+
+  private async handleAutopilotVeto(req: Request): Promise<Response> {
+    try {
+      const { name, action, edited } = (await req.json()) as {
+        name: string
+        action: 'send' | 'edit' | 'cancel'
+        edited?: string
+      }
+      const path = this.deps.registry.findByName(name)
+      if (!path) return new Response(`Session not found: ${name}`, { status: 404 })
+
+      const vc = this.deps.vetoController
+      if (!vc) return new Response('Veto controller not available', { status: 503 })
+
+      const pending = vc.cancel(path)
+      if (!pending) {
+        return Response.json({ ok: false, reason: 'no pending' }, { status: 404 })
+      }
+
+      if (action === 'send') {
+        this.deps.socketServer?.sendToSession(path, {
+          type: 'channel_message',
+          content: pending.draft,
+          meta: { source: 'autopilot', frontend: 'web' },
+        })
+      } else if (action === 'edit' && edited && edited.trim()) {
+        this.deps.socketServer?.sendToSession(path, {
+          type: 'channel_message',
+          content: edited,
+          meta: { source: 'autopilot', frontend: 'web' },
+        })
+      }
+      // action === 'cancel': no injection, just drop the draft
+
       return Response.json({ ok: true })
     } catch (err) {
       return new Response(String(err), { status: 500 })
