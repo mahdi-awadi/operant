@@ -8,6 +8,7 @@
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
+      /* Dark (default) — same palette as before */
       --bg: #1a1a2e;
       --sidebar: #16213e;
       --border: #0f3460;
@@ -17,6 +18,58 @@
       --user-bubble: #1a3a6e;
       --claude-bubble: #1e1e3a;
       --input-bg: #0d0d1a;
+    }
+
+    /* Light — white canvas, dark text, muted accents */
+    body[data-theme="light"] {
+      --bg: #fafafa;
+      --sidebar: #f0f2f5;
+      --border: #dcdfe4;
+      --accent: #2563eb;
+      --text: #1f2328;
+      --text-muted: #6b7280;
+      --user-bubble: #dbeafe;
+      --claude-bubble: #f3f4f6;
+      --input-bg: #ffffff;
+    }
+
+    /* Blue — deep, saturated ocean */
+    body[data-theme="blue"] {
+      --bg: #0b1b2c;
+      --sidebar: #12263b;
+      --border: #1e3a5f;
+      --accent: #38bdf8;
+      --text: #e6f2ff;
+      --text-muted: #7aa3c9;
+      --user-bubble: #1e3a5f;
+      --claude-bubble: #13273c;
+      --input-bg: #08142a;
+    }
+
+    /* Smooth — soft pastel, low contrast, calm */
+    body[data-theme="smooth"] {
+      --bg: #2a2433;
+      --sidebar: #322b3d;
+      --border: #443a55;
+      --accent: #b794f4;
+      --text: #ede6f4;
+      --text-muted: #a89ab0;
+      --user-bubble: #3d3449;
+      --claude-bubble: #33293f;
+      --input-bg: #231d2c;
+    }
+
+    /* Solarized — classic warm palette */
+    body[data-theme="solarized"] {
+      --bg: #002b36;
+      --sidebar: #073642;
+      --border: #586e75;
+      --accent: #b58900;
+      --text: #fdf6e3;
+      --text-muted: #93a1a1;
+      --user-bubble: #094352;
+      --claude-bubble: #073642;
+      --input-bg: #001e26;
     }
 
     body {
@@ -30,8 +83,8 @@
 
     /* Sidebar */
     #sidebar {
-      width: 260px;
-      min-width: 260px;
+      width: 300px;
+      min-width: 300px;
       background: var(--sidebar);
       border-right: 1px solid var(--border);
       display: flex;
@@ -40,50 +93,113 @@
     }
 
     #sidebar-header {
-      padding: 16px;
+      padding: 12px 14px;
       border-bottom: 1px solid var(--border);
-      font-weight: 700;
-      font-size: 14px;
-      letter-spacing: 0.05em;
-      color: var(--accent);
       display: flex;
       align-items: center;
-      justify-content: space-between;
+      gap: 6px;
+    }
+    #hub-title {
+      font-weight: 700;
+      font-size: 13px;
+      letter-spacing: 0.04em;
+      color: var(--accent);
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
-    #spawn-btn {
-      background: var(--accent);
-      color: white;
-      border: none;
-      border-radius: 4px;
-      padding: 4px 10px;
+    /* Unified icon button — used for spawn, theme, kebab, row actions */
+    .icon-btn {
+      width: 28px;
+      height: 28px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      border-radius: 6px;
       cursor: pointer;
-      font-size: 12px;
+      font-size: 13px;
+      line-height: 1;
+      flex-shrink: 0;
+      padding: 0;
+      transition: background 0.1s, color 0.1s, border-color 0.1s;
     }
-    #spawn-btn:hover { opacity: 0.85; }
+    .icon-btn:hover { background: rgba(255,255,255,0.06); color: var(--text); border-color: var(--text-muted); }
+    .icon-btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .icon-btn.primary:hover { opacity: 0.88; }
+    .icon-btn.danger:hover { color: #f87171; border-color: #f87171; }
+
+    /* Light theme wants a subtler hover */
+    body[data-theme="light"] .icon-btn:hover { background: rgba(0,0,0,0.05); }
+
+    #spawn-btn { /* legacy id kept — styling now via .icon-btn */ }
+
+    #sidebar-footer {
+      padding: 8px 14px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    #sidebar-footer button {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 11px;
+      padding: 4px 6px;
+      border-radius: 4px;
+    }
+    #sidebar-footer button:hover { background: rgba(255,255,255,0.05); color: var(--text); }
 
     #session-list {
       flex: 1;
       overflow-y: auto;
-      padding: 8px 0;
+      padding: 4px 0;
+    }
+
+    /* Folder group header — small muted label above sessions in a folder */
+    .group-header {
+      padding: 10px 14px 4px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      opacity: 0.75;
     }
 
     .session-item {
       display: flex;
       align-items: center;
-      padding: 10px 16px;
+      gap: 8px;
+      padding: 9px 14px;
       cursor: pointer;
       border-left: 3px solid transparent;
       transition: background 0.1s;
       position: relative;
+      min-height: 36px;
     }
     .session-item:hover { background: rgba(255,255,255,0.04); }
-    .session-item.active { background: rgba(233,69,96,0.12); border-left-color: var(--accent); }
+    body[data-theme="light"] .session-item:hover { background: rgba(0,0,0,0.04); }
+    .session-item.active {
+      background: color-mix(in srgb, var(--accent) 14%, transparent);
+      border-left-color: var(--accent);
+    }
+    .session-item.teammate { padding-left: 30px; }
 
     .status-dot {
       width: 8px; height: 8px;
       border-radius: 50%;
-      margin-right: 10px;
       flex-shrink: 0;
     }
     .status-dot.active { background: #4caf50; }
@@ -97,6 +213,97 @@
       overflow: hidden;
       text-overflow: ellipsis;
     }
+
+    /* Kebab button reveals on hover or when menu is open */
+    .kebab-btn {
+      width: 24px;
+      height: 24px;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-radius: 4px;
+      opacity: 0;
+      transition: opacity 0.1s, background 0.1s;
+      flex-shrink: 0;
+      font-size: 16px;
+      line-height: 1;
+      padding: 0;
+    }
+    .session-item:hover .kebab-btn,
+    .session-item.menu-open .kebab-btn { opacity: 1; }
+    .kebab-btn:hover { background: rgba(255,255,255,0.08); color: var(--text); }
+    body[data-theme="light"] .kebab-btn:hover { background: rgba(0,0,0,0.08); }
+
+    /* Kebab popover menu */
+    .kebab-menu {
+      position: absolute;
+      top: 100%;
+      right: 8px;
+      margin-top: 2px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+      z-index: 50;
+      min-width: 220px;
+      padding: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    body[data-theme="light"] .kebab-menu { box-shadow: 0 8px 24px rgba(0,0,0,0.12); }
+
+    .kebab-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 10px;
+      font-size: 12px;
+      color: var(--text);
+      border-radius: 5px;
+      cursor: pointer;
+      background: none;
+      border: none;
+      text-align: left;
+      width: 100%;
+    }
+    .kebab-item:hover { background: rgba(255,255,255,0.06); }
+    body[data-theme="light"] .kebab-item:hover { background: rgba(0,0,0,0.06); }
+    .kebab-item.danger { color: #f87171; }
+    .kebab-sep {
+      height: 1px;
+      background: var(--border);
+      margin: 4px 0;
+    }
+    .kebab-label {
+      font-size: 10px;
+      color: var(--text-muted);
+      padding: 4px 10px 2px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .kebab-segmented {
+      display: flex;
+      gap: 4px;
+      padding: 4px 10px 6px;
+    }
+    .kebab-seg {
+      flex: 1;
+      padding: 4px 6px;
+      font-size: 11px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-muted);
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .kebab-seg[aria-pressed="true"] {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+    .kebab-seg:hover { border-color: var(--text-muted); }
 
     .badge {
       background: var(--accent);
@@ -318,20 +525,8 @@
       margin: 4px 0;
     }
 
-    /* Autopilot */
-    .ap-badge { margin-left: 4px; font-size: 13px; flex-shrink: 0; }
-    .ap-toggle {
-      padding: 2px 8px;
-      font-size: 0.75em;
-      border: 1px solid #444;
-      background: #222;
-      color: #ddd;
-      border-radius: 4px;
-      cursor: pointer;
-      margin-left: 4px;
-      flex-shrink: 0;
-    }
-    .ap-toggle[data-enabled="1"] { background: #224422; border-color: #4a4; color: #8f8; }
+    /* Autopilot badge — shown next to session name when enabled */
+    .ap-badge { font-size: 13px; flex-shrink: 0; }
 
     /* Autopilot veto card */
     #autopilot-veto-card {
@@ -380,19 +575,95 @@
     .veto-cancel { background: #4a1a1a; color: #f44336; border: 1px solid #f44336; padding: 5px 14px; border-radius: 4px; cursor: pointer; font-size: 12px; }
     .veto-cancel:hover { background: #6a2a2a; }
 
+    /* Autopilot escalation card — amber colorway to distinguish from the draft */
+    .autopilot-escalate-card {
+      position: sticky;
+      top: 0;
+      z-index: 51;
+      background: #3a2a12;
+      border: 1px solid #8a5a12;
+      border-radius: 10px;
+      padding: 12px 14px;
+      margin-bottom: 8px;
+      max-width: 560px;
+      align-self: flex-start;
+    }
+    .autopilot-escalate-card h4 {
+      color: #fbbf24;
+      font-size: 13px;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .autopilot-escalate-card .esc-reason {
+      color: #fcd34d;
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+    .autopilot-escalate-card .esc-question {
+      background: rgba(0,0,0,0.3);
+      border-left: 3px solid #fbbf24;
+      padding: 8px 10px;
+      font-size: 12px;
+      color: var(--text);
+      max-height: 240px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      border-radius: 0 6px 6px 0;
+      margin-bottom: 8px;
+    }
+    .autopilot-escalate-card .esc-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .autopilot-escalate-card .esc-actions button {
+      padding: 5px 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+      border: 1px solid;
+      background: transparent;
+    }
+    .autopilot-escalate-card .esc-proceed { color: #fbbf24; border-color: #fbbf24; }
+    .autopilot-escalate-card .esc-proceed:hover { background: rgba(251,191,36,0.12); }
+    .autopilot-escalate-card .esc-answer { color: #4a9eff; border-color: #4a9eff; }
+    .autopilot-escalate-card .esc-answer:hover { background: rgba(74,158,255,0.12); }
+    .autopilot-escalate-card .esc-dismiss { color: var(--text-muted); border-color: var(--border); }
+    .autopilot-escalate-card .esc-dismiss:hover { background: rgba(255,255,255,0.05); }
+    .autopilot-escalate-card textarea.esc-reply-input {
+      width: 100%;
+      background: rgba(0,0,0,0.3);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      color: var(--text);
+      font-size: 12px;
+      resize: vertical;
+      min-height: 60px;
+      margin: 8px 0;
+      font-family: inherit;
+    }
+    .autopilot-escalate-card textarea.esc-reply-input:focus { outline: none; border-color: #4a9eff; }
+    body[data-theme="light"] .autopilot-escalate-card { background: #fef3c7; border-color: #d97706; }
+    body[data-theme="light"] .autopilot-escalate-card h4 { color: #92400e; }
+    body[data-theme="light"] .autopilot-escalate-card .esc-reason { color: #78350f; }
+    body[data-theme="light"] .autopilot-escalate-card .esc-question { background: rgba(0,0,0,0.06); border-left-color: #d97706; }
+
     /* Mobile */
     @media (max-width: 768px) {
       #sidebar {
-        width: 52px;
-        min-width: 52px;
+        width: 56px;
+        min-width: 56px;
       }
-      #sidebar-header { padding: 12px 8px; justify-content: center; }
-      #sidebar-header span { display: none; }
-      #spawn-btn { padding: 4px 6px; font-size: 10px; }
+      #sidebar-header { padding: 10px 6px; justify-content: center; flex-wrap: wrap; gap: 4px; }
+      #hub-title { display: none; }
+      #theme-btn { display: none; }
+      #sidebar-footer { padding: 6px; justify-content: center; }
+      #sidebar-footer #footer-user { display: none; }
+      .group-header { display: none; }
       .session-name { display: none; }
-      .session-item { justify-content: center; padding: 12px 8px; }
-      .status-dot { margin-right: 0; }
+      .session-item { justify-content: center; padding: 12px 4px; gap: 4px; }
+      .session-item.teammate { padding-left: 4px; }
       .badge { display: none; }
+      .kebab-btn { opacity: 1; }
     }
   </style>
 </head>
@@ -407,11 +678,15 @@
 
   <div id="sidebar">
     <div id="sidebar-header">
-      <span>Claude Code Hub</span>
-      <button id="spawn-btn" onclick="promptSpawn()">+ Spawn</button>
-      <button style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:11px;" onclick="logout()">Logout</button>
+      <span id="hub-title">Claude Code Hub</span>
+      <button id="spawn-btn" class="icon-btn primary" title="Spawn a new session" onclick="promptSpawn()">+</button>
+      <button id="theme-btn" class="icon-btn" title="Cycle theme (dark)" onclick="cycleTheme()">🎨</button>
     </div>
     <div id="session-list"></div>
+    <div id="sidebar-footer">
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" id="footer-user">signed in</span>
+      <button onclick="logout()" title="Sign out">Logout</button>
+    </div>
   </div>
 
   <div id="main">
@@ -423,20 +698,43 @@
     <div id="messages">
       <div id="no-session" style="color: var(--text-muted); margin: auto; opacity: 0.5;">Select a session to start chatting</div>
     </div>
-    <div id="prompt-tags" style="border-top:1px solid var(--border);padding:6px 16px;display:flex;flex-wrap:wrap;gap:6px;background:var(--input-bg);"></div>
-    <div id="attached-files" style="padding:0 16px;display:none;flex-wrap:wrap;gap:6px;background:var(--input-bg);"></div>
-    <div id="input-area">
-      <label style="cursor:pointer;display:flex;align-items:center;color:var(--text-muted);font-size:18px;padding:0 4px;" title="Attach file">
-        <input type="file" id="file-input" multiple style="display:none;" onchange="handleFileSelect(this)" />
-        📎
-      </label>
-      <textarea id="msg-input" placeholder="Type a message..." rows="1"
-        onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
-      <button id="send-btn" onclick="sendMsg()">Send</button>
+    <div id="compose-area" style="display:none;">
+      <div id="prompt-tags" style="border-top:1px solid var(--border);padding:6px 16px;display:flex;flex-wrap:wrap;gap:6px;background:var(--input-bg);"></div>
+      <div id="attached-files" style="padding:0 16px;display:none;flex-wrap:wrap;gap:6px;background:var(--input-bg);"></div>
+      <div id="input-area">
+        <label style="cursor:pointer;display:flex;align-items:center;color:var(--text-muted);font-size:18px;padding:0 4px;" title="Attach file">
+          <input type="file" id="file-input" multiple style="display:none;" onchange="handleFileSelect(this)" />
+          📎
+        </label>
+        <textarea id="msg-input" placeholder="Type a message..." rows="1"
+          onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+        <button id="send-btn" onclick="sendMsg()">Send</button>
+      </div>
     </div>
   </div>
 
   <script>
+    // Themes — cycle via the 🎨 button in the sidebar header; persists in localStorage
+    const THEMES = ['dark', 'light', 'blue', 'smooth', 'solarized']
+    function applyTheme(name) {
+      if (!THEMES.includes(name)) name = 'dark'
+      if (name === 'dark') {
+        document.body.removeAttribute('data-theme')
+      } else {
+        document.body.setAttribute('data-theme', name)
+      }
+      const btn = document.getElementById('theme-btn')
+      if (btn) btn.title = `Cycle theme (${name})`
+      localStorage.setItem('hub_theme', name)
+    }
+    function cycleTheme() {
+      const cur = localStorage.getItem('hub_theme') || 'dark'
+      const next = THEMES[(THEMES.indexOf(cur) + 1) % THEMES.length]
+      applyTheme(next)
+    }
+    // Apply saved theme immediately so first paint matches
+    applyTheme(localStorage.getItem('hub_theme') || 'dark')
+
     // Prompt tags — toggleable instructions appended to messages
     const defaultTags = [
       { id: 'superpowers', label: 'Use Superpowers Skills', text: 'use superpowers skills', active: false },
@@ -566,7 +864,97 @@
         renderSidebar()
       } else if (msg.type === 'autopilot:draft') {
         showAutopilotVetoCard(msg)
+      } else if (msg.type === 'autopilot:escalate') {
+        showAutopilotEscalationCard(msg)
       }
+    }
+
+    // Autopilot escalation card — appears when autopilot bounces a question
+    // (risk keyword / ESCALATE token / timeout / parse error). Offers three
+    // one-click actions so the user doesn't have to scroll to find Claude's
+    // question or retype anything.
+    function showAutopilotEscalationCard(msg) {
+      // Remove any existing card for this session (one at a time per session)
+      document.querySelectorAll('.autopilot-escalate-card[data-name="' + CSS.escape(msg.sessionName) + '"]').forEach(el => el.remove())
+
+      const area = document.getElementById('messages')
+      const card = document.createElement('div')
+      card.className = 'autopilot-escalate-card'
+      card.dataset.name = msg.sessionName
+      card.onclick = (e) => e.stopPropagation()
+
+      const canProceed = msg.reasonKind === 'risk'  // "proceed anyway" only meaningful for risk escalations
+      const proceedBtn = canProceed
+        ? `<button class="esc-proceed" data-action="proceed">⚡ Let autopilot answer anyway</button>`
+        : `<button class="esc-proceed" data-action="retry">🔄 Retry autopilot</button>`
+
+      card.innerHTML = `
+        <h4>🟡 Autopilot bounced — <span style="font-weight:400">${escapeHtml(msg.sessionName)}</span></h4>
+        <div class="esc-reason">${escapeHtml(msg.reason)}</div>
+        <div class="esc-question">${escapeHtml(msg.rawQuestion)}</div>
+        <div class="esc-actions">
+          ${proceedBtn}
+          <button class="esc-answer" data-action="answer-toggle">✍️ I'll answer</button>
+          <button class="esc-dismiss" data-action="dismiss">❌ Dismiss</button>
+        </div>
+        <div class="esc-reply" style="display:none;">
+          <textarea class="esc-reply-input" placeholder="Type your answer..."></textarea>
+          <div class="esc-actions">
+            <button class="esc-answer" data-action="answer-send">Send</button>
+            <button class="esc-dismiss" data-action="answer-cancel">Cancel</button>
+          </div>
+        </div>
+      `
+
+      card.querySelectorAll('button').forEach(btn => {
+        btn.addEventListener('click', async (ev) => {
+          ev.stopPropagation()
+          const action = btn.dataset.action
+          if (action === 'answer-toggle') {
+            const reply = card.querySelector('.esc-reply')
+            reply.style.display = ''
+            reply.querySelector('textarea').focus()
+            return
+          }
+          if (action === 'answer-cancel') {
+            const reply = card.querySelector('.esc-reply')
+            reply.style.display = 'none'
+            reply.querySelector('textarea').value = ''
+            return
+          }
+          if (action === 'answer-send') {
+            const txt = card.querySelector('textarea').value.trim()
+            if (!txt) return
+            await fetch('/api/autopilot/escalate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: msg.sessionName, action: 'answer', text: txt }),
+            })
+            card.remove()
+            return
+          }
+          if (action === 'dismiss') {
+            await fetch('/api/autopilot/escalate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: msg.sessionName, action: 'dismiss' }),
+            })
+            card.remove()
+            return
+          }
+          if (action === 'proceed' || action === 'retry') {
+            await fetch('/api/autopilot/escalate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: msg.sessionName, action: 'proceed' }),
+            })
+            card.remove()
+            return
+          }
+        })
+      })
+
+      area.insertBefore(card, area.firstChild)
     }
 
     // Autopilot veto card state
@@ -633,7 +1021,7 @@
       }
     }
 
-    // Sidebar
+    // Sidebar — clean row layout, all per-session actions behind a kebab menu
     function renderSidebar() {
       const list = document.getElementById('session-list')
       list.innerHTML = ''
@@ -647,19 +1035,23 @@
       }
 
       for (const [folder, members] of groups) {
-        // Sort by teamIndex
         members.sort((a, b) => (a.teamIndex ?? 0) - (b.teamIndex ?? 0))
         const isTeam = members.length > 1
+
+        // Group header — show the folder name above each group so users can
+        // scan at a glance. Use the basename for brevity; full path in title.
+        const groupHeader = document.createElement('div')
+        groupHeader.className = 'group-header'
+        groupHeader.title = folder
+        const short = folder.split('/').filter(Boolean).pop() || folder
+        groupHeader.textContent = short
+        list.appendChild(groupHeader)
 
         for (const s of members) {
           const isLead = !isTeam || (s.teamIndex ?? 0) === 0
           const item = document.createElement('div')
-          item.className = 'session-item' + (s.name === activeSession ? ' active' : '')
+          item.className = 'session-item' + (s.name === activeSession ? ' active' : '') + (isLead ? '' : ' teammate')
           item.onclick = () => selectSession(s.name)
-
-          if (!isLead) {
-            item.style.paddingLeft = '32px'
-          }
 
           const dot = document.createElement('div')
           dot.className = `status-dot ${s.status}`
@@ -671,7 +1063,6 @@
           item.appendChild(dot)
           item.appendChild(name)
 
-          // Autopilot badge (shown inline next to name when enabled)
           if (s.autopilot?.enabled) {
             const apBadge = document.createElement('span')
             apBadge.className = 'ap-badge'
@@ -679,66 +1070,6 @@
             apBadge.textContent = '🤖'
             item.appendChild(apBadge)
           }
-
-          if (isLead && isTeam) {
-            const addBtn = document.createElement('button')
-            addBtn.textContent = '[+]'
-            addBtn.title = 'Add teammate'
-            addBtn.style.cssText = 'background:none;border:1px solid var(--border);color:var(--text-muted);border-radius:4px;padding:2px 6px;cursor:pointer;font-size:11px;margin-left:4px;'
-            addBtn.onclick = (e) => { e.stopPropagation(); addTeammate(s.name) }
-            item.appendChild(addBtn)
-          }
-
-          if (s.status === 'disconnected') {
-            const restartBtn = document.createElement('button')
-            restartBtn.textContent = '↻'
-            restartBtn.title = 'Restart session'
-            restartBtn.style.cssText = 'background:none;border:1px solid var(--accent);color:var(--accent);border-radius:4px;padding:2px 6px;cursor:pointer;font-size:12px;margin-left:auto;'
-            restartBtn.onclick = (e) => { e.stopPropagation(); openRestartPopover(s.name, s.path, restartBtn) }
-            item.appendChild(restartBtn)
-
-            const removeBtn = document.createElement('button')
-            removeBtn.textContent = '✕'
-            removeBtn.title = 'Remove from list'
-            removeBtn.style.cssText = 'background:none;border:1px solid #c96;color:#c96;border-radius:4px;padding:2px 6px;cursor:pointer;font-size:12px;margin-left:4px;'
-            removeBtn.onclick = (e) => { e.stopPropagation(); removeSession(s.name) }
-            item.appendChild(removeBtn)
-          }
-
-          if (s.status !== 'disconnected') {
-            const closeBtn = document.createElement('button')
-            closeBtn.textContent = '✕'
-            closeBtn.title = s.managed ? 'Close session' : 'Remove from list (Claude keeps running)'
-            closeBtn.style.cssText = 'background:none;border:1px solid #c96;color:#c96;border-radius:4px;padding:2px 6px;cursor:pointer;font-size:12px;margin-left:auto;'
-            closeBtn.onclick = (e) => { e.stopPropagation(); closeSession(s.name) }
-            item.appendChild(closeBtn)
-          }
-
-          // Autopilot toggle button
-          const apEnabled = !!(s.autopilot?.enabled)
-          const apToggle = document.createElement('button')
-          apToggle.className = 'ap-toggle'
-          apToggle.dataset.name = s.name
-          apToggle.dataset.enabled = apEnabled ? '1' : '0'
-          apToggle.title = apEnabled ? 'Turn off autopilot' : 'Turn on autopilot'
-          apToggle.textContent = apEnabled ? 'AP: ON' : 'AP: OFF'
-          apToggle.onclick = async (e) => {
-            e.stopPropagation()
-            const btn = e.currentTarget
-            const name = btn.dataset.name
-            const enabled = btn.dataset.enabled === '1'
-            try {
-              await fetch('/api/autopilot', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, enabled: !enabled }),
-              })
-              // Session list will refresh via existing WebSocket push
-            } catch (err) {
-              console.error('Autopilot toggle failed', err)
-            }
-          }
-          item.appendChild(apToggle)
 
           const unread = unreadBySession[s.name]
           if (unread && s.name !== activeSession) {
@@ -748,21 +1079,139 @@
             item.appendChild(badge)
           }
 
+          // Single kebab button — reveals on hover, opens a popover with all
+          // per-session actions (trust, autopilot, add teammate, close/restart/remove).
+          const kebab = document.createElement('button')
+          kebab.className = 'kebab-btn'
+          kebab.title = 'Session actions'
+          kebab.textContent = '⋮'
+          kebab.onclick = (e) => { e.stopPropagation(); openSessionMenu(item, s) }
+          item.appendChild(kebab)
+
           list.appendChild(item)
         }
 
-        // Task summary line if this team/folder has tasks
         const tasks = currentTasks[folder]
         if (tasks && tasks.length > 0) {
           const done = tasks.filter(t => t.status === 'completed').length
           const inProgress = tasks.filter(t => t.status === 'in_progress').length
           const summary = document.createElement('div')
-          summary.style.cssText = 'padding:4px 16px 4px 32px;font-size:11px;color:var(--text-muted);'
+          summary.style.cssText = 'padding:2px 14px 8px 28px;font-size:11px;color:var(--text-muted);'
           summary.textContent = `Tasks: ${done}/${tasks.length} done${inProgress > 0 ? `, ${inProgress} active` : ''}`
           list.appendChild(summary)
         }
       }
     }
+
+    // Kebab popover — creates an inline menu anchored under the session row.
+    // Click-outside or Esc closes it.
+    let _openKebabRow = null
+    function closeSessionMenu() {
+      if (_openKebabRow) {
+        _openKebabRow.classList.remove('menu-open')
+        const existing = _openKebabRow.querySelector('.kebab-menu')
+        if (existing) existing.remove()
+        _openKebabRow = null
+      }
+    }
+    function openSessionMenu(row, s) {
+      if (_openKebabRow === row) { closeSessionMenu(); return }
+      closeSessionMenu()
+      _openKebabRow = row
+      row.classList.add('menu-open')
+
+      const menu = document.createElement('div')
+      menu.className = 'kebab-menu'
+      menu.onclick = (e) => e.stopPropagation()
+
+      // --- Trust segmented control ---
+      const trustLabel = document.createElement('div')
+      trustLabel.className = 'kebab-label'
+      trustLabel.textContent = 'Trust'
+      menu.appendChild(trustLabel)
+
+      const trustRow = document.createElement('div')
+      trustRow.className = 'kebab-segmented'
+      const currentTrust = s.trust || 'ask'
+      for (const level of ['strict', 'ask', 'auto', 'yolo']) {
+        const seg = document.createElement('button')
+        seg.className = 'kebab-seg'
+        seg.textContent = level
+        seg.setAttribute('aria-pressed', String(level === currentTrust))
+        seg.title = level === 'yolo' ? 'yolo — auto-allow EVERYTHING including destructive ops' :
+                   level === 'auto' ? 'auto — allow routine edits/commands; prompt on dangerous' :
+                   level === 'ask'  ? 'ask — prompt on anything that writes or runs arbitrary code' :
+                                     'strict — prompt on every non-trivial action'
+        seg.onclick = async () => {
+          try {
+            await fetch('/api/trust', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: s.name, level }),
+            })
+            closeSessionMenu()
+          } catch (err) { console.error('Trust change failed', err) }
+        }
+        trustRow.appendChild(seg)
+      }
+      menu.appendChild(trustRow)
+
+      // --- Autopilot toggle ---
+      const apEnabled = !!(s.autopilot?.enabled)
+      const apItem = document.createElement('button')
+      apItem.className = 'kebab-item'
+      apItem.innerHTML = `<span>🤖</span><span>${apEnabled ? 'Autopilot — ON (click to turn off)' : 'Autopilot — OFF (click to turn on)'}</span>`
+      apItem.onclick = async () => {
+        try {
+          await fetch('/api/autopilot', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: s.name, enabled: !apEnabled }),
+          })
+          closeSessionMenu()
+        } catch (err) { console.error('Autopilot toggle failed', err) }
+      }
+      menu.appendChild(apItem)
+
+      // --- Add teammate (lead only) ---
+      const isLead = (s.teamIndex ?? 0) === 0
+      if (isLead && s.status === 'active') {
+        const addTm = document.createElement('button')
+        addTm.className = 'kebab-item'
+        addTm.innerHTML = '<span>➕</span><span>Add teammate</span>'
+        addTm.onclick = () => { addTeammate(s.name); closeSessionMenu() }
+        menu.appendChild(addTm)
+      }
+
+      menu.appendChild(Object.assign(document.createElement('div'), { className: 'kebab-sep' }))
+
+      // --- Status-dependent actions ---
+      if (s.status === 'disconnected') {
+        const restart = document.createElement('button')
+        restart.className = 'kebab-item'
+        restart.innerHTML = '<span>↻</span><span>Restart session</span>'
+        restart.onclick = () => { openRestartPopover(s.name, s.path, restart); closeSessionMenu() }
+        menu.appendChild(restart)
+
+        const remove = document.createElement('button')
+        remove.className = 'kebab-item danger'
+        remove.innerHTML = '<span>✕</span><span>Remove from list</span>'
+        remove.onclick = () => { removeSession(s.name); closeSessionMenu() }
+        menu.appendChild(remove)
+      } else {
+        const close = document.createElement('button')
+        close.className = 'kebab-item danger'
+        close.innerHTML = `<span>✕</span><span>${s.managed ? 'Close session' : 'Remove from list (Claude keeps running)'}</span>`
+        close.onclick = () => { closeSession(s.name); closeSessionMenu() }
+        menu.appendChild(close)
+      }
+
+      row.appendChild(menu)
+    }
+
+    // Close the kebab menu on outside click or Esc
+    document.addEventListener('click', () => closeSessionMenu())
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSessionMenu() })
 
     async function addTeammate(leadName) {
       try {
@@ -798,6 +1247,10 @@
         badge.style.display = 'none'
         tmuxCmd.style.display = 'none'
       }
+
+      // Show the compose area now that a session is active
+      const compose = document.getElementById('compose-area')
+      if (compose) compose.style.display = ''
 
       // Render messages
       const area = document.getElementById('messages')
@@ -1356,6 +1809,14 @@
       document.getElementById('login-screen').style.display = 'none'
       document.getElementById('sidebar').style.display = ''
       document.getElementById('main').style.display = ''
+      const footerUser = document.getElementById('footer-user')
+      if (footerUser && currentUser) {
+        const display = currentUser.username ? `@${currentUser.username}` :
+                        currentUser.first_name ? currentUser.first_name :
+                        `user ${currentUser.id}`
+        footerUser.textContent = display
+        footerUser.title = display
+      }
       connectWs()
     }
 
