@@ -255,6 +255,10 @@ export class WebFrontend {
           return self.handleRename(req)
         }
 
+        if (url.pathname === '/api/autopilot' && req.method === 'POST') {
+          return self.handleAutopilot(req)
+        }
+
         if (url.pathname === '/api/team/add' && req.method === 'POST') {
           return req.json().then(async (body: any) => {
             const newName = await self.deps.screenManager?.addTeammate(body.leadName)
@@ -658,6 +662,20 @@ export class WebFrontend {
       const path = this.deps.registry.findByName(oldName)
       if (!path) return new Response(`Session not found: ${oldName}`, { status: 404 })
       this.deps.registry.rename(path, newName)
+      return Response.json({ ok: true })
+    } catch (err) {
+      return new Response(String(err), { status: 500 })
+    }
+  }
+
+  private async handleAutopilot(req: Request): Promise<Response> {
+    try {
+      const { name, enabled } = (await req.json()) as { name: string; enabled: boolean }
+      const path = this.deps.registry.findByName(name)
+      if (!path) return new Response(`Session not found: ${name}`, { status: 404 })
+      const existing = this.deps.registry.getAutopilot(path) ?? {}
+      this.deps.registry.setAutopilot(path, { ...existing, enabled })
+      this.refreshSessions()
       return Response.json({ ok: true })
     } catch (err) {
       return new Response(String(err), { status: 500 })

@@ -57,4 +57,28 @@ describe('WebFrontend', () => {
     const text = await res.text()
     expect(text).toContain('<!DOCTYPE html>')
   })
+
+  test('POST /api/autopilot sets autopilot enabled via registry', async () => {
+    const path = registry.findByName('frontend')!
+    expect(registry.getAutopilot(path)).toBeUndefined()
+
+    const res = await fetch(`http://localhost:${web.port}/api/autopilot`, {
+      method: 'POST',
+      headers: { Cookie: authCookie(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'frontend', enabled: true }),
+    })
+    expect(res.status).toBe(200)
+    const data = await res.json() as any
+    expect(data.ok).toBe(true)
+    expect(registry.getAutopilot(path)?.enabled).toBe(true)
+  })
+
+  test('POST /api/autopilot returns 404 for unknown session', async () => {
+    const res = await fetch(`http://localhost:${web.port}/api/autopilot`, {
+      method: 'POST',
+      headers: { Cookie: authCookie(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'no-such-session', enabled: true }),
+    })
+    expect(res.status).toBe(404)
+  })
 })
