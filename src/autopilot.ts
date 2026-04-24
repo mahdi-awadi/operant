@@ -72,4 +72,21 @@ export class AutopilotRunner {
 
     return { status: 'answered', answer: parsed.answer }
   }
+
+  async probe(sessionName: string, probeTimeoutMs: number = 15_000): Promise<{ ok: boolean; reason?: string }> {
+    await this.sm.sendKeysRaw(sessionName, '/btw 1+1', true)
+    const deadline = Date.now() + probeTimeoutMs
+    let pane = ''
+    while (Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, this.pollIntervalMs))
+      const p = await this.sm.capturePane(sessionName, 100)
+      if (p && isOverlaySettled(p)) { pane = p; break }
+    }
+    await this.sm.sendEscape(sessionName)
+    if (!pane) return { ok: false, reason: '/btw did not respond within 15s — feature flag may be off' }
+    const parsed = parseBtwAnswer(pane)
+    if (parsed.status !== 'ok') return { ok: false, reason: '/btw overlay did not parse — feature flag may be off' }
+    if (!/\b2\b/.test(parsed.answer)) return { ok: false, reason: `/btw returned unexpected answer: ${parsed.answer}` }
+    return { ok: true }
+  }
 }

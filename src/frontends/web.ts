@@ -13,6 +13,7 @@ import { ScreenManager, isValidSessionId, type ResumeSpec } from '../screen-mana
 import type { PermissionRequest, TrustLevel } from '../types'
 import type { TaskMonitor } from '../task-monitor'
 import type { VetoController } from '../veto-controller'
+import type { AutopilotRunner } from '../autopilot'
 import { saveSessions } from '../config'
 import { listPriorSessions } from '../claude-sessions'
 
@@ -110,6 +111,7 @@ type WebFrontendDeps = {
   telegramAllowFrom: string[]
   taskMonitor: TaskMonitor | null
   vetoController?: VetoController
+  autopilotRunner?: AutopilotRunner
   projectsRootOverride?: string  // test-only: override ~/.claude/projects root
 }
 
@@ -689,6 +691,12 @@ export class WebFrontend {
       const { name, enabled } = (await req.json()) as { name: string; enabled: boolean }
       const path = this.deps.registry.findByName(name)
       if (!path) return new Response(`Session not found: ${name}`, { status: 404 })
+      if (enabled && this.deps.autopilotRunner) {
+        const probeResult = await this.deps.autopilotRunner.probe(`hub-${name}`)
+        if (!probeResult.ok) {
+          return Response.json({ ok: false, reason: probeResult.reason }, { status: 400 })
+        }
+      }
       const existing = this.deps.registry.getAutopilot(path) ?? {}
       this.deps.registry.setAutopilot(path, { ...existing, enabled })
       this.refreshSessions()

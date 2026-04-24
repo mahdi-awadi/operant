@@ -11,6 +11,7 @@ import { getProfile } from '../profiles'
 import { loadProfilesForHub, saveProfilesForHub, saveSessions } from '../config'
 import type { VerificationRunner, VerificationResult } from '../verification'
 import type { VetoController } from '../veto-controller'
+import type { AutopilotRunner } from '../autopilot'
 
 // ── Pure helper functions ────────────────────────────────────────────────────
 
@@ -142,6 +143,7 @@ export type TelegramFrontendDeps = {
   taskMonitor: TaskMonitor | null
   verificationRunner: VerificationRunner
   vetoController?: VetoController
+  autopilotRunner?: AutopilotRunner
 }
 
 export class TelegramFrontend {
@@ -155,6 +157,7 @@ export class TelegramFrontend {
   private taskMonitor: TaskMonitor | null
   private verificationRunner: VerificationRunner
   private vetoController: VetoController | undefined
+  private autopilotRunner: AutopilotRunner | undefined
 
   // Per-user active session: telegram user id → session name
   private userActiveSessions = new Map<string, string>()
@@ -175,6 +178,7 @@ export class TelegramFrontend {
     this.taskMonitor = deps.taskMonitor
     this.verificationRunner = deps.verificationRunner
     this.vetoController = deps.vetoController
+    this.autopilotRunner = deps.autopilotRunner
 
     this.registerHandlers()
   }
@@ -486,6 +490,13 @@ export class TelegramFrontend {
       if (!path) {
         await ctx.reply(`Session not found: ${name}`)
         return
+      }
+      if (enabled && this.autopilotRunner) {
+        const probeResult = await this.autopilotRunner.probe(`hub-${name}`)
+        if (!probeResult.ok) {
+          await ctx.reply(`Autopilot unavailable on this Claude Code build: ${probeResult.reason}`)
+          return
+        }
       }
       this.registry.setAutopilot(path, {
         ...this.registry.getAutopilot(path),

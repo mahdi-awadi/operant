@@ -109,3 +109,48 @@ describe('AutopilotRunner.runBtw', () => {
     if (result.status === 'escalate') expect(result.reason).toContain('production')
   })
 })
+
+describe('AutopilotRunner.probe', () => {
+  test('probe returns ok when /btw answers "2"', async () => {
+    const pane = `
+❯ /btw 1+1
+  /btw 1+1
+    2
+  ↑/↓ to scroll · f to fork · Esc to dismiss
+`
+    const sm = new FakeScreenManager(['', pane])
+    const runner = new AutopilotRunner({ screenManager: sm as any, pollIntervalMs: 5, btwTimeoutMs: 500 })
+    const r = await runner.probe('hub-x')
+    expect(r.ok).toBe(true)
+  })
+
+  test('probe returns not-ok when /btw never settles', async () => {
+    const sm = new FakeScreenManager(['', '', '', ''])
+    const runner = new AutopilotRunner({ screenManager: sm as any, pollIntervalMs: 5 })
+    const r = await runner.probe('hub-x', 50)
+    expect(r.ok).toBe(false)
+  })
+
+  test('probe returns not-ok when answer does not contain "2"', async () => {
+    const pane = `
+❯ /btw 1+1
+  /btw 1+1
+    banana
+  ↑/↓ to scroll · f to fork · Esc to dismiss
+`
+    const sm = new FakeScreenManager(['', pane])
+    const runner = new AutopilotRunner({ screenManager: sm as any, pollIntervalMs: 5, btwTimeoutMs: 500 })
+    const r = await runner.probe('hub-x')
+    expect(r.ok).toBe(false)
+    expect(r.reason).toContain('banana')
+  })
+
+  test('probe respects the passed probeTimeoutMs', async () => {
+    const sm = new FakeScreenManager([])
+    const runner = new AutopilotRunner({ screenManager: sm as any, pollIntervalMs: 5 })
+    const start = Date.now()
+    await runner.probe('hub-x', 80)
+    const elapsed = Date.now() - start
+    expect(elapsed).toBeLessThan(300) // well under 15s
+  })
+})

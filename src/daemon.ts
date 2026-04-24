@@ -354,6 +354,7 @@ async function start(): Promise<void> {
     telegramAllowFrom: config.telegramAllowFrom,
     taskMonitor,
     vetoController,
+    autopilotRunner,
   })
   await webFrontend.start()
   process.stderr.write(`hub: web UI at http://localhost:${webFrontend.port}\n`)
@@ -379,6 +380,7 @@ async function start(): Promise<void> {
         taskMonitor,
         verificationRunner,
         vetoController,
+        autopilotRunner,
       })
       telegramFrontend.start().catch(err => {
         process.stderr.write(`hub: telegram failed to start: ${err}\n`)
