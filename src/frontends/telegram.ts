@@ -27,7 +27,8 @@ export function formatSessionList(sessions: SessionState[], activeSession: strin
           : '🔴'
     const trustLabel = s.trust === 'auto' ? ' [auto]' : ''
     const activeMarker = s.name === activeSession ? ' ← active' : ''
-    return `${icon} ${s.name}${trustLabel}${activeMarker}`
+    const autopilotBadge = s.autopilot?.enabled === true ? ' 🤖' : ''
+    return `${icon} ${s.name}${trustLabel}${activeMarker}${autopilotBadge}`
   })
 
   return lines.join('\n')
@@ -45,7 +46,8 @@ export function formatStatus(sessions: SessionState[]): string {
         : s.status === 'respawning'
           ? '🟡'
           : '🔴'
-    const parts = [`${icon} <b>${s.name}</b> (${s.status})`]
+    const autopilotBadge = s.autopilot?.enabled === true ? ' 🤖' : ''
+    const parts = [`${icon} <b>${s.name}</b>${autopilotBadge} (${s.status})`]
     parts.push(`  path: ${s.path}`)
     parts.push(`  trust: ${s.trust}`)
     if (s.prefix) parts.push(`  prefix: ${s.prefix}`)
@@ -464,6 +466,28 @@ export class TelegramFrontend {
       }
       this.registry.setTrust(path, level as TrustLevel)
       await ctx.reply(`✅ Set ${sessionName} trust to <code>${level}</code>`, { parse_mode: 'HTML' })
+    })
+
+    // /autopilot <name> on|off
+    bot.command('autopilot', async (ctx) => {
+      if (!this.isAllowed(ctx)) return
+      const args = ctx.match?.trim().split(/\s+/) ?? []
+      if (args.length < 2 || !args[0] || (args[1] !== 'on' && args[1] !== 'off')) {
+        await ctx.reply('Usage: /autopilot <name> on|off')
+        return
+      }
+      const name = args[0]
+      const enabled = args[1] === 'on'
+      const path = this.registry.findByName(name)
+      if (!path) {
+        await ctx.reply(`Session not found: ${name}`)
+        return
+      }
+      this.registry.setAutopilot(path, {
+        ...this.registry.getAutopilot(path),
+        enabled,
+      })
+      await ctx.reply(`🤖 Autopilot ${enabled ? 'ON' : 'OFF'} for ${name}`)
     })
 
     // /rules <session> [clear|<new rule text>]
@@ -971,6 +995,7 @@ export class TelegramFrontend {
       { command: 'facts',    description: 'Show/clear facts: <name> [clear]' },
       { command: 'channel',  description: 'Override channel instructions: <name> <reset|text>' },
       { command: 'verify',   description: 'Run verification commands: <session>' },
+      { command: 'autopilot', description: 'Toggle autopilot: <name> on|off' },
     ]
     try {
       // Wipe any stale commands across every scope, then set fresh.
