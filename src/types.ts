@@ -44,6 +44,7 @@ export type SessionConfig = {
   teamSize: number        // 0 = solo, N = team of N
   appliedProfile?: string           // name of profile used at spawn
   profileOverrides?: ProfileOverrides // deltas from the profile
+  autopilot?: Partial<AutopilotConfig>    // per-session settings (enabled, overrides of defaults)
 }
 
 export type SessionState = SessionConfig & {
@@ -61,6 +62,28 @@ export type HubConfig = {
   telegramAllowFrom: string[]
   defaultTrust: TrustLevel
   defaultUploadDir: string
+  autopilot?: Partial<AutopilotDefaults>   // optional overrides of DEFAULT_AUTOPILOT_DEFAULTS
+}
+
+export type AutopilotConfig = {
+  enabled: boolean
+  vetoWindowMs: number        // 0 = no veto, send immediately
+  btwTimeoutMs: number        // per-/btw timeout
+  maxDurationMinutes: number  // cap before asking user to continue
+  riskKeywords: string[]      // case-insensitive substring match on outgoing question
+  riskOverride?: boolean      // per-session: bypass risk filter (default false)
+}
+
+export type AutopilotDefaults = Omit<AutopilotConfig, 'enabled' | 'riskOverride'>
+
+export const DEFAULT_AUTOPILOT_DEFAULTS: AutopilotDefaults = {
+  vetoWindowMs: 30_000,
+  btwTimeoutMs: 30_000,
+  maxDurationMinutes: 60,
+  riskKeywords: [
+    'delete', 'force push', 'drop table', 'production', 'prod deploy',
+    'billing', 'credit card', 'api key', 'secret', 'revoke', 'uninstall',
+  ],
 }
 
 export type InboundMessage = {
