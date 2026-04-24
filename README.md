@@ -151,6 +151,7 @@ tmux new-session -d -s hub-daemon "bun run ~/.channelhub/src/daemon.ts"
 | `/rename <old> <new>` | Rename a session |
 | `/all <message>` | Broadcast to all sessions |
 | `/verify <name>` | Run the session's verification commands (tests, typecheck, lint) |
+| `/autopilot <name> [on\|off]` | Toggle proxy-answer autopilot mode |
 
 **Message routing:**
 - Plain text goes to your active session
@@ -231,6 +232,7 @@ HUB_URL=http://localhost:3000 bun run src/cli.ts <command>
 | `prefix <name> <text>` | Set command prefix |
 | `rename <old> <new>` | Rename session |
 | `upload <name> <file>` | Upload file to project |
+| `autopilot <name> on` | Enable autopilot mode |
 
 ## Security Model
 
@@ -262,10 +264,29 @@ Configure your bot's domain in @BotFather (`/setdomain`) so the Telegram Login W
 - [Claude Code](https://claude.ai/code) with claude.ai login
 - A Telegram bot token (optional, for Telegram frontend)
 
+## Autopilot Mode
+
+Enable unattended question-answering in a session:
+
+```bash
+# Telegram
+/autopilot myproject on
+
+# Web UI
+Click the "Autopilot" toggle in the session row
+
+# CLI
+bun run src/cli.ts autopilot myproject on
+```
+
+When autopilot is on, the daemon fires `/btw` inside the session on every user-facing question (from Telegram, Web, or CLI). The proxy answers using the session's conversation context plus preferences in `autopilot.md`. See `skills/autopilot/SKILL.md` for setup details.
+
+Risk gates: answers containing risk keywords (`delete`, `force push`, `production`, etc.) or marked with `ESCALATE:` are escalated to you on Telegram/Web. Default veto window is 30 seconds — you can review the draft answer and Send, Edit, or Cancel before it's auto-sent.
+
 ## Development
 
 ```bash
-bun test              # 65 tests
+bun test              # 337 tests
 bun run src/daemon.ts # start daemon
 bun run src/cli.ts    # CLI tool
 ```

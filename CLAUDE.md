@@ -102,6 +102,7 @@ Commands:
 - `/rename <old> <new>` — rename session
 - `/all <message>` — broadcast to all sessions
 - `/verify <name>` — run the session's verification commands
+- `/autopilot <name> [on|off]` — toggle proxy-answer autopilot mode
 - Send photo/document — uploaded to active session's project folder
 
 Message routing:
@@ -113,7 +114,7 @@ Message routing:
 ```bash
 HUB_URL=http://localhost:<webPort> bun run src/cli.ts <command>
 ```
-Commands: `list`, `status`, `spawn`, `kill`, `send`, `trust`, `prefix`, `rename`, `upload`
+Commands: `list`, `status`, `spawn`, `kill`, `send`, `trust`, `prefix`, `rename`, `upload`, `autopilot`
 
 ## Configuration
 
@@ -189,12 +190,16 @@ src/
   screen-manager.ts      # Spawn/kill/respawn sessions in tmux
   task-monitor.ts        # Watch ~/.claude/tasks/ for agent team tasks
   verification.ts        # Subprocess-based verification runner + package.json probe
+  autopilot.ts           # Autopilot mode controller (watches reply tool calls, fires /btw)
+  autopilot-parser.ts    # Parse Ink overlay output and extract proxy answer
+  autopilot-risk.ts      # Risk keyword filter and escalation detection
+  veto-controller.ts     # Optional veto window for review-before-send
   frontends/
     telegram.ts          # Grammy bot with commands + photo/document upload
     web.ts               # Bun HTTP + WebSocket server + Telegram login
     web-client.html      # Single-file PWA (dark theme, chat UI)
 tests/
-  *.test.ts              # 65 tests
+  *.test.ts              # 337 tests
 ```
 
 ## Key Design Decisions
@@ -209,11 +214,12 @@ tests/
 - **Prompt tags** appended as `[Instructions: ...]` to messages.
 - **Spawn auto-confirms** dev channels warning via `tmux send-keys Enter` (only needed until plugin is approved).
 - **Verification runner** — `src/verification.ts` spawns `bash -c "<cmd>"` per profile-defined command with a 120s timeout, CWD set to the session's project path, `CI=true` in env. Single concurrent run per session; silent on success; 20-line tail on failure.
+- **Autopilot mode** — per-session opt-in. Daemon watches outgoing `reply` tool calls; if autopilot is on, fires `/btw <wrapped-question>` via `tmux send-keys`, captures the answer from the Ink overlay, and injects it back into the same session via `notifications/claude/channel`. Risk-keyword filter + `ESCALATE:` token drop-through to the user on Telegram/Web. Optional veto window shows draft to user with Send/Edit/Cancel buttons before auto-sending.
 
 ## Development
 
 ```bash
-bun test              # Run all 65 tests
+bun test              # Run all 337 tests
 bun run src/daemon.ts # Start daemon (use tmux in production)
 bun run src/shim.ts   # Shim (launched by Claude, not manually)
 bun run src/cli.ts    # CLI tool
