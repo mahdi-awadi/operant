@@ -491,17 +491,33 @@ export class TelegramFrontend {
         await ctx.reply(`Session not found: ${name}`)
         return
       }
-      if (enabled && this.autopilotRunner) {
-        const probeResult = await this.autopilotRunner.probe(`hub-${name}`)
-        if (!probeResult.ok) {
-          await ctx.reply(`Autopilot unavailable on this Claude Code build: ${probeResult.reason}`)
-          return
+      if (enabled) {
+        if (this.autopilotRunner) {
+          const probeResult = await this.autopilotRunner.probe(`hub-${name}`)
+          if (!probeResult.ok) {
+            await ctx.reply(`Autopilot unavailable on this Claude Code build: ${probeResult.reason}`)
+            return
+          }
         }
+        const current = this.registry.get(path)
+        const prior = current?.trust
+        this.registry.setTrust(path, 'auto')
+        this.registry.setAutopilot(path, {
+          ...this.registry.getAutopilot(path),
+          enabled: true,
+          priorTrust: prior,
+          startedAt: Date.now(),
+        })
+      } else {
+        const ap = this.registry.getAutopilot(path)
+        if (ap?.priorTrust) this.registry.setTrust(path, ap.priorTrust)
+        this.registry.setAutopilot(path, {
+          ...ap,
+          enabled: false,
+          priorTrust: undefined,
+          startedAt: undefined,
+        })
       }
-      this.registry.setAutopilot(path, {
-        ...this.registry.getAutopilot(path),
-        enabled,
-      })
       await ctx.reply(`🤖 Autopilot ${enabled ? 'ON' : 'OFF'} for ${name}`)
     })
 

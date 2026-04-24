@@ -250,6 +250,19 @@ socketServer.on('tool_call', (path: string, name: string, args: Record<string, u
     // via /btw instead of waiting for a human.
     const ap = registry.getAutopilot(path)
     if (ap?.enabled) {
+      // Duration cap: if autopilot has run longer than maxDurationMinutes, escalate
+      // and turn it off instead of firing /btw.
+      if (ap.startedAt) {
+        const maxMin = ap.maxDurationMinutes ?? autopilotDefaults.maxDurationMinutes
+        if (Date.now() - ap.startedAt > maxMin * 60_000) {
+          const prompt = `Autopilot has been running on "${session.name}" for ${maxMin}+ min. Reply "/autopilot ${session.name} on" to extend, or just answer the question directly to take over.`
+          telegramFrontend?.deliverToUser(session.name, `🟡 ${prompt}`)
+          webFrontend?.deliverToUser(session.name, `🟡 ${prompt}`)
+          if (ap.priorTrust) registry.setTrust(path, ap.priorTrust)
+          registry.setAutopilot(path, { ...ap, enabled: false, priorTrust: undefined, startedAt: undefined })
+          return
+        }
+      }
       const sessionName = session.name
       const tmuxName = `hub-${sessionName}`
       const prefs = loadProjectPreferences(registry.folderPath(path))

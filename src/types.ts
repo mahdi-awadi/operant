@@ -41,6 +41,8 @@ export type AutopilotConfig = {
   maxDurationMinutes: number  // cap before asking user to continue
   riskKeywords: string[]      // case-insensitive substring match on outgoing question
   riskOverride?: boolean      // per-session: bypass risk filter (default false)
+  priorTrust?: TrustLevel     // captured on enable, used on disable to restore
+  startedAt?: number          // epoch ms when autopilot was toggled on; used for duration cap
 }
 
 export type AutopilotDefaults = Omit<AutopilotConfig, 'enabled' | 'riskOverride'>

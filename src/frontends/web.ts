@@ -691,14 +691,33 @@ export class WebFrontend {
       const { name, enabled } = (await req.json()) as { name: string; enabled: boolean }
       const path = this.deps.registry.findByName(name)
       if (!path) return new Response(`Session not found: ${name}`, { status: 404 })
-      if (enabled && this.deps.autopilotRunner) {
-        const probeResult = await this.deps.autopilotRunner.probe(`hub-${name}`)
-        if (!probeResult.ok) {
-          return Response.json({ ok: false, reason: probeResult.reason }, { status: 400 })
+      if (enabled) {
+        if (this.deps.autopilotRunner) {
+          const probeResult = await this.deps.autopilotRunner.probe(`hub-${name}`)
+          if (!probeResult.ok) {
+            return Response.json({ ok: false, reason: probeResult.reason }, { status: 400 })
+          }
         }
+        const current = this.deps.registry.get(path)
+        const prior = current?.trust
+        this.deps.registry.setTrust(path, 'auto')
+        const existing = this.deps.registry.getAutopilot(path) ?? {}
+        this.deps.registry.setAutopilot(path, {
+          ...existing,
+          enabled: true,
+          priorTrust: prior,
+          startedAt: Date.now(),
+        })
+      } else {
+        const ap = this.deps.registry.getAutopilot(path)
+        if (ap?.priorTrust) this.deps.registry.setTrust(path, ap.priorTrust)
+        this.deps.registry.setAutopilot(path, {
+          ...ap,
+          enabled: false,
+          priorTrust: undefined,
+          startedAt: undefined,
+        })
       }
-      const existing = this.deps.registry.getAutopilot(path) ?? {}
-      this.deps.registry.setAutopilot(path, { ...existing, enabled })
       this.refreshSessions()
       return Response.json({ ok: true })
     } catch (err) {

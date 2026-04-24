@@ -281,4 +281,18 @@ describe('SessionRegistry', () => {
     reg.setAutopilot('/p:0', undefined)
     expect(reg.getAutopilot('/p:0')).toBeUndefined()
   })
+
+  test('setAutopilot + setTrust interplay: turning off restores prior trust', () => {
+    const reg = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
+    reg.register('/p:0')
+    expect(reg.get('/p:0')?.trust).toBe('ask')
+    const prior = reg.get('/p:0')?.trust
+    reg.setTrust('/p:0', 'auto')
+    reg.setAutopilot('/p:0', { enabled: true, priorTrust: prior })
+    expect(reg.get('/p:0')?.trust).toBe('auto')
+    const ap = reg.getAutopilot('/p:0')
+    reg.setAutopilot('/p:0', { ...ap, enabled: false })
+    if (ap?.priorTrust) reg.setTrust('/p:0', ap.priorTrust)
+    expect(reg.get('/p:0')?.trust).toBe('ask')
+  })
 })
