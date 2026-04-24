@@ -308,10 +308,14 @@ export class ScreenManager {
   }
 
   async sendKeysRaw(sessionName: string, text: string, withEnter: boolean): Promise<void> {
-    if (withEnter) {
-      await $`tmux send-keys -t ${sessionName} ${text} Enter`.quiet()
-    } else {
-      await $`tmux send-keys -t ${sessionName} ${text}`.quiet()
+    try {
+      if (withEnter) {
+        await $`tmux send-keys -t ${sessionName} ${text} Enter`.quiet()
+      } else {
+        await $`tmux send-keys -t ${sessionName} ${text}`.quiet()
+      }
+    } catch (err) {
+      process.stderr.write(`hub: sendKeysRaw failed for ${sessionName}: ${err}\n`)
     }
   }
 

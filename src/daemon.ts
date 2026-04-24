@@ -260,6 +260,7 @@ socketServer.on('tool_call', (path: string, name: string, args: Record<string, u
           webFrontend?.deliverToUser(session.name, `🟡 ${prompt}`)
           if (ap.priorTrust) registry.setTrust(path, ap.priorTrust)
           registry.setAutopilot(path, { ...ap, enabled: false, priorTrust: undefined, startedAt: undefined })
+          saveSessions(registry.toSaveFormat())
           return
         }
       }

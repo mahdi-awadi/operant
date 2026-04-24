@@ -693,21 +693,24 @@ export class WebFrontend {
       if (!path) return new Response(`Session not found: ${name}`, { status: 404 })
       if (enabled) {
         if (this.deps.autopilotRunner) {
-          const probeResult = await this.deps.autopilotRunner.probe(`hub-${name}`)
+          const probeResult = await this.deps.autopilotRunner.probe(`hub-${name}`, 5_000)
           if (!probeResult.ok) {
             return Response.json({ ok: false, reason: probeResult.reason }, { status: 400 })
           }
         }
+        const existing = this.deps.registry.getAutopilot(path)
         const current = this.deps.registry.get(path)
         const prior = current?.trust
+        // Preserve the original priorTrust if this is a re-enable while already on.
+        const priorTrust = existing?.priorTrust ?? prior
         this.deps.registry.setTrust(path, 'auto')
-        const existing = this.deps.registry.getAutopilot(path) ?? {}
         this.deps.registry.setAutopilot(path, {
           ...existing,
           enabled: true,
-          priorTrust: prior,
-          startedAt: Date.now(),
+          priorTrust,
+          startedAt: existing?.startedAt ?? Date.now(),
         })
+        saveSessions(this.deps.registry.toSaveFormat())
       } else {
         const ap = this.deps.registry.getAutopilot(path)
         if (ap?.priorTrust) this.deps.registry.setTrust(path, ap.priorTrust)
@@ -717,6 +720,7 @@ export class WebFrontend {
           priorTrust: undefined,
           startedAt: undefined,
         })
+        saveSessions(this.deps.registry.toSaveFormat())
       }
       this.refreshSessions()
       return Response.json({ ok: true })

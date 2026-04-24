@@ -493,21 +493,25 @@ export class TelegramFrontend {
       }
       if (enabled) {
         if (this.autopilotRunner) {
-          const probeResult = await this.autopilotRunner.probe(`hub-${name}`)
+          const probeResult = await this.autopilotRunner.probe(`hub-${name}`, 5_000)
           if (!probeResult.ok) {
             await ctx.reply(`Autopilot unavailable on this Claude Code build: ${probeResult.reason}`)
             return
           }
         }
+        const existing = this.registry.getAutopilot(path)
         const current = this.registry.get(path)
         const prior = current?.trust
+        // Preserve the original priorTrust if this is a re-enable while already on.
+        const priorTrust = existing?.priorTrust ?? prior
         this.registry.setTrust(path, 'auto')
         this.registry.setAutopilot(path, {
-          ...this.registry.getAutopilot(path),
+          ...existing,
           enabled: true,
-          priorTrust: prior,
-          startedAt: Date.now(),
+          priorTrust,
+          startedAt: existing?.startedAt ?? Date.now(),
         })
+        saveSessions(this.registry.toSaveFormat())
       } else {
         const ap = this.registry.getAutopilot(path)
         if (ap?.priorTrust) this.registry.setTrust(path, ap.priorTrust)
@@ -517,6 +521,7 @@ export class TelegramFrontend {
           priorTrust: undefined,
           startedAt: undefined,
         })
+        saveSessions(this.registry.toSaveFormat())
       }
       await ctx.reply(`🤖 Autopilot ${enabled ? 'ON' : 'OFF'} for ${name}`)
     })

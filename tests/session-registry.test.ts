@@ -295,4 +295,33 @@ describe('SessionRegistry', () => {
     if (ap?.priorTrust) reg.setTrust('/p:0', ap.priorTrust)
     expect(reg.get('/p:0')?.trust).toBe('ask')
   })
+
+  test('double-enable preserves original priorTrust across re-enable', () => {
+    const reg = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
+    reg.register('/p:0')
+    // Simulate enable: snapshot prior ('ask'), bump to 'auto'
+    let existing = reg.getAutopilot('/p:0')
+    let current = reg.get('/p:0')
+    let prior = current?.trust
+    let priorTrust = existing?.priorTrust ?? prior
+    reg.setTrust('/p:0', 'auto')
+    reg.setAutopilot('/p:0', { ...existing, enabled: true, priorTrust, startedAt: Date.now() })
+    expect(reg.get('/p:0')?.trust).toBe('auto')
+    expect(reg.getAutopilot('/p:0')?.priorTrust).toBe('ask')
+
+    // Re-enable while already on — original priorTrust must be preserved, NOT overwritten with 'auto'
+    existing = reg.getAutopilot('/p:0')
+    current = reg.get('/p:0')          // current.trust is now 'auto'
+    prior = current?.trust              // 'auto'
+    priorTrust = existing?.priorTrust ?? prior  // must resolve to 'ask', not 'auto'
+    reg.setTrust('/p:0', 'auto')
+    reg.setAutopilot('/p:0', { ...existing, enabled: true, priorTrust })
+    expect(reg.getAutopilot('/p:0')?.priorTrust).toBe('ask')  // <-- critical assertion
+
+    // Disable — should restore to 'ask', not 'auto'
+    const finalAp = reg.getAutopilot('/p:0')
+    if (finalAp?.priorTrust) reg.setTrust('/p:0', finalAp.priorTrust)
+    reg.setAutopilot('/p:0', { ...finalAp, enabled: false, priorTrust: undefined, startedAt: undefined })
+    expect(reg.get('/p:0')?.trust).toBe('ask')
+  })
 })
