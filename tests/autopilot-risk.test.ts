@@ -34,7 +34,39 @@ describe('wrapQuestion', () => {
   })
   test('omits preferences block when empty', () => {
     const wrapped = wrapQuestion('pick one', '')
-    expect(wrapped).not.toContain('autopilot.md')
+    // The prefs *block heading* must not appear; passing mentions of
+    // autopilot.md inside the constraint copy are fine.
+    expect(wrapped).not.toContain('User preferences from autopilot.md:')
+  })
+
+  test('instructs the proxy to reply in English only', () => {
+    const wrapped = wrapQuestion('pick one', '')
+    expect(wrapped).toMatch(/english only/i)
+  })
+
+  test('instructs the proxy to avoid emojis', () => {
+    const wrapped = wrapQuestion('pick one', '')
+    expect(wrapped.toLowerCase()).toMatch(/emoji|pictographic/)
+  })
+
+  test('instructs the proxy to be descriptive (not terse)', () => {
+    const wrapped = wrapQuestion('pick one', '')
+    expect(wrapped.toLowerCase()).toMatch(/descriptive|reasoning|rationale/)
+  })
+
+  test('instructs the proxy to follow best-practice / industry standards', () => {
+    const wrapped = wrapQuestion('pick one', '')
+    expect(wrapped.toLowerCase()).toMatch(/best.practice|industry.standard|canonical|convention/)
+  })
+
+  test('instructs the proxy to always try to improve', () => {
+    const wrapped = wrapQuestion('pick one', '')
+    expect(wrapped.toLowerCase()).toMatch(/improve|maintainability/)
+  })
+
+  test('instructs the proxy never to pick the laziest option', () => {
+    const wrapped = wrapQuestion('pick one', '')
+    expect(wrapped.toLowerCase()).toMatch(/laz|cheapest|good enough/)
   })
 })
 
