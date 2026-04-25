@@ -602,14 +602,22 @@ export class WebFrontend {
   private async handleKill(req: Request): Promise<Response> {
     try {
       const { name } = (await req.json()) as { name: string }
-      if (this.deps.screenManager?.isManaged(name)) {
-        await this.deps.screenManager.gracefulKill(name)
-      } else {
-        // Unmanaged session (Claude started outside hub) — disconnect socket and drop from registry.
+      const isManaged = this.deps.screenManager?.isManaged(name) ?? false
+
+      // Either path: send Ctrl-C + `/exit` to the tmux session so Claude
+      // actually exits. The new gracefulKill handles the unmanaged case
+      // (assumes tmux is `hub-<name>`) so the user's "Close session" click
+      // really does close it, not just unhook the daemon socket.
+      await this.deps.screenManager?.gracefulKill(name)
+
+      // For unmanaged sessions, also drop from the registry — the user clearly
+      // wants this gone and there is no respawn machinery to bring it back.
+      if (!isManaged) {
         const path = this.deps.registry.findByName(name)
-        if (!path) return new Response(`Session not found: ${name}`, { status: 404 })
-        this.deps.socketServer?.disconnectSession(path)
-        this.deps.registry.unregister(path)
+        if (path) {
+          this.deps.socketServer?.disconnectSession(path)
+          this.deps.registry.unregister(path)
+        }
       }
       this.refreshSessions()
       return Response.json({ ok: true })

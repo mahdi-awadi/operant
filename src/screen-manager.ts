@@ -49,8 +49,9 @@ export function buildClaudeCmd(opts: { team: boolean; resume?: ResumeSpec }): st
 // Team-mode command is referenced by spawnTeam / addTeammate; keep as a constant.
 const CLAUDE_TEAM_CMD = buildClaudeCmd({ team: true })
 const CONFIRM_DELAY = 1500
-const CONFIRM_RETRIES = 5
+const CONFIRM_RETRIES = 20            // ~20s window for the warning to render under load
 const CONFIRM_INTERVAL = 1000
+const CONFIRM_VERIFY_RETRIES = 5      // re-poll up to 5 times after Enter to verify dismissal
 const GRACEFUL_CANCEL_DELAY = 300      // ms between Ctrl+C and /exit
 const GRACEFUL_POLL_INTERVAL = 250     // ms between has-session polls
 const GRACEFUL_TIMEOUT = 3000          // ms total wait before hard kill
@@ -89,8 +90,21 @@ export class ScreenManager {
         const pane = await $`tmux capture-pane -t ${sessionName} -p`.quiet().text()
         if (pane.includes('Enter to confirm')) {
           await $`tmux send-keys -t ${sessionName} Enter`.quiet()
+          // Verify the warning actually went away. Under load the first Enter
+          // can hit before the prompt is interactive — re-poll and re-press.
+          let dismissed = false
+          for (let j = 0; j < CONFIRM_VERIFY_RETRIES; j++) {
+            await new Promise(r => setTimeout(r, 400))
+            const after = await $`tmux capture-pane -t ${sessionName} -p`.quiet().text()
+            if (!after.includes('Enter to confirm')) { dismissed = true; break }
+            // Still stuck — try Enter again
+            await $`tmux send-keys -t ${sessionName} Enter`.quiet()
+          }
+          if (!dismissed) {
+            process.stderr.write(`hub: auto-confirm pressed Enter but warning still visible for ${sessionName} — continuing to retry outer loop\n`)
+            continue   // back to outer loop; maybe the prompt re-renders
+          }
           process.stderr.write(`hub: auto-confirmed dev warning for ${sessionName}\n`)
-          // Wait for Claude to fully start, then send initial prompt if provided
           if (initialPrompt) {
             await this.waitForReady(sessionName)
             await this.sendPrompt(sessionName, initialPrompt)
@@ -155,45 +169,45 @@ export class ScreenManager {
 
   async gracefulKill(name: string): Promise<void> {
     const entry = this.managed.get(name)
-    if (!entry) return
-
-    // Stop respawn first so the monitor doesn't restart the session while we're tearing it down.
-    entry.respawnEnabled = false
-    const timer = this.respawnTimers.get(name)
-    if (timer) {
-      clearTimeout(timer)
-      this.respawnTimers.delete(name)
+    if (entry) {
+      // Stop respawn first so the monitor doesn't restart the session while we're tearing it down.
+      entry.respawnEnabled = false
+      const timer = this.respawnTimers.get(name)
+      if (timer) {
+        clearTimeout(timer)
+        this.respawnTimers.delete(name)
+      }
+      await this.gracefulExitTmux(entry.sessionName)
+      this.managed.delete(name)
+    } else {
+      // Unmanaged session — best effort: assume tmux is `hub-${name}`, which is
+      // the only shape the shim accepts (see shim.getHubTmuxSession). Send the
+      // exit sequence so Claude actually exits instead of just being orphaned.
+      await this.gracefulExitTmux(`hub-${name}`)
     }
+  }
 
-    const sessionName = entry.sessionName
+  // Sends C-c + `/exit` to the tmux pane, polls for the session to disappear,
+  // then hard-kills as a fallback. Idempotent — safe to call on a session that
+  // has already exited.
+  async gracefulExitTmux(tmuxSessionName: string): Promise<void> {
+    if (!(await this.isSessionRunning(tmuxSessionName))) return
 
-    // 1. Cancel any in-progress tool call so Claude is at a clean prompt.
-    try { await $`tmux send-keys -t ${sessionName} C-c`.quiet() } catch {}
+    try { await $`tmux send-keys -t ${tmuxSessionName} C-c`.quiet() } catch {}
     await new Promise(r => setTimeout(r, GRACEFUL_CANCEL_DELAY))
 
-    // 2. Ask Claude to exit. Since Claude is the tmux window's only process,
-    //    its exit causes tmux to close the window and the session disappears.
-    try { await $`tmux send-keys -t ${sessionName} /exit Enter`.quiet() } catch {}
+    try { await $`tmux send-keys -t ${tmuxSessionName} /exit Enter`.quiet() } catch {}
 
-    // 3. Poll for the session to disappear on its own, up to GRACEFUL_TIMEOUT.
     const deadline = Date.now() + GRACEFUL_TIMEOUT
     while (Date.now() < deadline) {
-      if (!(await this.isSessionRunning(sessionName))) {
-        this.managed.delete(name)
-        return
-      }
+      if (!(await this.isSessionRunning(tmuxSessionName))) return
       await new Promise(r => setTimeout(r, GRACEFUL_POLL_INTERVAL))
     }
 
-    // Final check after the poll window closes, in case the session died during the last sleep.
-    if (!(await this.isSessionRunning(sessionName))) {
-      this.managed.delete(name)
-      return
-    }
+    if (!(await this.isSessionRunning(tmuxSessionName))) return
 
-    // 4. Fallback: Claude didn't respond in time, hard-kill tmux.
-    try { await $`tmux kill-session -t ${sessionName}`.quiet() } catch {}
-    this.managed.delete(name)
+    // Fallback: Claude didn't respond in time — hard-kill tmux.
+    try { await $`tmux kill-session -t ${tmuxSessionName}`.quiet() } catch {}
   }
 
   async killAll(): Promise<void> {
