@@ -118,7 +118,7 @@ export type PermissionResponse = {
 // Wire protocol between shim and daemon over Unix socket.
 // Each message is a newline-delimited JSON object.
 export type ShimToDaemon =
-  | { type: 'register'; cwd: string }
+  | { type: 'register'; cwd: string; tmuxName?: string }
   | { type: 'tool_call'; name: string; arguments: Record<string, unknown> }
   | { type: 'permission_request'; requestId: string; toolName: string; description: string; inputPreview: string; toolArgs?: Record<string, unknown> }
 

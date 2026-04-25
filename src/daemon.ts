@@ -332,6 +332,43 @@ socketServer.on('tool_call', (path: string, name: string, args: Record<string, u
       name: 'edit_message',
       result: 'edited',
     })
+  } else if (name === 'send_to_session') {
+    // Cross-session routing — Claude in one session sends a message directly
+    // to another session via the daemon, without the user having to relay.
+    const targetName = String(args.name ?? '')
+    const text = String(args.text ?? '')
+    let result: { ok: boolean; reason?: string } = { ok: false }
+    if (!targetName || !text) {
+      result = { ok: false, reason: 'name and text are required' }
+    } else {
+      const targetPath = registry.findByName(targetName)
+      if (!targetPath) {
+        result = { ok: false, reason: `Session not found: ${targetName}` }
+      } else if (targetPath === path) {
+        result = { ok: false, reason: 'Cannot send to self' }
+      } else {
+        const target = registry.get(targetPath)
+        if (!target || target.status !== 'active') {
+          result = { ok: false, reason: `Session ${targetName} is not active` }
+        } else {
+          // Route via the existing message router so prefix/profile injection
+          // and per-frontend rendering apply uniformly.
+          router.routeToSession(targetName, text, 'cli', `session-${session.name}`)
+          result = { ok: true }
+          // Surface the cross-session relay to the user too, so it's visible
+          // in their dashboard and not silently moving between Claudes.
+          const note = `↪ ${session.name} → ${targetName}: ${text}`
+          telegramFrontend?.deliverToUser(session.name, note)
+          webFrontend?.deliverToUser(session.name, note)
+        }
+      }
+    }
+    socketServer.sendToSession(path, {
+      type: 'tool_result',
+      name: 'send_to_session',
+      result,
+      isError: !result.ok,
+    })
   }
 })
 

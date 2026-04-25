@@ -174,6 +174,19 @@ function main() {
           required: ['message_id', 'text'],
         },
       },
+      {
+        name: 'send_to_session',
+        description:
+          'Send a message to ANOTHER channelhub session in the registry. Use this to delegate work to a teammate (peer hub session in the same or different folder) WITHOUT going through the user. The recipient is identified by its display name (the same name shown in /list). Returns ok=true if the recipient was found and active, or ok=false with a reason otherwise.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'Recipient session name (must match registry exactly).' },
+            text: { type: 'string', description: 'Message body to deliver. Will appear to the recipient as a channel message from this session.' },
+          },
+          required: ['name', 'text'],
+        },
+      },
     ],
   }))
 
@@ -294,7 +307,8 @@ function main() {
     sock.on('connect', () => {
       reconnectAttempt = 0
       process.stderr.write('hub shim: connected to daemon, registering…\n')
-      sendToDaemon({ type: 'register', cwd })
+      // hubSession is non-null here — we returned early above when it was null
+      sendToDaemon({ type: 'register', cwd, tmuxName: hubSession ?? undefined })
     })
 
     sock.on('data', (chunk) => {
