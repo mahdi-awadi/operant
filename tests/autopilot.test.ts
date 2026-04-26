@@ -155,4 +155,38 @@ describe('AutopilotRunner.probe', () => {
     const elapsed = Date.now() - start
     expect(elapsed).toBeLessThan(300) // well under 15s
   })
+
+  test('probe sends /btw 1+1 text first, then a separate Enter (paste-detection parity)', async () => {
+    const pane = `
+❯ /btw 1+1
+  /btw 1+1
+    2
+  ↑/↓ to scroll · f to fork · Esc to dismiss
+`
+    const sm = new FakeScreenManager(['', pane])
+    const runner = new AutopilotRunner({ screenManager: sm as any, pollIntervalMs: 5, btwTimeoutMs: 500 })
+    const r = await runner.probe('hub-x', 500)
+    expect(r.ok).toBe(true)
+    expect(sm.sentKeys[0]?.text).toBe('/btw 1+1')
+    expect(sm.sentKeys[0]?.withEnter).toBe(false)
+    expect(sm.sentKeys[1]?.text).toBe('')
+    expect(sm.sentKeys[1]?.withEnter).toBe(true)
+  })
+
+  test('probe timeout error mentions the actual configured timeout, not a hardcoded value', async () => {
+    const sm = new FakeScreenManager([])
+    const runner = new AutopilotRunner({ screenManager: sm as any, pollIntervalMs: 5 })
+    const r = await runner.probe('hub-x', 2_000)
+    expect(r.ok).toBe(false)
+    expect(r.reason).toContain('2s')
+    expect(r.reason).not.toContain('15s')
+  })
+
+  test('probe error reasons no longer mention "feature flag may be off"', async () => {
+    const sm = new FakeScreenManager([])
+    const runner = new AutopilotRunner({ screenManager: sm as any, pollIntervalMs: 5 })
+    const r = await runner.probe('hub-x', 50)
+    expect(r.ok).toBe(false)
+    expect(r.reason ?? '').not.toMatch(/feature flag may be off/i)
+  })
 })

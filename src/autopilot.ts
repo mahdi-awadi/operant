@@ -81,8 +81,12 @@ export class AutopilotRunner {
     return { status: 'answered', answer: parsed.answer }
   }
 
-  async probe(sessionName: string, probeTimeoutMs: number = 15_000): Promise<{ ok: boolean; reason?: string }> {
-    await this.sm.sendKeysRaw(sessionName, '/btw 1+1', true)
+  async probe(sessionName: string, probeTimeoutMs: number = 20_000): Promise<{ ok: boolean; reason?: string }> {
+    // Mirror runBtw: send the text first (no Enter), wait, then send Enter as a
+    // separate keystroke so Claude Code's paste-detection cannot capture it.
+    await this.sm.sendKeysRaw(sessionName, '/btw 1+1', false)
+    await new Promise(r => setTimeout(r, 150))
+    await this.sm.sendKeysRaw(sessionName, '', true)
     const deadline = Date.now() + probeTimeoutMs
     let pane = ''
     while (Date.now() < deadline) {
@@ -91,9 +95,10 @@ export class AutopilotRunner {
       if (p && isOverlaySettled(p)) { pane = p; break }
     }
     await this.sm.sendEscape(sessionName)
-    if (!pane) return { ok: false, reason: '/btw did not respond within 15s — feature flag may be off' }
+    const secs = Math.max(1, Math.ceil(probeTimeoutMs / 1000))
+    if (!pane) return { ok: false, reason: `/btw did not respond within ${secs}s — session may be busy or stuck on a permission prompt` }
     const parsed = parseBtwAnswer(pane)
-    if (parsed.status !== 'ok') return { ok: false, reason: '/btw overlay did not parse — feature flag may be off' }
+    if (parsed.status !== 'ok') return { ok: false, reason: '/btw overlay did not parse' }
     if (!/\b2\b/.test(parsed.answer)) return { ok: false, reason: `/btw returned unexpected answer: ${parsed.answer}` }
     return { ok: true }
   }

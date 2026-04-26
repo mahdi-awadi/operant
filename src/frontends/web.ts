@@ -726,7 +726,7 @@ export class WebFrontend {
         if (this.deps.autopilotRunner) {
           const managed = this.deps.screenManager?.getManagedByPath(this.deps.registry.folderPath(path))
           const tmuxName = managed?.sessionName ?? `hub-${name}`
-          const probeResult = await this.deps.autopilotRunner.probe(tmuxName, 5_000)
+          const probeResult = await this.deps.autopilotRunner.probe(tmuxName, 20_000)
           if (!probeResult.ok) {
             return Response.json({ ok: false, reason: probeResult.reason }, { status: 400 })
           }

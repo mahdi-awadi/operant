@@ -497,9 +497,9 @@ export class TelegramFrontend {
         if (this.autopilotRunner) {
           const managed = this.screenManager?.getManagedByPath(this.registry.folderPath(path))
           const tmuxName = managed?.sessionName ?? `hub-${name}`
-          const probeResult = await this.autopilotRunner.probe(tmuxName, 5_000)
+          const probeResult = await this.autopilotRunner.probe(tmuxName, 20_000)
           if (!probeResult.ok) {
-            await ctx.reply(`Autopilot unavailable on this Claude Code build: ${probeResult.reason}`)
+            await ctx.reply(`Autopilot probe failed: ${probeResult.reason}`)
             return
           }
         }

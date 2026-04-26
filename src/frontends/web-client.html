@@ -653,6 +653,17 @@
     /* Autopilot badge — shown next to session name when enabled */
     .ap-badge { font-size: 13px; flex-shrink: 0; }
 
+    /* Autopilot toggle pending — shown while /api/autopilot is in flight (probe runs up to 20s) */
+    .ap-spinner {
+      width: 12px; height: 12px;
+      border: 2px solid var(--border);
+      border-top-color: #4acfcf;
+      border-radius: 50%;
+      flex-shrink: 0;
+      animation: ap-spin 0.7s linear infinite;
+    }
+    @keyframes ap-spin { to { transform: rotate(360deg); } }
+
     /* Autopilot veto card */
     #autopilot-veto-card {
       position: sticky;
@@ -924,6 +935,7 @@
     let messagesBySession = {}
     let unreadBySession = {}
     let currentTasks = {} // folder path → AgentTask[]
+    let pendingAutopilot = new Set() // session names with an in-flight /api/autopilot toggle
 
     // Escape HTML for XSS prevention
     function escapeHtml(text) {
@@ -1206,7 +1218,12 @@
           item.appendChild(dot)
           item.appendChild(name)
 
-          if (s.autopilot?.enabled) {
+          if (pendingAutopilot.has(s.name)) {
+            const spinner = document.createElement('div')
+            spinner.className = 'ap-spinner'
+            spinner.title = 'Toggling autopilot…'
+            item.appendChild(spinner)
+          } else if (s.autopilot?.enabled) {
             const apBadge = document.createElement('span')
             apBadge.className = 'ap-badge'
             apBadge.title = 'Autopilot on'
@@ -1305,14 +1322,27 @@
       apItem.className = 'kebab-item'
       apItem.innerHTML = `<span>🤖</span><span>${apEnabled ? 'Autopilot — ON (click to turn off)' : 'Autopilot — OFF (click to turn on)'}</span>`
       apItem.onclick = async () => {
+        closeSessionMenu()
+        pendingAutopilot.add(s.name)
+        renderSidebar()
         try {
-          await fetch('/api/autopilot', {
+          const res = await fetch('/api/autopilot', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: s.name, enabled: !apEnabled }),
           })
-          closeSessionMenu()
-        } catch (err) { console.error('Autopilot toggle failed', err) }
+          if (!res.ok) {
+            let reason = 'Autopilot toggle failed'
+            try { const body = await res.json(); if (body?.reason) reason = body.reason } catch {}
+            alert(`${s.name}: ${reason}`)
+          }
+        } catch (err) {
+          console.error('Autopilot toggle failed', err)
+          alert(`${s.name}: ${err}`)
+        } finally {
+          pendingAutopilot.delete(s.name)
+          renderSidebar()
+        }
       }
       menu.appendChild(apItem)
 
