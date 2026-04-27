@@ -1,6 +1,11 @@
 // tests/cli.test.ts
 import { describe, test, expect } from 'bun:test'
+import { resolve } from 'path'
 import { parseCliArgs } from '../src/cli'
+
+// Resolve project root from the test file location so the CLI integration
+// tests work in any checkout path (CI runners, contributor forks, etc.).
+const PROJECT_ROOT = resolve(import.meta.dir, '..')
 
 describe('CLI arg parsing', () => {
   test('parses list command', () => {
@@ -52,7 +57,7 @@ describe('CLI autopilot command (integration)', () => {
     const proc = Bun.spawn(
       ['bun', 'run', 'src/cli.ts', ...args],
       {
-        cwd: '/home/channelhub',
+        cwd: PROJECT_ROOT,
         env: { ...process.env, ...env },
         stdout: 'pipe',
         stderr: 'pipe',
