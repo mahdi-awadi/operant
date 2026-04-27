@@ -13,6 +13,7 @@ import type { VerificationRunner, VerificationResult } from '../verification'
 import type { VetoController } from '../veto-controller'
 import type { EscalationController } from '../escalation-controller'
 import type { AutopilotRunner } from '../autopilot'
+import { formatForTelegram, escapeHtml as escapeHtmlText } from '../telegram-format'
 
 // ── Pure helper functions ────────────────────────────────────────────────────
 
@@ -969,12 +970,24 @@ export class TelegramFrontend {
     const recipients = this.allowFrom.length > 0 ? this.allowFrom : [...this.knownUsers]
     if (recipients.length === 0) return
 
-    const fullText = `[${sessionName}] ${text}`
+    // Render with Telegram HTML so daemon-emitted markdown-ish content
+    // (autopilot answers, escalation reasons, file paths in backticks)
+    // shows up as proper code/bullets/bold instead of literal punctuation.
+    // The session label is bolded for fast visual scanning of the chat.
+    const body = formatForTelegram(text)
+    const fullText = `<b>[${escapeHtmlText(sessionName)}]</b> ${body}`
     const chunks = chunkText(fullText, 4096)
 
     for (const userId of recipients) {
       for (const chunk of chunks) {
-        await this.bot.api.sendMessage(userId, chunk)
+        try {
+          await this.bot.api.sendMessage(userId, chunk, { parse_mode: 'HTML' })
+        } catch (err) {
+          // Fallback: if the formatted HTML somehow has unbalanced tags after
+          // chunking, retry as plain text so the user still gets the content.
+          process.stderr.write(`telegram: HTML send failed (${err}); retrying as plain text\n`)
+          await this.bot.api.sendMessage(userId, chunk).catch(() => {})
+        }
       }
       if (files && files.length > 0) {
         for (const filePath of files) {
