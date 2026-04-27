@@ -17,6 +17,7 @@ import type { EscalationController } from '../escalation-controller'
 import type { AutopilotRunner } from '../autopilot'
 import type { ErrorLog } from '../error-log'
 import type { Personalities, PersonalityInput } from '../personalities'
+import type { Decisions } from '../decisions'
 import { saveSessions } from '../config'
 import { listPriorSessions } from '../claude-sessions'
 
@@ -118,6 +119,7 @@ type WebFrontendDeps = {
   autopilotRunner?: AutopilotRunner
   errorLog?: ErrorLog
   personalities?: Personalities
+  decisions?: Decisions
   projectsRootOverride?: string  // test-only: override ~/.claude/projects root
 }
 
@@ -298,6 +300,22 @@ export class WebFrontend {
           const limitRaw = url.searchParams.get('limit')
           const limit = limitRaw ? Math.max(1, Math.min(parseInt(limitRaw, 10) || 50, 500)) : 50
           return Response.json(log.recent({ session, limit }))
+        }
+
+        // Audit trail of successful autopilot answers.
+        if (url.pathname === '/api/decisions' && req.method === 'GET') {
+          const dec = self.deps.decisions
+          if (!dec) return Response.json([])
+          const session = url.searchParams.get('session') ?? undefined
+          const personalityIdRaw = url.searchParams.get('personalityId')
+          const personalityId = personalityIdRaw ? parseInt(personalityIdRaw, 10) : undefined
+          const limitRaw = url.searchParams.get('limit')
+          const limit = limitRaw ? Math.max(1, Math.min(parseInt(limitRaw, 10) || 100, 1000)) : 100
+          return Response.json(dec.recent({
+            session,
+            personalityId: Number.isFinite(personalityId as number) ? personalityId : undefined,
+            limit,
+          }))
         }
 
         // === Personalities CRUD ============================================

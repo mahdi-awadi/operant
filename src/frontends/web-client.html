@@ -1386,6 +1386,13 @@
       }
       menu.appendChild(persoItem)
 
+      // --- Decision history ---
+      const histItem = document.createElement('button')
+      histItem.className = 'kebab-item'
+      histItem.innerHTML = '<span>H</span><span>History (autopilot answers)</span>'
+      histItem.onclick = () => { openDecisionHistory(s.name); closeSessionMenu() }
+      menu.appendChild(histItem)
+
       // --- Add teammate (lead only) ---
       const isLead = (s.teamIndex ?? 0) === 0
       if (isLead && s.status === 'active') {
@@ -1636,6 +1643,100 @@
 
       overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
       document.body.appendChild(overlay)
+    }
+
+    // === Decision history modal ============================================
+    async function openDecisionHistory(sessionName) {
+      document.querySelectorAll('#decision-history-modal').forEach(el => el.remove())
+      const overlay = document.createElement('div')
+      overlay.id = 'decision-history-modal'
+      overlay.className = 'modal-overlay'
+      overlay.innerHTML = '<div class="modal-card" role="dialog" aria-label="Autopilot decision history"></div>'
+      const card = overlay.querySelector('.modal-card')
+
+      const close = () => overlay.remove()
+      overlay.onclick = (e) => { if (e.target === overlay) close() }
+      document.addEventListener('keydown', function onKey(e) {
+        if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey) }
+      })
+
+      const header = document.createElement('div')
+      header.className = 'modal-header'
+      header.innerHTML = '<h3 style="margin:0;">Autopilot decisions — ' + escapeHtml(sessionName) + '</h3>'
+      const closeBtn = document.createElement('button')
+      closeBtn.className = 'icon-btn'
+      closeBtn.textContent = '×'
+      closeBtn.onclick = close
+      header.appendChild(closeBtn)
+      card.appendChild(header)
+
+      const status = document.createElement('div')
+      status.style.cssText = 'color:var(--text-muted);font-size:12px;margin:6px 0 12px;'
+      status.textContent = 'Loading…'
+      card.appendChild(status)
+
+      const list = document.createElement('div')
+      list.style.cssText = 'display:flex;flex-direction:column;gap:8px;max-height:60vh;overflow-y:auto;'
+      card.appendChild(list)
+
+      document.body.appendChild(overlay)
+
+      let rows = []
+      try {
+        const res = await fetch('/api/decisions?session=' + encodeURIComponent(sessionName) + '&limit=100')
+        if (res.ok) rows = await res.json()
+        else { status.textContent = 'Failed: ' + (await res.text()); return }
+      } catch (err) {
+        status.textContent = 'Failed: ' + err
+        return
+      }
+
+      if (rows.length === 0) {
+        status.textContent = 'No autopilot answers recorded yet for this session.'
+        return
+      }
+      status.textContent = rows.length + ' decision' + (rows.length === 1 ? '' : 's') + ', newest first.'
+
+      for (const r of rows) {
+        const item = document.createElement('div')
+        item.className = 'persona-row'
+        item.style.cssText += ';flex-direction:column;align-items:stretch;cursor:pointer;'
+        const when = new Date(r.ts).toLocaleString()
+        const persoLabel = r.personalityName ?? 'Default'
+        const dur = (r.durationMs / 1000).toFixed(1) + 's'
+        const head = document.createElement('div')
+        head.style.cssText = 'display:flex;gap:8px;font-size:11px;color:var(--text-muted);'
+        head.innerHTML =
+          '<span>' + escapeHtml(when) + '</span>' +
+          '<span>·</span>' +
+          '<span>' + escapeHtml(persoLabel) + '</span>' +
+          '<span>·</span>' +
+          '<span>' + dur + '</span>'
+        item.appendChild(head)
+
+        const q = document.createElement('div')
+        q.style.cssText = 'font-size:12px;color:var(--text-muted);margin-top:2px;'
+        const qText = (r.rawQuestion || '').replace(/\s+/g, ' ').trim()
+        q.textContent = 'Q: ' + (qText.length > 200 ? qText.slice(0, 200) + '…' : qText)
+        item.appendChild(q)
+
+        const a = document.createElement('div')
+        a.style.cssText = 'font-size:13px;margin-top:4px;'
+        const aText = (r.answer || '').trim()
+        const collapsed = aText.length > 240
+        a.textContent = 'A: ' + (collapsed ? aText.slice(0, 240) + '…' : aText)
+        item.appendChild(a)
+
+        if (collapsed) {
+          item.title = 'Click to expand'
+          item.onclick = () => {
+            a.textContent = 'A: ' + aText
+            item.style.cursor = 'default'
+            item.onclick = null
+          }
+        }
+        list.appendChild(item)
+      }
     }
 
     async function addTeammate(leadName) {

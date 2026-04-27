@@ -58,6 +58,26 @@ const SCHEMA_STATEMENTS = [
     session_path TEXT PRIMARY KEY,
     personality_id INTEGER REFERENCES personalities(id) ON DELETE SET NULL
   )`,
+
+  // Successful autopilot answers — the audit trail. Pairs with the error log
+  // (which captures failures) to give a complete picture of what /btw said
+  // and on whose behalf. personality_id uses ON DELETE SET NULL so the row
+  // survives a personality being removed; personality_name is denormalized
+  // at write time so the display stays meaningful in that case.
+  `CREATE TABLE IF NOT EXISTS autopilot_decisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts INTEGER NOT NULL,
+    session_name TEXT NOT NULL,
+    session_path TEXT NOT NULL,
+    personality_id INTEGER REFERENCES personalities(id) ON DELETE SET NULL,
+    personality_name TEXT,
+    raw_question TEXT NOT NULL,
+    answer TEXT NOT NULL,
+    duration_ms INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_autopilot_decisions_ts ON autopilot_decisions(ts DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_autopilot_decisions_session ON autopilot_decisions(session_name, ts DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_autopilot_decisions_personality ON autopilot_decisions(personality_id, ts DESC)`,
 ]
 
 export function openHubDb(dir: string): HubDbHandle {

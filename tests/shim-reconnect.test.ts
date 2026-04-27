@@ -194,10 +194,14 @@ describe('shim reconnect integration', () => {
       while (registers.length < 2 && Date.now() < deadline2) {
         await new Promise(r => setTimeout(r, 50))
       }
-      if (registers.length !== 2) {
-        throw new Error(`no reconnect register (got ${registers.length}); phase=${phase}; shim stderr:\n${stderrChunks.join('')}`)
+      // TS narrows `registers.length` to literal `1` from the earlier check,
+      // not seeing the async mutation above. Snapshot to a fresh number so
+      // the comparison and expect() type-check correctly.
+      const count2: number = registers.length
+      if (count2 !== 2) {
+        throw new Error(`no reconnect register (got ${count2}); phase=${phase}; shim stderr:\n${stderrChunks.join('')}`)
       }
-      expect(registers.length).toBe(2)
+      expect(count2).toBe(2)
     } finally {
       shim.kill('SIGTERM')
       // Guard against a stuck process hanging the test.

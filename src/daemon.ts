@@ -21,6 +21,7 @@ import { EscalationController } from './escalation-controller'
 import { ErrorLog } from './error-log'
 import { openHubDb } from './hub-db'
 import { Personalities } from './personalities'
+import { Decisions } from './decisions'
 
 const DRIFT_RATE_LIMIT_MS = 2 * 60 * 1000 // 2 minutes between alerts per session
 const lastDriftNotif = new Map<string, number>()
@@ -111,8 +112,11 @@ const escalationController = new EscalationController()
 const hubDb = openHubDb(HUB_DIR)
 const errorLog = new ErrorLog(hubDb.db)
 const personalities = new Personalities(hubDb.db)
+const decisions = new Decisions(hubDb.db)
 // Bound error-log storage at 5000 entries — captured panes can be large.
 setInterval(() => errorLog.purgeKeepLast(5000), 60 * 60 * 1000).unref()
+// Bound decision history to last 500 per session.
+setInterval(() => decisions.purgeKeepLastPerSession(500), 60 * 60 * 1000).unref()
 const autopilotRunner = new AutopilotRunner({
   screenManager,
   btwTimeoutMs: autopilotDefaults.btwTimeoutMs,
@@ -307,6 +311,22 @@ socketServer.on('tool_call', (path: string, name: string, args: Record<string, u
           }
         }
         if (result.status === 'answered') {
+          // Audit trail — the autopilot actually answered, log it. Failure
+          // outcomes already go to errorLog above; this complements that.
+          try {
+            decisions.record({
+              ts: Date.now(),
+              sessionName,
+              sessionPath: path,
+              personalityId: personality?.id,
+              personalityName: personality?.name,
+              rawQuestion: text,
+              answer: result.answer,
+              durationMs: elapsed,
+            })
+          } catch (err) {
+            process.stderr.write(`hub: decisions.record failed for ${sessionName}: ${err}\n`)
+          }
           const vetoMs = ap.vetoWindowMs ?? autopilotDefaults.vetoWindowMs
           if (vetoMs > 0) {
             const veto = vetoController.schedule(path, sessionName, result.answer, vetoMs, (v) => {
@@ -479,6 +499,7 @@ async function start(): Promise<void> {
     autopilotRunner,
     errorLog,
     personalities,
+    decisions,
   })
   await webFrontend.start()
   process.stderr.write(`hub: web UI at http://localhost:${webFrontend.port}\n`)
