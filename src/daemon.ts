@@ -15,7 +15,7 @@ import { getProfile, resolveSession, injectContext } from './profiles'
 import { detectDrift } from './analysis'
 import { VerificationRunner } from './verification'
 import { AutopilotRunner } from './autopilot'
-import { wrapQuestion } from './autopilot-risk'
+import { wrapQuestion, isTrivialReply } from './autopilot-risk'
 import { VetoController } from './veto-controller'
 import { EscalationController } from './escalation-controller'
 import { ErrorLog } from './error-log'
@@ -266,6 +266,16 @@ socketServer.on('tool_call', (path: string, name: string, args: Record<string, u
     // via /btw instead of waiting for a human.
     const ap = registry.getAutopilot(path)
     if (ap?.enabled) {
+      // Skip trivial replies — pure emoji acknowledgements like 👍 carry no
+      // question, but the daemon used to dutifully fire /btw on them, get an
+      // ack-shaped answer, deliver it back to the session, and the session
+      // would 👍 again, and so on indefinitely. The ap-test session got
+      // wedged in this loop on 2026-04-27 (errors.sqlite #20-#21). Bail
+      // before doing any work — no decision row, no toast, no escalation.
+      if (isTrivialReply(text)) {
+        process.stderr.write(`hub: autopilot ${session.name} skip — trivial reply ${JSON.stringify(text.slice(0, 40))}\n`)
+        return
+      }
       // Duration cap removed — autopilot runs as long as the user keeps it on.
       // The user disables it explicitly via the toggle when they want to take
       // back control; we don't pull the rug at an arbitrary time threshold.

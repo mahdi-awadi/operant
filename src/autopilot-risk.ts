@@ -1,10 +1,40 @@
 // src/autopilot-risk.ts
-// Risk-keyword filter + wrapped-question builder + ESCALATE detector.
+// Risk-keyword filter + wrapped-question builder + ESCALATE detector +
+// trivial-reply skip predicate.
 
 export function hasRiskKeyword(text: string, keywords: readonly string[]): boolean {
   if (keywords.length === 0) return false
   const haystack = text.toLowerCase()
   return keywords.some(kw => haystack.includes(kw.toLowerCase()))
+}
+
+// True when the user's reply is just an acknowledgement that should NOT
+// trigger an autopilot /btw round-trip. Catches:
+//   - empty / whitespace-only
+//   - one or more emojis (with optional skin-tone, variation selectors,
+//     ZWJ sequences) surrounded by whitespace and punctuation
+// Anything containing actual letters, digits, or other word characters
+// is treated as a real reply that may carry a question.
+//
+// This closes the ack-loop class observed on ap-test where the autopilot
+// answered, the session replied with 👍, and the daemon treated that as
+// a fresh question — firing /btw again. The /btw answer was another
+// acknowledgement, which got 👍'd, and so on indefinitely.
+export function isTrivialReply(text: string): boolean {
+  const t = text.trim()
+  if (t.length === 0) return true
+  // Strip in three passes:
+  //   1. Extended_Pictographic — covers all emoji glyphs
+  //   2. Variation selectors (︎/️) and ZWJ (‍) — these glue
+  //      emoji sequences together (e.g., ❤️ uses VS-16; family emoji uses ZWJ)
+  //   3. Whitespace + punctuation
+  // If anything is left, the reply is non-trivial.
+  const stripped = t
+    .replace(/\p{Extended_Pictographic}/gu, '')
+    .replace(/\p{Emoji_Modifier}/gu, '')   // skin-tone modifiers (🏻–🏿)
+    .replace(/[︎️‍]/g, '')                 // VS-15 / VS-16 / ZWJ
+    .replace(/[\s\p{P}]/gu, '')
+  return stripped.length === 0
 }
 
 const DEFAULT_CONSTRAINT_BLOCK = [

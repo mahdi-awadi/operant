@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test'
-import { hasRiskKeyword, wrapQuestion, isEscalateAnswer } from '../src/autopilot-risk'
+import { hasRiskKeyword, wrapQuestion, isEscalateAnswer, isTrivialReply } from '../src/autopilot-risk'
 
 const KEYWORDS = ['delete', 'force push', 'drop table', 'production', 'billing', 'api key']
 
@@ -101,5 +101,55 @@ describe('isEscalateAnswer', () => {
   })
   test('normal answer → not escalated', () => {
     expect(isEscalateAnswer('Bun is the right pick here.').escalated).toBe(false)
+  })
+})
+
+describe('isTrivialReply', () => {
+  test('empty / whitespace-only → trivial', () => {
+    expect(isTrivialReply('')).toBe(true)
+    expect(isTrivialReply('   ')).toBe(true)
+    expect(isTrivialReply('\n\t  ')).toBe(true)
+  })
+
+  test('single emoji thumbs-up → trivial (the bug case)', () => {
+    expect(isTrivialReply('👍')).toBe(true)
+  })
+
+  test('multiple emojis with spaces → trivial', () => {
+    expect(isTrivialReply('🎉 🎉 🎉')).toBe(true)
+    expect(isTrivialReply('👍👎')).toBe(true)
+    expect(isTrivialReply('✅ ❌')).toBe(true)
+  })
+
+  test('emoji with skin-tone modifier → trivial', () => {
+    expect(isTrivialReply('👋🏽')).toBe(true)
+  })
+
+  test('emoji with variation selector / ZWJ sequence → trivial', () => {
+    expect(isTrivialReply('❤️')).toBe(true)
+    expect(isTrivialReply('👨‍👩‍👧')).toBe(true)
+  })
+
+  test('emoji surrounded by punctuation only → trivial', () => {
+    expect(isTrivialReply('. . . 👍')).toBe(true)
+    expect(isTrivialReply('!!!')).toBe(true)
+  })
+
+  test('any actual word → NOT trivial', () => {
+    expect(isTrivialReply('ok')).toBe(false)
+    expect(isTrivialReply('A')).toBe(false)
+    expect(isTrivialReply('B or A?')).toBe(false)
+    expect(isTrivialReply('Should I use Bun?')).toBe(false)
+  })
+
+  test('emoji prefix with real text → NOT trivial', () => {
+    expect(isTrivialReply('👍 yes go ahead')).toBe(false)
+    expect(isTrivialReply('🎉 done')).toBe(false)
+  })
+
+  test('digits and letters survive the emoji/punct strip → NOT trivial', () => {
+    expect(isTrivialReply('1+1')).toBe(false)
+    expect(isTrivialReply('A')).toBe(false)
+    expect(isTrivialReply('123')).toBe(false)
   })
 })
