@@ -175,13 +175,19 @@ function main() {
         },
       },
       {
+        name: 'list_sessions',
+        description:
+          'List all channelhub sessions currently registered in the hub. Use this BEFORE send_to_session to discover the exact display names of peer sessions — the user often refers to teammates by shorthand (e.g. "team 2" or "leader") that does not match the registry. Returns each session\'s name, status (active/disconnected/respawning), folder path, teamIndex, and a self flag marking the calling session. Takes no arguments.',
+        inputSchema: { type: 'object', properties: {} },
+      },
+      {
         name: 'send_to_session',
         description:
-          'Send a message to ANOTHER channelhub session in the registry. Use this to delegate work to a teammate (peer hub session in the same or different folder) WITHOUT going through the user. The recipient is identified by its display name (the same name shown in /list). Returns ok=true if the recipient was found and active, or ok=false with a reason otherwise.',
+          'Send a message to ANOTHER channelhub session in the registry. Use this to delegate work to a teammate (peer hub session in the same or different folder) WITHOUT going through the user. The recipient must be identified by EXACT registry name — call list_sessions first if the user used a shorthand or you are unsure of the precise name. Returns ok=true if the recipient was found and active, or ok=false with a reason otherwise.',
         inputSchema: {
           type: 'object',
           properties: {
-            name: { type: 'string', description: 'Recipient session name (must match registry exactly).' },
+            name: { type: 'string', description: 'Recipient session name (must match registry exactly — call list_sessions if unsure).' },
             text: { type: 'string', description: 'Message body to deliver. Will appear to the recipient as a channel message from this session.' },
           },
           required: ['name', 'text'],

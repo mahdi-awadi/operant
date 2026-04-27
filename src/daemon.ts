@@ -18,6 +18,7 @@ import { AutopilotRunner } from './autopilot'
 import { wrapQuestion } from './autopilot-risk'
 import { VetoController } from './veto-controller'
 import { EscalationController } from './escalation-controller'
+import { ErrorLog } from './error-log'
 
 const DRIFT_RATE_LIMIT_MS = 2 * 60 * 1000 // 2 minutes between alerts per session
 const lastDriftNotif = new Map<string, number>()
@@ -103,6 +104,10 @@ const screenManager = new ScreenManager()
 const autopilotDefaults = resolveAutopilotDefaults(config)
 const vetoController = new VetoController()
 const escalationController = new EscalationController()
+const errorLog = new ErrorLog(join(HUB_DIR, 'errors.sqlite'))
+// Bound storage at 5000 entries — captured panes can be large; this is plenty
+// of history for forensic debugging without runaway disk use.
+setInterval(() => errorLog.purgeKeepLast(5000), 60 * 60 * 1000).unref()
 const autopilotRunner = new AutopilotRunner({
   screenManager,
   btwTimeoutMs: autopilotDefaults.btwTimeoutMs,
@@ -252,31 +257,45 @@ socketServer.on('tool_call', (path: string, name: string, args: Record<string, u
     // via /btw instead of waiting for a human.
     const ap = registry.getAutopilot(path)
     if (ap?.enabled) {
-      // Duration cap: if autopilot has run longer than maxDurationMinutes, escalate
-      // and turn it off instead of firing /btw.
-      if (ap.startedAt) {
-        const maxMin = ap.maxDurationMinutes ?? autopilotDefaults.maxDurationMinutes
-        if (Date.now() - ap.startedAt > maxMin * 60_000) {
-          const prompt = `Autopilot has been running on "${session.name}" for ${maxMin}+ min. Reply "/autopilot ${session.name} on" to extend, or just answer the question directly to take over.`
-          telegramFrontend?.deliverToUser(session.name, `🟡 ${prompt}`)
-          webFrontend?.deliverToUser(session.name, `🟡 ${prompt}`)
-          if (ap.priorTrust) registry.setTrust(path, ap.priorTrust)
-          registry.setAutopilot(path, { ...ap, enabled: false, priorTrust: undefined, startedAt: undefined })
-          saveSessions(registry.toSaveFormat())
-          return
-        }
-      }
+      // Duration cap removed — autopilot runs as long as the user keeps it on.
+      // The user disables it explicitly via the toggle when they want to take
+      // back control; we don't pull the rug at an arbitrary time threshold.
       const sessionName = session.name
       const managed = screenManager.getManagedByPath(registry.folderPath(path))
       const tmuxName = managed?.sessionName ?? `hub-${sessionName}`
       const prefs = loadProjectPreferences(registry.folderPath(path))
       const wrapped = wrapQuestion(text, prefs)
       const riskKeywords = ap.riskKeywords ?? autopilotDefaults.riskKeywords
+      const apT0 = Date.now()
       autopilotRunner.runBtw(tmuxName, wrapped, {
         rawQuestion: text,
         riskKeywords,
         riskOverride: ap.riskOverride,
       }).then(result => {
+        const elapsed = Date.now() - apT0
+        process.stderr.write(`hub: autopilot ${sessionName} ${elapsed}ms status=${result.status}${result.status === 'answered' ? ` length=${result.answer.length}` : ''}\n`)
+        // Log every non-answered outcome to SQLite so the user can see WHY
+        // /btw didn't deliver — captured pane is the most useful field.
+        if (result.status !== 'answered') {
+          const reasonKind = result.status === 'escalate'
+            ? (/risk keyword/i.test(result.reason) ? 'risk' : 'escalate' as const)
+            : result.status
+          try {
+            errorLog.record({
+              ts: Date.now(),
+              sessionName,
+              sessionPath: path,
+              status: reasonKind === 'escalate' ? 'escalate' : reasonKind === 'risk' ? 'risk' : reasonKind,
+              reason: result.status === 'escalate' ? result.reason : `/btw ${result.status}`,
+              rawQuestion: text,
+              wrappedQuestion: wrapped,
+              capturedPane: result.pane,
+              durationMs: elapsed,
+            })
+          } catch (err) {
+            process.stderr.write(`hub: error-log record failed for ${sessionName}: ${err}\n`)
+          }
+        }
         if (result.status === 'answered') {
           const vetoMs = ap.vetoWindowMs ?? autopilotDefaults.vetoWindowMs
           if (vetoMs > 0) {
@@ -332,24 +351,49 @@ socketServer.on('tool_call', (path: string, name: string, args: Record<string, u
       name: 'edit_message',
       result: 'edited',
     })
+  } else if (name === 'list_sessions') {
+    // Return the registry so the caller can discover peer session names.
+    // Excludes the path:index suffix and includes a self flag.
+    const all = registry.list().map(s => ({
+      name: s.name,
+      status: s.status,
+      folder: registry.folderPath(s.path),
+      teamIndex: s.teamIndex,
+      self: s.path === path,
+    }))
+    socketServer.sendToSession(path, {
+      type: 'tool_result',
+      name: 'list_sessions',
+      result: { sessions: all },
+    })
   } else if (name === 'send_to_session') {
     // Cross-session routing — Claude in one session sends a message directly
     // to another session via the daemon, without the user having to relay.
     const targetName = String(args.name ?? '')
     const text = String(args.text ?? '')
-    let result: { ok: boolean; reason?: string } = { ok: false }
+    type SendResult = { ok: boolean; reason?: string; available?: string[] }
+    let result: SendResult = { ok: false }
     if (!targetName || !text) {
       result = { ok: false, reason: 'name and text are required' }
     } else {
       const targetPath = registry.findByName(targetName)
       if (!targetPath) {
-        result = { ok: false, reason: `Session not found: ${targetName}` }
+        // Session not found — return the list of active session names so the
+        // caller can recover (e.g. user shorthand "team 2" → registry "team-test-2").
+        const available = registry.list()
+          .filter(s => s.status === 'active' && s.path !== path)
+          .map(s => s.name)
+        result = {
+          ok: false,
+          reason: `Session not found: "${targetName}". Use list_sessions to discover peer names.`,
+          available,
+        }
       } else if (targetPath === path) {
         result = { ok: false, reason: 'Cannot send to self' }
       } else {
         const target = registry.get(targetPath)
         if (!target || target.status !== 'active') {
-          result = { ok: false, reason: `Session ${targetName} is not active` }
+          result = { ok: false, reason: `Session ${targetName} is not active (status=${target?.status ?? 'unknown'})` }
         } else {
           // Route via the existing message router so prefix/profile injection
           // and per-frontend rendering apply uniformly.
@@ -423,6 +467,7 @@ async function start(): Promise<void> {
     vetoController,
     escalationController,
     autopilotRunner,
+    errorLog,
   })
   await webFrontend.start()
   process.stderr.write(`hub: web UI at http://localhost:${webFrontend.port}\n`)

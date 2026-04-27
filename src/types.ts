@@ -50,11 +50,15 @@ export type AutopilotDefaults = Omit<AutopilotConfig, 'enabled' | 'riskOverride'
 export const DEFAULT_AUTOPILOT_DEFAULTS: AutopilotDefaults = {
   vetoWindowMs: 30_000,
   btwTimeoutMs: 30_000,
-  maxDurationMinutes: 60,
-  riskKeywords: [
-    'delete', 'force push', 'drop table', 'production', 'prod deploy',
-    'billing', 'credit card', 'api key', 'secret', 'revoke', 'uninstall',
-  ],
+  // Duration cap removed at the daemon level — kept here for type compatibility
+  // and forward override (someone may want a bound). The daemon ignores it.
+  maxDurationMinutes: Number.POSITIVE_INFINITY,
+  // Pre-fire filter is a backstop only. Broad words like 'delete', 'production',
+  // 'secret', 'billing' fire on benign mentions and were too aggressive in
+  // practice. The wrap-prompt itself instructs Claude to escalate on
+  // irreversible decisions, which catches most cases more accurately. Keep
+  // ONLY the truly catastrophic, syntactically unambiguous tokens.
+  riskKeywords: ['force push', 'drop database'],
 }
 
 export type SessionConfig = {

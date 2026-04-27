@@ -20,6 +20,7 @@ class FakeScreenManager {
     return this.scripted.shift() ?? ''
   }
   async sendEscape(_s: string) { this.escapes++ }
+  async sendUpArrows(_s: string, _n: number) {}
 }
 
 describe('AutopilotRunner.runBtw', () => {
@@ -113,11 +114,11 @@ describe('AutopilotRunner.runBtw', () => {
 })
 
 describe('AutopilotRunner.probe', () => {
-  test('probe returns ok when /btw answers "2"', async () => {
+  test('probe returns ok when /btw answers "ready"', async () => {
     const pane = `
-❯ /btw 1+1
-  /btw 1+1
-    2
+❯ /btw You are now in autopilot mode…
+  /btw You are now in autopilot mode…
+    ready
   ↑/↓ to scroll · f to fork · Esc to dismiss
 `
     const sm = new FakeScreenManager(['', pane])
@@ -133,10 +134,10 @@ describe('AutopilotRunner.probe', () => {
     expect(r.ok).toBe(false)
   })
 
-  test('probe returns not-ok when answer does not contain "2"', async () => {
+  test('probe returns not-ok when answer does not contain "ready"', async () => {
     const pane = `
-❯ /btw 1+1
-  /btw 1+1
+❯ /btw You are now in autopilot mode…
+  /btw You are now in autopilot mode…
     banana
   ↑/↓ to scroll · f to fork · Esc to dismiss
 `
@@ -156,18 +157,18 @@ describe('AutopilotRunner.probe', () => {
     expect(elapsed).toBeLessThan(300) // well under 15s
   })
 
-  test('probe sends /btw 1+1 text first, then a separate Enter (paste-detection parity)', async () => {
+  test('probe sends /btw text first, then a separate Enter (paste-detection parity)', async () => {
     const pane = `
-❯ /btw 1+1
-  /btw 1+1
-    2
+❯ /btw You are now in autopilot mode…
+  /btw You are now in autopilot mode…
+    ready
   ↑/↓ to scroll · f to fork · Esc to dismiss
 `
     const sm = new FakeScreenManager(['', pane])
     const runner = new AutopilotRunner({ screenManager: sm as any, pollIntervalMs: 5, btwTimeoutMs: 500 })
     const r = await runner.probe('hub-x', 500)
     expect(r.ok).toBe(true)
-    expect(sm.sentKeys[0]?.text).toBe('/btw 1+1')
+    expect(sm.sentKeys[0]?.text).toMatch(/^\/btw /)
     expect(sm.sentKeys[0]?.withEnter).toBe(false)
     expect(sm.sentKeys[1]?.text).toBe('')
     expect(sm.sentKeys[1]?.withEnter).toBe(true)
@@ -188,5 +189,65 @@ describe('AutopilotRunner.probe', () => {
     const r = await runner.probe('hub-x', 50)
     expect(r.ok).toBe(false)
     expect(r.reason ?? '').not.toMatch(/feature flag may be off/i)
+  })
+})
+
+// quickProbe is the synchronous, ~50ms pane-only check used to decide whether
+// to enable autopilot at all. It does NOT fire /btw — that runs in the
+// background after the toggle returns, via runner.probe().
+class StaticScreenManager {
+  constructor(private pane: string) {}
+  async capturePane(_s: string, _n?: number) { return this.pane }
+  async sendKeysRaw() {}
+  async sendEscape() {}
+  async sendUpArrows() {}
+}
+
+describe('AutopilotRunner.quickProbe', () => {
+  test('returns ok when pane shows the Claude idle prompt', async () => {
+    const idle = `
+────────────────────────────────────
+❯
+────────────────────────────────────
+  ? for shortcuts
+`
+    const runner = new AutopilotRunner({ screenManager: new StaticScreenManager(idle) as any })
+    const r = await runner.quickProbe('hub-x')
+    expect(r.ok).toBe(true)
+  })
+
+  test('returns ok when pane shows Claude busy — /btw can still queue', async () => {
+    const busy = `
+❯ doing some long task
+  ✻ Hatching… (15s)
+  esc to interrupt                        ◉ xhigh
+`
+    const runner = new AutopilotRunner({ screenManager: new StaticScreenManager(busy) as any })
+    const r = await runner.quickProbe('hub-x')
+    expect(r.ok).toBe(true)
+  })
+
+  test('returns not-ok when pane is empty (tmux session not running)', async () => {
+    const runner = new AutopilotRunner({ screenManager: new StaticScreenManager('') as any })
+    const r = await runner.quickProbe('hub-missing')
+    expect(r.ok).toBe(false)
+    expect(r.reason).toMatch(/not found|not running/i)
+  })
+
+  test('returns not-ok when pane is at a permission prompt (1. Yes / 2. … / 3. No)', async () => {
+    const blocked = `
+  hub - reply(text: "...") (MCP)
+
+  Do you want to proceed?
+  ❯ 1. Yes
+    2. Yes, and don't ask again for hub - reply commands in /home/sap
+    3. No
+
+  Esc to cancel · Tab to amend
+`
+    const runner = new AutopilotRunner({ screenManager: new StaticScreenManager(blocked) as any })
+    const r = await runner.quickProbe('hub-x')
+    expect(r.ok).toBe(false)
+    expect(r.reason).toMatch(/permission prompt/i)
   })
 })

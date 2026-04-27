@@ -6,10 +6,10 @@ import { parseBtwAnswer, isOverlaySettled } from './autopilot-parser'
 import { hasRiskKeyword, isEscalateAnswer } from './autopilot-risk'
 
 export type AutopilotResult =
-  | { status: 'answered'; answer: string }
-  | { status: 'escalate'; reason: string }
-  | { status: 'parse_error' }
-  | { status: 'timeout' }
+  | { status: 'answered'; answer: string; pane?: string }
+  | { status: 'escalate'; reason: string; pane?: string }
+  | { status: 'parse_error'; pane?: string }
+  | { status: 'timeout'; pane?: string }
 
 export type RunBtwOptions = {
   rawQuestion?: string      // the original question from Claude, used for risk filter
@@ -18,7 +18,7 @@ export type RunBtwOptions = {
 }
 
 export type AutopilotRunnerOpts = {
-  screenManager: Pick<ScreenManager, 'sendKeysRaw' | 'capturePane' | 'sendEscape'>
+  screenManager: Pick<ScreenManager, 'sendKeysRaw' | 'capturePane' | 'sendEscape' | 'sendUpArrows'>
   pollIntervalMs?: number   // default 300
   btwTimeoutMs?: number     // default 30_000
 }
@@ -64,6 +64,19 @@ export class AutopilotRunner {
       }
     }
 
+    // 3b. Scroll the /btw overlay to its TOP before final capture. /btw renders
+    // inline with the rest of Claude's UI in a small viewport — long answers
+    // scroll within /btw, and the default position is at the BOTTOM (tail of
+    // the answer). The opening (with the actual decision and key reasoning) is
+    // off-screen until we scroll up. Send a generous batch of Up arrows so the
+    // viewport is at the very beginning, then capture.
+    if (finalPane) {
+      await this.sm.sendUpArrows(sessionName, 60)
+      await new Promise(r => setTimeout(r, 200))
+      const top = await this.sm.capturePane(sessionName, 200)
+      if (top && isOverlaySettled(top)) finalPane = top
+    }
+
     // 4. Dismiss overlay regardless of outcome so the session stays usable.
     await this.sm.sendEscape(sessionName)
 
@@ -71,20 +84,40 @@ export class AutopilotRunner {
 
     // 5. Parse.
     const parsed = parseBtwAnswer(finalPane)
-    if (parsed.status === 'parse_error') return { status: 'parse_error' }
-    if (parsed.status === 'not_ready') return { status: 'timeout' }
+    if (parsed.status === 'parse_error') return { status: 'parse_error', pane: finalPane }
+    if (parsed.status === 'not_ready') return { status: 'timeout', pane: finalPane }
 
     // 6. Check for ESCALATE token.
     const esc = isEscalateAnswer(parsed.answer)
-    if (esc.escalated) return { status: 'escalate', reason: esc.reason ?? 'proxy escalated' }
+    if (esc.escalated) return { status: 'escalate', reason: esc.reason ?? 'proxy escalated', pane: finalPane }
 
-    return { status: 'answered', answer: parsed.answer }
+    return { status: 'answered', answer: parsed.answer, pane: finalPane }
+  }
+
+  // Fast (~50ms) pane-only check used to decide whether to enable autopilot at
+  // all. Catches obvious failures (tmux session gone, session blocked on a
+  // permission prompt) without paying the multi-second cost of a /btw round
+  // trip. The /btw confirmation is fired separately, after the toggle returns.
+  async quickProbe(sessionName: string): Promise<{ ok: boolean; reason?: string }> {
+    const pane = await this.sm.capturePane(sessionName, 50)
+    if (!pane) return { ok: false, reason: `tmux session "${sessionName}" not found or not running` }
+    // A permission prompt steals all keystrokes — /btw text would land in the
+    // 1/2/3 menu instead of opening the side-question overlay. Detect by the
+    // canonical Claude Code prompt header + the `❯ 1.` numbered selection.
+    if (/Do you want to proceed\?/.test(pane) && /^\s*❯\s*1\./m.test(pane)) {
+      return { ok: false, reason: 'session is at a permission prompt — answer it before enabling autopilot' }
+    }
+    return { ok: true }
   }
 
   async probe(sessionName: string, probeTimeoutMs: number = 20_000): Promise<{ ok: boolean; reason?: string }> {
+    // Semantic probe: tell the session it's in autopilot and ask for a single-
+    // word ack. More informative than `1+1` — confirms the round-trip AND
+    // signals to Claude what mode it's in.
+    const question = 'You are now in autopilot mode. Reply with only the single word "ready" to confirm side questions are reachable.'
     // Mirror runBtw: send the text first (no Enter), wait, then send Enter as a
     // separate keystroke so Claude Code's paste-detection cannot capture it.
-    await this.sm.sendKeysRaw(sessionName, '/btw 1+1', false)
+    await this.sm.sendKeysRaw(sessionName, `/btw ${question}`, false)
     await new Promise(r => setTimeout(r, 150))
     await this.sm.sendKeysRaw(sessionName, '', true)
     const deadline = Date.now() + probeTimeoutMs
@@ -99,7 +132,7 @@ export class AutopilotRunner {
     if (!pane) return { ok: false, reason: `/btw did not respond within ${secs}s — session may be busy or stuck on a permission prompt` }
     const parsed = parseBtwAnswer(pane)
     if (parsed.status !== 'ok') return { ok: false, reason: '/btw overlay did not parse' }
-    if (!/\b2\b/.test(parsed.answer)) return { ok: false, reason: `/btw returned unexpected answer: ${parsed.answer}` }
+    if (!/\bready\b/i.test(parsed.answer)) return { ok: false, reason: `/btw returned unexpected answer: ${parsed.answer}` }
     return { ok: true }
   }
 }

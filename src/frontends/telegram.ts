@@ -494,12 +494,13 @@ export class TelegramFrontend {
         return
       }
       if (enabled) {
-        if (this.autopilotRunner) {
-          const managed = this.screenManager?.getManagedByPath(this.registry.folderPath(path))
-          const tmuxName = managed?.sessionName ?? `hub-${name}`
-          const probeResult = await this.autopilotRunner.probe(tmuxName, 20_000)
-          if (!probeResult.ok) {
-            await ctx.reply(`Autopilot probe failed: ${probeResult.reason}`)
+        const runner = this.autopilotRunner
+        const managed = this.screenManager?.getManagedByPath(this.registry.folderPath(path))
+        const tmuxName = managed?.sessionName ?? `hub-${name}`
+        if (runner) {
+          const quick = await runner.quickProbe(tmuxName)
+          if (!quick.ok) {
+            await ctx.reply(`Autopilot precheck failed: ${quick.reason}`)
             return
           }
         }
@@ -516,6 +517,19 @@ export class TelegramFrontend {
           startedAt: existing?.startedAt ?? Date.now(),
         })
         saveSessions(this.registry.toSaveFormat())
+        // Background /btw confirmation — fire and forget. /autopilot has already
+        // ack'd; if /btw fails we send a follow-up notice.
+        if (runner) {
+          runner.probe(tmuxName, 20_000).then(res => {
+            if (!res.ok) {
+              this.deliverToUser(name, `⚠️ Autopilot on but /btw confirmation failed: ${res.reason}`)
+            } else {
+              this.deliverToUser(name, `✅ Autopilot ready — /btw confirmed reachable.`)
+            }
+          }).catch(err => {
+            process.stderr.write(`hub: telegram autopilot bg probe error for ${name}: ${err}\n`)
+          })
+        }
       } else {
         const ap = this.registry.getAutopilot(path)
         if (ap?.priorTrust) this.registry.setTrust(path, ap.priorTrust)

@@ -128,5 +128,9 @@ test('resolveAutopilotDefaults merges user overrides with built-in defaults', ()
   const resolved = resolveAutopilotDefaults(cfg)
   expect(resolved.vetoWindowMs).toBe(1000)
   expect(resolved.btwTimeoutMs).toBe(30_000)
-  expect(resolved.riskKeywords.length).toBeGreaterThan(5)
+  // Risk keyword default was deliberately trimmed to a minimal backstop —
+  // broad words like 'delete' / 'production' fire on benign mentions. We only
+  // ship the unambiguous catastrophic tokens; the wrap-prompt handles the rest.
+  expect(resolved.riskKeywords.length).toBeGreaterThanOrEqual(2)
+  expect(resolved.riskKeywords).toContain('force push')
 })

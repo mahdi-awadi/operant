@@ -15,6 +15,7 @@ import type { TaskMonitor } from '../task-monitor'
 import type { VetoController } from '../veto-controller'
 import type { EscalationController } from '../escalation-controller'
 import type { AutopilotRunner } from '../autopilot'
+import type { ErrorLog } from '../error-log'
 import { saveSessions } from '../config'
 import { listPriorSessions } from '../claude-sessions'
 
@@ -114,6 +115,7 @@ type WebFrontendDeps = {
   vetoController?: VetoController
   escalationController?: EscalationController
   autopilotRunner?: AutopilotRunner
+  errorLog?: ErrorLog
   projectsRootOverride?: string  // test-only: override ~/.claude/projects root
 }
 
@@ -286,6 +288,15 @@ export class WebFrontend {
         if (url.pathname === '/api/activity' && req.method === 'GET') {
           const activity = self.deps.permissions?.getActivity() ?? []
           return Response.json(activity)
+        }
+
+        if (url.pathname === '/api/errors' && req.method === 'GET') {
+          const log = self.deps.errorLog
+          if (!log) return Response.json([])
+          const session = url.searchParams.get('session') ?? undefined
+          const limitRaw = url.searchParams.get('limit')
+          const limit = limitRaw ? Math.max(1, Math.min(parseInt(limitRaw, 10) || 50, 500)) : 50
+          return Response.json(log.recent({ session, limit }))
         }
 
         if (url.pathname === '/api/session/rules' && req.method === 'POST') {
@@ -723,12 +734,14 @@ export class WebFrontend {
       const path = this.deps.registry.findByName(name)
       if (!path) return new Response(`Session not found: ${name}`, { status: 404 })
       if (enabled) {
-        if (this.deps.autopilotRunner) {
-          const managed = this.deps.screenManager?.getManagedByPath(this.deps.registry.folderPath(path))
-          const tmuxName = managed?.sessionName ?? `hub-${name}`
-          const probeResult = await this.deps.autopilotRunner.probe(tmuxName, 20_000)
-          if (!probeResult.ok) {
-            return Response.json({ ok: false, reason: probeResult.reason }, { status: 400 })
+        const runner = this.deps.autopilotRunner
+        const managed = this.deps.screenManager?.getManagedByPath(this.deps.registry.folderPath(path))
+        const tmuxName = managed?.sessionName ?? `hub-${name}`
+        if (runner) {
+          // Synchronous fast check — pane state only, no /btw round-trip.
+          const quick = await runner.quickProbe(tmuxName)
+          if (!quick.ok) {
+            return Response.json({ ok: false, reason: quick.reason }, { status: 400 })
           }
         }
         const existing = this.deps.registry.getAutopilot(path)
@@ -744,6 +757,20 @@ export class WebFrontend {
           startedAt: existing?.startedAt ?? Date.now(),
         })
         saveSessions(this.deps.registry.toSaveFormat())
+        // Background /btw confirmation — fire and forget. The toggle has already
+        // returned 200 to the caller; if /btw fails we deliver a notice so the
+        // user can decide whether to keep autopilot on.
+        if (runner) {
+          runner.probe(tmuxName, 20_000).then(res => {
+            if (!res.ok) {
+              this.deliverToUser(name, `⚠️ Autopilot enabled but /btw confirmation failed: ${res.reason}`)
+            } else {
+              this.deliverToUser(name, `✅ Autopilot ready — /btw confirmed reachable.`)
+            }
+          }).catch(err => {
+            process.stderr.write(`hub: autopilot bg probe error for ${name}: ${err}\n`)
+          })
+        }
       } else {
         const ap = this.deps.registry.getAutopilot(path)
         if (ap?.priorTrust) this.deps.registry.setTrust(path, ap.priorTrust)
@@ -836,6 +863,7 @@ export class WebFrontend {
       const runner = this.deps.autopilotRunner
       if (!runner) return new Response('Autopilot runner not available', { status: 503 })
 
+      const retryT0 = Date.now()
       runner.runBtw(pending.tmuxName, pending.wrappedQuestion, {
         rawQuestion: pending.rawQuestion,
         riskKeywords: [],       // explicitly empty
@@ -849,6 +877,19 @@ export class WebFrontend {
           })
           this.deliverToUser(pending.sessionName, `🤖 Autopilot answered (risk override): ${result.answer}`)
         } else {
+          // Log the retry failure so the user can inspect the captured pane
+          // and diagnose why /btw still couldn't answer.
+          this.deps.errorLog?.record({
+            ts: Date.now(),
+            sessionName: pending.sessionName,
+            sessionPath: path,
+            status: result.status === 'escalate' ? 'escalate' : result.status,
+            reason: `retry-${result.status}` + (result.status === 'escalate' ? `: ${result.reason}` : ''),
+            rawQuestion: pending.rawQuestion,
+            wrappedQuestion: pending.wrappedQuestion,
+            capturedPane: result.pane,
+            durationMs: Date.now() - retryT0,
+          })
           this.deliverToUser(pending.sessionName, `🟡 Autopilot still can't answer (${result.status}). Type a reply.`)
         }
       }).catch(err => process.stderr.write(`hub: escalate-proceed failed: ${err}\n`))

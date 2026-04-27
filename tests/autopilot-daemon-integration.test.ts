@@ -12,6 +12,7 @@ class FakeScreenManager {
   async sendKeysRaw(_s: string, text: string, _enter: boolean) { this.sent.push(text) }
   async capturePane(_s: string, _n?: number): Promise<string> { return this.panes.shift() ?? '' }
   async sendEscape(_s: string) { this.escapes++ }
+  async sendUpArrows(_s: string, _n: number) {}
 }
 
 describe('autopilot daemon integration shape', () => {

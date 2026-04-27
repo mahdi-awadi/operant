@@ -313,9 +313,15 @@ export class ScreenManager {
     this.managed.delete(name)
   }
 
-  async capturePane(sessionName: string, lines: number = 200): Promise<string> {
+  // Capture the VISIBLE pane only — never scrollback. Including scrollback
+  // pulls in stale dismissed /btw overlays whose footer + answer linger after
+  // dismissal, causing the autopilot parser to return cached old answers for
+  // unrelated new questions. The `lines` parameter is kept for source-compat
+  // but is now ignored — the visible pane is always smaller than any caller
+  // would request, and trimming it would hide content near the top.
+  async capturePane(sessionName: string, _lines: number = 200): Promise<string> {
     try {
-      return await $`tmux capture-pane -t ${sessionName} -p -S -${lines}`.quiet().text()
+      return await $`tmux capture-pane -t ${sessionName} -p`.quiet().text()
     } catch {
       return ''
     }
@@ -333,6 +339,18 @@ export class ScreenManager {
     } catch (err) {
       process.stderr.write(`hub: sendKeysRaw failed for ${sessionName}: ${err}\n`)
     }
+  }
+
+  // Send N Up arrows — used by autopilot to scroll the /btw overlay to the
+  // top before capturing, so the parser sees the BEGINNING of a long answer
+  // (where the decision lives) instead of the truncated tail /btw renders by
+  // default.
+  async sendUpArrows(sessionName: string, count: number): Promise<void> {
+    try {
+      const args = Array(Math.max(0, Math.floor(count))).fill('Up')
+      if (args.length === 0) return
+      await $`tmux send-keys -t ${sessionName} ${args}`.quiet()
+    } catch {}
   }
 
   async sendEscape(sessionName: string): Promise<void> {

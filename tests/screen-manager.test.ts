@@ -118,6 +118,26 @@ test('capturePane returns text from tmux when session exists', async () => {
   }
 })
 
+test('capturePane only returns the visible pane, never scrollback', async () => {
+  // Real-world bug: dismissed /btw overlays leave their footer + answer in
+  // scrollback. If capturePane includes scrollback, the autopilot parser sees
+  // a stale "settled" overlay and returns the OLD answer for a new question.
+  // We push many lines into scrollback by clearing the screen — the cleared
+  // content goes into the history buffer and must NOT appear in capturePane.
+  const sm = new ScreenManager()
+  const s = `test-no-scrollback-${Date.now()}`
+  await $`tmux new-session -d -s ${s} -x 80 -y 10 "bash -c 'echo SCROLLBACK_ONLY_LINE; sleep 0.2; clear; echo VISIBLE_LINE; sleep 30'"`.quiet()
+  try {
+    await new Promise(r => setTimeout(r, 600))
+    const pane = await sm.capturePane(s, 200)
+    expect(pane).toContain('VISIBLE_LINE')
+    // SCROLLBACK_ONLY_LINE was cleared off the visible pane — must not leak in
+    expect(pane).not.toContain('SCROLLBACK_ONLY_LINE')
+  } finally {
+    try { await $`tmux kill-session -t ${s}`.quiet() } catch {}
+  }
+})
+
 test('sendKeysRaw writes a line and capturePane sees it', async () => {
   const sm = new ScreenManager()
   const s = `test-sendkeys-${Date.now()}`
