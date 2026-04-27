@@ -32,31 +32,55 @@ bunx playwright test --debug    # step through with the inspector
 `bun test` does NOT pick up these specs — they end in `.e2e.ts` rather than
 `.test.ts` / `.spec.ts`, so the two test runners stay disjoint.
 
-## Writing a new spec
+## Architecture: spawn the server in Bun, drive the browser from Node
 
-Use the `startTestServer` helper from `tests/e2e/test-server.ts`. It returns
-`url`, a pre-signed `cookie`, and a `registry` you can poke mid-test.
+Playwright runs in Node, but the WebFrontend pulls in Bun-only imports
+(`bun:sqlite`, `Bun.serve`, `screen-manager` `$`). So the harness uses two
+processes:
+
+```
+[ Playwright spec, Node ] ── stdio ──> [ tests/e2e/server-bin.ts, Bun ]
+                                              │
+                                              └── http://127.0.0.1:NNNNN
+```
+
+`tests/e2e/server-process.ts` exposes `startServerProcess(opts)` which
+spawns the Bun child, reads `<url>\n<cookie>\n` from its stdout, and
+returns a `stop()` handle. Use it in your specs — never import the
+WebFrontend directly into a Playwright test.
+
+## Writing a new spec
 
 ```ts
 import { test, expect } from '@playwright/test'
-import { startTestServer } from './test-server'
+import { startServerProcess, type SpawnedServer } from './server-process'
 
-test('autopilot 🤖 badge appears after toggle', async ({ page }) => {
-  const srv = await startTestServer({
+let srv: SpawnedServer
+
+test.beforeEach(async () => {
+  srv = await startServerProcess({
     initialSessions: [{ path: '/proj/x:0', overrides: { name: 'x', trust: 'auto' } }],
   })
-  try {
-    const u = new URL(srv.url)
-    const [n, v] = srv.cookie.split('=')
-    await page.context().addCookies([{
-      name: n, value: v!, domain: u.hostname, path: '/',
-      httpOnly: true, sameSite: 'Strict',
-    }])
-    await page.goto(srv.url)
-    // ... your assertions ...
-  } finally {
-    await srv.stop()
-  }
+})
+
+test.afterEach(async () => { await srv.stop() })
+
+test('something on x', async ({ page }) => {
+  const u = new URL(srv.url)
+  const eq = srv.cookie.indexOf('=')
+  await page.context().addCookies([{
+    name: srv.cookie.slice(0, eq),
+    value: srv.cookie.slice(eq + 1),
+    domain: u.hostname, path: '/',
+    httpOnly: true, sameSite: 'Strict',
+  }])
+  // The dashboard also gates the UI on a localStorage marker (the cookie
+  // is for server-side auth). Seed it so the app renders, not the login.
+  await page.addInitScript(() => {
+    localStorage.setItem('hub_user', JSON.stringify({ id: 11111, first_name: 'Test' }))
+  })
+  await page.goto(srv.url)
+  // ... your assertions ...
 })
 ```
 

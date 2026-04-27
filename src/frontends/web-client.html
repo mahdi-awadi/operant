@@ -681,6 +681,22 @@
     .kebab-item.primary { color: #4acfcf; font-weight: 600; }
     .kebab-item.active { background: rgba(74,207,207,0.08); }
 
+    /* Pending autopilot-draft chip on a sidebar row */
+    .draft-chip {
+      font-size: 10px; line-height: 1; padding: 2px 6px;
+      border: 1px solid #4acfcf; color: #4acfcf;
+      border-radius: 999px; flex-shrink: 0;
+      letter-spacing: 0.04em;
+    }
+    body[data-theme="light"] .draft-chip { color: #008b8b; border-color: #008b8b; }
+
+    /* Compose-draft dot — subtle signal that the user has unsent text typed */
+    .compose-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--text-muted); flex-shrink: 0;
+      opacity: 0.6;
+    }
+
     /* Autopilot toggle pending — shown while /api/autopilot is in flight (probe runs up to 20s) */
     .ap-spinner {
       width: 12px; height: 12px;
@@ -872,7 +888,7 @@
           📎
         </label>
         <textarea id="msg-input" placeholder="Type a message..." rows="1"
-          onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+          onkeydown="handleKey(event)" oninput="onComposeInput(this)"></textarea>
         <button id="send-btn" onclick="sendMsg()">Send</button>
       </div>
     </div>
@@ -965,6 +981,18 @@
     let unreadBySession = {}
     let currentTasks = {} // folder path → AgentTask[]
     let pendingAutopilot = new Set() // session names with an in-flight /api/autopilot toggle
+    // Per-session compose textarea drafts. When the user types into the input
+    // for session A and switches to session B, A's text would otherwise be
+    // lost (the textarea is shared). On selectSession we save the leaving
+    // session's text and restore the entering session's text.
+    let composeDraftsBySession = {}
+    // Pending autopilot drafts, keyed by session name. The veto card lives in
+    // the messages area and gets repainted when the user switches sessions —
+    // so we keep the source-of-truth here and re-render the card whenever
+    // selectSession lands on a session with a pending draft. Cleared when
+    // /api/autopilot/veto resolves the draft (any action) or its 30s timer
+    // expires server-side.
+    let pendingDrafts = {}
 
     // Escape HTML for XSS prevention
     function escapeHtml(text) {
@@ -1047,7 +1075,15 @@
         currentTasks = msg.data
         renderSidebar()
       } else if (msg.type === 'autopilot:draft') {
-        showAutopilotVetoCard(msg)
+        // Track the draft per-session. Re-rendered in selectSession so the
+        // user can still find / act on it after switching projects.
+        pendingDrafts[msg.sessionName] = msg
+        if (msg.sessionName === activeSession) {
+          showAutopilotVetoCard(msg)
+        } else {
+          // Not the active view — sidebar chip surfaces it.
+          renderSidebar()
+        }
       } else if (msg.type === 'autopilot:escalate') {
         showAutopilotEscalationCard(msg)
       }
@@ -1198,6 +1234,11 @@
       const edited = textarea ? textarea.value : ''
       const reason = reasonInput ? reasonInput.value.trim() : ''
       dismissVetoCard()
+      // Clear the pending-draft state for this session and refresh the
+      // sidebar chip — the user has resolved this draft, no need to show
+      // an indicator anymore.
+      delete pendingDrafts[sessionName]
+      renderSidebar()
       try {
         await fetch('/api/autopilot/veto', {
           method: 'POST',
@@ -1262,6 +1303,26 @@
             apBadge.title = 'Autopilot on'
             apBadge.textContent = '🤖'
             item.appendChild(apBadge)
+          }
+
+          // Pending autopilot draft chip — appears on whichever session has
+          // an unresolved draft inside its veto window. Click the row to
+          // jump there; the card is re-rendered by selectSession.
+          if (pendingDrafts[s.name] && pendingDrafts[s.name].expiresAt > Date.now()) {
+            const chip = document.createElement('span')
+            chip.className = 'draft-chip'
+            chip.title = 'Autopilot draft pending — click row to review'
+            chip.textContent = 'draft'
+            item.appendChild(chip)
+          }
+
+          // Compose-draft chip — small dot signaling the user has unsent
+          // text typed for this session. Subtle — does not displace anything.
+          if (composeDraftsBySession[s.name] && s.name !== activeSession) {
+            const dot = document.createElement('span')
+            dot.className = 'compose-dot'
+            dot.title = 'Unsent text in compose box'
+            item.appendChild(dot)
           }
 
           const unread = unreadBySession[s.name]
@@ -1779,7 +1840,36 @@
       }
     }
 
+    // Save the current textarea contents to the leaving session's draft slot,
+    // then load the entering session's draft into the textarea. Called from
+    // selectSession before the new session takes over.
+    function rotateComposeDraft(nextSession) {
+      const input = document.getElementById('msg-input')
+      if (!input) return
+      if (activeSession) {
+        const text = input.value
+        if (text && text.length > 0) composeDraftsBySession[activeSession] = text
+        else delete composeDraftsBySession[activeSession]
+      }
+      input.value = composeDraftsBySession[nextSession] ?? ''
+      autoResize(input)
+    }
+
+    // Triggered on each keystroke in the compose textarea. Resizes AND
+    // persists to the per-session drafts map so a stray click in the sidebar
+    // does not lose what the user was typing.
+    function onComposeInput(el) {
+      autoResize(el)
+      if (activeSession) {
+        if (el.value && el.value.length > 0) composeDraftsBySession[activeSession] = el.value
+        else delete composeDraftsBySession[activeSession]
+        // Update the chip indicator in the sidebar (if any).
+        renderSidebar()
+      }
+    }
+
     function selectSession(name) {
+      rotateComposeDraft(name)
       activeSession = name
       unreadBySession[name] = 0
 
@@ -1812,6 +1902,17 @@
       const msgs = messagesBySession[name] || []
       for (const m of msgs) {
         appendMessage(m, false)
+      }
+
+      // If this session has a pending autopilot draft (within its 30s veto
+      // window), re-render the card so it doesn't "disappear" when the user
+      // navigated away. Source of truth is pendingDrafts[name].
+      const pending = pendingDrafts[name]
+      if (pending && pending.expiresAt > Date.now()) {
+        showAutopilotVetoCard(pending)
+      } else if (pending) {
+        // Expired while we were elsewhere — drop it.
+        delete pendingDrafts[name]
       }
 
       renderSidebar()

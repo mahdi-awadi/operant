@@ -50,5 +50,10 @@ config.json
 tests/**/.test-*
 /tmp/
 
+# Playwright run artifacts (traces, screenshots, videos)
+test-results/
+playwright-report/
+playwright/.cache/
+
 # Git worktrees
 .worktrees/
