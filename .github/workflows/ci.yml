@@ -37,3 +37,53 @@ jobs:
         with:
           scandir: './'
           severity: warning
+
+  e2e:
+    name: Playwright E2E
+    runs-on: ubuntu-latest
+    # Runs in parallel with `test`; does not block the fast bun:test gate.
+    # Total run is ~60-90s (browser install ~150 MB on cache miss, ~10s on hit
+    # plus ~30s for the suite itself).
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # Cache the Playwright browser binaries by lockfile hash. Updating
+      # @playwright/test in package.json + bun.lock automatically busts the
+      # cache and triggers a fresh download. Steady-state runs hit the cache.
+      - name: Restore Playwright browser cache
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-playwright-
+
+      # Always install system deps (apt packages chromium needs); only the
+      # browser binary itself is cached. --with-deps on cache hit is a fast
+      # apt-noop; on cache miss it also downloads the binary.
+      - name: Install Playwright browser + system deps
+        run: bunx playwright install --with-deps chromium
+
+      - name: Run Playwright suite
+        run: bunx playwright test --reporter=list
+
+      # Persist traces / screenshots / video on failure so we can debug
+      # without re-running locally. Skipped on green runs to keep storage
+      # bounded.
+      - name: Upload Playwright artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 7
