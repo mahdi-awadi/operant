@@ -11,6 +11,8 @@
     "cli": "bun run src/cli.ts",
     "start": "bun install --no-summary && bun run src/shim.ts",
     "test": "bun test",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
     "build": "bun build src/daemon.ts --outfile dist/daemon.js --target bun && bun build src/shim.ts --outfile dist/shim.js --target bun && bun build src/cli.ts --outfile dist/cli.js --target bun"
   },
   "bin": {
@@ -23,6 +25,7 @@
     "grammy": "^1.21.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@types/bun": "latest"
   }
 }
