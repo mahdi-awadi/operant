@@ -65,7 +65,7 @@ export function parseBtwAnswer(pane: string): ParseResult {
 		if (/^\s*\/btw\b/.test(line)) break
 		if (line.trim() === '') {
 			flush()
-		} else if (/^ {4}[^ ]/.test(line)) {
+		} else if (/^ {4,}[^ ]/.test(line)) {
 			current.unshift(line.slice(4))
 		} else {
 			// Unexpected non-/btw, non-blank, non-4-space line — stop to avoid

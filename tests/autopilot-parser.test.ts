@@ -82,6 +82,29 @@ describe('parseBtwAnswer', () => {
 		expect(r.status).toBe('parse_error')
 	})
 
+	test('wrap-continuation lines indented by 5 spaces are still part of the answer (real-world bug from errors.sqlite #21)', () => {
+		// /btw word-wraps long lines with a hanging 5-space indent. The original
+		// regex `/^ {4}[^ ]/` rejected those continuations and made the parser
+		// return parse_error on otherwise perfectly settled overlays.
+		const pane = `
+  /btw long question
+
+    Yes, go, with two small tweaks. First, on step 1, do the migration as a one-shot copy-then-rename inside a single SQLite transaction and keep the old errors.sqlite as
+    errors.sqlite.bak for one release rather than deleting it, so a rollback is trivial; that is the standard safe-migration pattern. Second, on step 5, drop the emoji from the
+     badge tooltip per the no-emoji rule that already governs autopilot replies, and use a short text label instead. Otherwise the six-step arc is exactly right; ship it as one
+     cohesive PR with TDD throughout.
+
+  ↑/↓ to scroll · f to fork · Esc to dismiss
+`
+		const r = parseBtwAnswer(pane)
+		expect(r.status).toBe('ok')
+		if (r.status === 'ok') {
+			expect(r.answer).toContain('Yes, go, with two small tweaks')
+			expect(r.answer).toContain('safe-migration pattern')
+			expect(r.answer).toContain('cohesive PR with TDD')
+		}
+	})
+
 	test('multi-paragraph answer with blank lines between paragraphs is preserved (real-world bug)', () => {
 		// The autopilot prompt explicitly asks for multi-paragraph descriptive
 		// answers. The original walker stopped at the first blank line, so only
