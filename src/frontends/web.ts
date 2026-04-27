@@ -16,6 +16,7 @@ import type { VetoController } from '../veto-controller'
 import type { EscalationController } from '../escalation-controller'
 import type { AutopilotRunner } from '../autopilot'
 import type { ErrorLog } from '../error-log'
+import type { Personalities, PersonalityInput } from '../personalities'
 import { saveSessions } from '../config'
 import { listPriorSessions } from '../claude-sessions'
 
@@ -116,6 +117,7 @@ type WebFrontendDeps = {
   escalationController?: EscalationController
   autopilotRunner?: AutopilotRunner
   errorLog?: ErrorLog
+  personalities?: Personalities
   projectsRootOverride?: string  // test-only: override ~/.claude/projects root
 }
 
@@ -223,8 +225,7 @@ export class WebFrontend {
 
         // API routes
         if (url.pathname === '/api/sessions' && req.method === 'GET') {
-          const sessions = self.deps.registry.list()
-          return Response.json(sessions)
+          return Response.json(self.listSessionsWithPersonality())
         }
 
         if (url.pathname === '/api/upload-temp' && req.method === 'POST') {
@@ -299,6 +300,35 @@ export class WebFrontend {
           return Response.json(log.recent({ session, limit }))
         }
 
+        // === Personalities CRUD ============================================
+        if (url.pathname === '/api/personalities' && req.method === 'GET') {
+          const p = self.deps.personalities
+          if (!p) return Response.json([])
+          return Response.json(p.listAll())
+        }
+        if (url.pathname === '/api/personalities' && req.method === 'POST') {
+          return self.handleCreatePersonality(req)
+        }
+        {
+          const m = url.pathname.match(/^\/api\/personalities\/(\d+)$/)
+          if (m) {
+            const id = parseInt(m[1]!, 10)
+            if (req.method === 'PATCH') return self.handleUpdatePersonality(req, id)
+            if (req.method === 'DELETE') return self.handleDeletePersonality(id)
+            if (req.method === 'GET') {
+              const p = self.deps.personalities?.getById(id)
+              return p ? Response.json(p) : new Response('Not found', { status: 404 })
+            }
+          }
+        }
+        // POST /api/sessions/:name/personality  body: { personalityId: N | null }
+        {
+          const m = url.pathname.match(/^\/api\/sessions\/([^/]+)\/personality$/)
+          if (m && req.method === 'POST') {
+            return self.handleAssignPersonality(req, decodeURIComponent(m[1]!))
+          }
+        }
+
         if (url.pathname === '/api/session/rules' && req.method === 'POST') {
           return self.handleRules(req)
         }
@@ -319,8 +349,7 @@ export class WebFrontend {
       websocket: {
         open(ws) {
           self.clients.add(ws)
-          const sessions = self.deps.registry.list()
-          ws.send(JSON.stringify({ type: 'sessions', data: sessions }))
+          ws.send(JSON.stringify({ type: 'sessions', data: self.listSessionsWithPersonality() }))
         },
         message(ws, data) {
           try {
@@ -361,9 +390,25 @@ export class WebFrontend {
     this.broadcastToClients({ type: 'permission', ...req })
   }
 
-  refreshSessions(): void {
+  // Decorate each session with its assigned personality (if any) so the
+  // sidebar can render the badge / dropdown without an extra round-trip.
+  private listSessionsWithPersonality(): unknown[] {
     const sessions = this.deps.registry.list()
-    this.broadcastToClients({ type: 'sessions', data: sessions })
+    const p = this.deps.personalities
+    if (!p) return sessions
+    return sessions.map((s: any) => {
+      const personality = p.getForSession(s.path)
+      if (!personality) return s
+      return {
+        ...s,
+        personalityId: personality.id,
+        personalityName: personality.name,
+      }
+    })
+  }
+
+  refreshSessions(): void {
+    this.broadcastToClients({ type: 'sessions', data: this.listSessionsWithPersonality() })
   }
 
   deliverTaskUpdate(tasks: Record<string, any[]>): void {
@@ -689,6 +734,81 @@ export class WebFrontend {
       return Response.json({ ok: true })
     } catch (err) {
       return new Response(String(err), { status: 500 })
+    }
+  }
+
+  private async handleCreatePersonality(req: Request): Promise<Response> {
+    const p = this.deps.personalities
+    if (!p) return new Response('Personalities not available', { status: 503 })
+    try {
+      const body = (await req.json()) as PersonalityInput
+      if (!body?.name?.trim() || !body?.systemPrompt?.trim()) {
+        return new Response('name and systemPrompt are required', { status: 400 })
+      }
+      const created = p.create(body)
+      return Response.json(created, { status: 201 })
+    } catch (err) {
+      // UNIQUE constraint on name surfaces here as a normal Error.
+      const msg = String(err)
+      const status = /UNIQUE/i.test(msg) ? 409 : 400
+      return new Response(msg, { status })
+    }
+  }
+
+  private async handleUpdatePersonality(req: Request, id: number): Promise<Response> {
+    const p = this.deps.personalities
+    if (!p) return new Response('Personalities not available', { status: 503 })
+    try {
+      const body = (await req.json()) as Partial<PersonalityInput>
+      // Strip fields the API must not let clients change.
+      delete (body as any).builtin
+      delete (body as any).id
+      delete (body as any).createdAt
+      delete (body as any).updatedAt
+      const updated = p.update(id, body)
+      return Response.json(updated)
+    } catch (err) {
+      const msg = String(err)
+      const status = /No personality/i.test(msg) ? 404 : 400
+      return new Response(msg, { status })
+    }
+  }
+
+  private async handleDeletePersonality(id: number): Promise<Response> {
+    const p = this.deps.personalities
+    if (!p) return new Response('Personalities not available', { status: 503 })
+    try {
+      p.deleteById(id)
+      return new Response(null, { status: 204 })
+    } catch (err) {
+      const msg = String(err)
+      // Built-in personalities can't be deleted.
+      const status = /built-in/i.test(msg) ? 403 : 400
+      return new Response(msg, { status })
+    }
+  }
+
+  private async handleAssignPersonality(req: Request, name: string): Promise<Response> {
+    const p = this.deps.personalities
+    if (!p) return new Response('Personalities not available', { status: 503 })
+    const path = this.deps.registry.findByName(name)
+    if (!path) return new Response(`Session not found: ${name}`, { status: 404 })
+    try {
+      const body = (await req.json()) as { personalityId: number | null }
+      if (body.personalityId === null) {
+        p.removeFromSession(path)
+      } else if (typeof body.personalityId === 'number') {
+        if (!p.getById(body.personalityId)) {
+          return new Response('No such personality', { status: 404 })
+        }
+        p.assignToSession(path, body.personalityId)
+      } else {
+        return new Response('personalityId must be a number or null', { status: 400 })
+      }
+      this.refreshSessions()
+      return Response.json({ ok: true })
+    } catch (err) {
+      return new Response(String(err), { status: 400 })
     }
   }
 

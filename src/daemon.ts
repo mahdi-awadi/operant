@@ -19,6 +19,8 @@ import { wrapQuestion } from './autopilot-risk'
 import { VetoController } from './veto-controller'
 import { EscalationController } from './escalation-controller'
 import { ErrorLog } from './error-log'
+import { openHubDb } from './hub-db'
+import { Personalities } from './personalities'
 
 const DRIFT_RATE_LIMIT_MS = 2 * 60 * 1000 // 2 minutes between alerts per session
 const lastDriftNotif = new Map<string, number>()
@@ -104,9 +106,12 @@ const screenManager = new ScreenManager()
 const autopilotDefaults = resolveAutopilotDefaults(config)
 const vetoController = new VetoController()
 const escalationController = new EscalationController()
-const errorLog = new ErrorLog(join(HUB_DIR, 'errors.sqlite'))
-// Bound storage at 5000 entries — captured panes can be large; this is plenty
-// of history for forensic debugging without runaway disk use.
+// Single SQLite file backing errors + personalities + assignments. Migrates
+// the legacy errors.sqlite on first boot if present (renamed to .bak).
+const hubDb = openHubDb(HUB_DIR)
+const errorLog = new ErrorLog(hubDb.db)
+const personalities = new Personalities(hubDb.db)
+// Bound error-log storage at 5000 entries — captured panes can be large.
 setInterval(() => errorLog.purgeKeepLast(5000), 60 * 60 * 1000).unref()
 const autopilotRunner = new AutopilotRunner({
   screenManager,
@@ -264,7 +269,12 @@ socketServer.on('tool_call', (path: string, name: string, args: Record<string, u
       const managed = screenManager.getManagedByPath(registry.folderPath(path))
       const tmuxName = managed?.sessionName ?? `hub-${sessionName}`
       const prefs = loadProjectPreferences(registry.folderPath(path))
-      const wrapped = wrapQuestion(text, prefs)
+      // If this session has a personality assigned, splice its system_prompt
+      // into the wrap. Falls back to the default constraint block otherwise.
+      const personality = personalities.getForSession(path)
+      const wrapped = wrapQuestion(text, prefs, personality
+        ? { name: personality.name, systemPrompt: personality.systemPrompt }
+        : undefined)
       const riskKeywords = ap.riskKeywords ?? autopilotDefaults.riskKeywords
       const apT0 = Date.now()
       autopilotRunner.runBtw(tmuxName, wrapped, {
@@ -468,6 +478,7 @@ async function start(): Promise<void> {
     escalationController,
     autopilotRunner,
     errorLog,
+    personalities,
   })
   await webFrontend.start()
   process.stderr.write(`hub: web UI at http://localhost:${webFrontend.port}\n`)

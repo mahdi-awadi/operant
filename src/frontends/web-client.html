@@ -653,6 +653,34 @@
     /* Autopilot badge — shown next to session name when enabled */
     .ap-badge { font-size: 13px; flex-shrink: 0; }
 
+    /* Personality modal + picker */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 200;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .modal-card {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+      padding: 16px 18px; min-width: 480px; max-width: 720px; max-height: 85vh;
+      overflow: auto; display: flex; flex-direction: column;
+      box-shadow: 0 16px 40px rgba(0,0,0,0.5);
+    }
+    body[data-theme="light"] .modal-card { box-shadow: 0 16px 40px rgba(0,0,0,0.18); }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+    .persona-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px;
+    }
+    .persona-row:hover { background: rgba(255,255,255,0.03); }
+    body[data-theme="light"] .persona-row:hover { background: rgba(0,0,0,0.03); }
+    .modal-card input, .modal-card textarea {
+      background: var(--input-bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 5px;
+      padding: 6px 8px; font: inherit; width: 100%;
+    }
+    .modal-card input:focus, .modal-card textarea:focus { outline: none; border-color: #4acfcf; }
+    .kebab-item.primary { color: #4acfcf; font-weight: 600; }
+    .kebab-item.active { background: rgba(74,207,207,0.08); }
+
     /* Autopilot toggle pending — shown while /api/autopilot is in flight (probe runs up to 20s) */
     .ap-spinner {
       width: 12px; height: 12px;
@@ -816,6 +844,7 @@
     <div id="sidebar-header">
       <span id="hub-title">Claude Code Hub</span>
       <button id="spawn-btn" class="icon-btn primary" title="Spawn a new session" onclick="promptSpawn()">+</button>
+      <button id="settings-btn" class="icon-btn" title="Autopilot personalities" onclick="openPersonalitiesPanel()">P</button>
       <button id="theme-btn" class="icon-btn" title="Cycle theme (dark)" onclick="cycleTheme()">🎨</button>
     </div>
     <div id="session-list"></div>
@@ -1346,6 +1375,17 @@
       }
       menu.appendChild(apItem)
 
+      // --- Personality submenu ---
+      const persoItem = document.createElement('button')
+      persoItem.className = 'kebab-item'
+      const currentPersoName = s.personalityName ?? 'Default'
+      persoItem.innerHTML = `<span>P</span><span>Personality: ${escapeHtml(currentPersoName)} ▸</span>`
+      persoItem.onclick = (e) => {
+        e.stopPropagation()
+        openPersonalityPicker(persoItem, s)
+      }
+      menu.appendChild(persoItem)
+
       // --- Add teammate (lead only) ---
       const isLead = (s.teamIndex ?? 0) === 0
       if (isLead && s.status === 'active') {
@@ -1385,6 +1425,218 @@
     // Close the kebab menu on outside click or Esc
     document.addEventListener('click', () => closeSessionMenu())
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSessionMenu() })
+
+    // === Autopilot personalities ============================================
+    let personalitiesCache = null   // Personality[] | null
+    async function loadPersonalities(force) {
+      if (personalitiesCache && !force) return personalitiesCache
+      const res = await fetch('/api/personalities')
+      if (!res.ok) return []
+      personalitiesCache = await res.json()
+      return personalitiesCache
+    }
+
+    async function openPersonalityPicker(anchorEl, s) {
+      const list = await loadPersonalities()
+      // Remove any existing picker
+      document.querySelectorAll('.persona-picker').forEach(el => el.remove())
+      const pop = document.createElement('div')
+      pop.className = 'kebab-menu persona-picker'
+      pop.style.right = '12px'
+      pop.style.minWidth = '220px'
+      pop.onclick = (e) => e.stopPropagation()
+
+      const renderRow = (label, onClick, active) => {
+        const b = document.createElement('button')
+        b.className = 'kebab-item' + (active ? ' active' : '')
+        b.textContent = (active ? '• ' : '  ') + label
+        b.onclick = onClick
+        pop.appendChild(b)
+      }
+
+      renderRow('None (default constraints)', async () => {
+        await assignPersonality(s.name, null)
+        document.querySelectorAll('.persona-picker').forEach(el => el.remove())
+        closeSessionMenu()
+      }, !s.personalityId)
+
+      for (const p of list) {
+        renderRow(p.name + (p.builtin ? '' : ' (custom)'), async () => {
+          await assignPersonality(s.name, p.id)
+          document.querySelectorAll('.persona-picker').forEach(el => el.remove())
+          closeSessionMenu()
+        }, s.personalityId === p.id)
+      }
+      anchorEl.parentElement.appendChild(pop)
+    }
+
+    async function assignPersonality(sessionName, personalityId) {
+      try {
+        const res = await fetch('/api/sessions/' + encodeURIComponent(sessionName) + '/personality', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ personalityId }),
+        })
+        if (!res.ok) {
+          const txt = await res.text()
+          alert(sessionName + ': failed to set personality — ' + txt)
+        }
+      } catch (err) {
+        alert(sessionName + ': ' + err)
+      }
+    }
+
+    async function openPersonalitiesPanel() {
+      const list = await loadPersonalities(true)
+      // Modal overlay
+      document.querySelectorAll('#personalities-modal').forEach(el => el.remove())
+      const overlay = document.createElement('div')
+      overlay.id = 'personalities-modal'
+      overlay.className = 'modal-overlay'
+      overlay.innerHTML = '<div class="modal-card" role="dialog" aria-label="Autopilot personalities"></div>'
+      const card = overlay.querySelector('.modal-card')
+
+      const close = () => overlay.remove()
+      overlay.onclick = (e) => { if (e.target === overlay) close() }
+      document.addEventListener('keydown', function onKey(e) {
+        if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey) }
+      })
+
+      const header = document.createElement('div')
+      header.className = 'modal-header'
+      header.innerHTML = '<h3 style="margin:0;">Autopilot personalities</h3>'
+      const closeBtn = document.createElement('button')
+      closeBtn.className = 'icon-btn'
+      closeBtn.textContent = '×'
+      closeBtn.onclick = close
+      header.appendChild(closeBtn)
+      card.appendChild(header)
+
+      const help = document.createElement('p')
+      help.style.cssText = 'color:var(--text-muted);font-size:12px;margin:4px 0 12px;'
+      help.textContent = 'Built-in personalities cannot be deleted but can be cloned. Each personality replaces the default autopilot constraint block.'
+      card.appendChild(help)
+
+      const tbl = document.createElement('div')
+      tbl.style.cssText = 'display:flex;flex-direction:column;gap:6px;max-height:50vh;overflow-y:auto;'
+      for (const p of list) {
+        const row = document.createElement('div')
+        row.className = 'persona-row'
+        row.innerHTML =
+          '<div style="flex:1;min-width:0;">' +
+          '  <div style="font-weight:600;">' + escapeHtml(p.name) + (p.builtin ? ' <span style="color:var(--text-muted);font-weight:400;font-size:11px;">built-in</span>' : '') + '</div>' +
+          '  <div style="color:var(--text-muted);font-size:11px;">' + escapeHtml(p.description || '') + '</div>' +
+          '</div>'
+        const acts = document.createElement('div')
+        acts.style.cssText = 'display:flex;gap:6px;'
+        const editB = document.createElement('button')
+        editB.className = 'kebab-item'
+        editB.textContent = p.builtin ? 'View' : 'Edit'
+        editB.onclick = () => openPersonalityEditor(p, close)
+        acts.appendChild(editB)
+        const cloneB = document.createElement('button')
+        cloneB.className = 'kebab-item'
+        cloneB.textContent = 'Clone'
+        cloneB.onclick = () => openPersonalityEditor({ ...p, id: undefined, builtin: false, name: p.name + ' (copy)' }, close)
+        acts.appendChild(cloneB)
+        if (!p.builtin) {
+          const delB = document.createElement('button')
+          delB.className = 'kebab-item danger'
+          delB.textContent = 'Delete'
+          delB.onclick = async () => {
+            if (!confirm('Delete personality "' + p.name + '"? Sessions using it will fall back to defaults.')) return
+            await fetch('/api/personalities/' + p.id, { method: 'DELETE' })
+            personalitiesCache = null
+            close()
+            openPersonalitiesPanel()
+          }
+          acts.appendChild(delB)
+        }
+        row.appendChild(acts)
+        tbl.appendChild(row)
+      }
+      card.appendChild(tbl)
+
+      const footer = document.createElement('div')
+      footer.style.cssText = 'margin-top:12px;display:flex;justify-content:flex-end;'
+      const newB = document.createElement('button')
+      newB.className = 'kebab-item primary'
+      newB.textContent = '+ New personality'
+      newB.onclick = () => openPersonalityEditor({ name: '', systemPrompt: '', description: '' }, close)
+      footer.appendChild(newB)
+      card.appendChild(footer)
+
+      document.body.appendChild(overlay)
+    }
+
+    function openPersonalityEditor(p, parentClose) {
+      document.querySelectorAll('#personality-editor').forEach(el => el.remove())
+      const overlay = document.createElement('div')
+      overlay.id = 'personality-editor'
+      overlay.className = 'modal-overlay'
+      overlay.innerHTML = '<div class="modal-card" role="dialog"></div>'
+      const card = overlay.querySelector('.modal-card')
+      const isNew = !p.id
+      const isBuiltin = !!p.builtin
+
+      const header = document.createElement('h3')
+      header.style.margin = '0 0 12px'
+      header.textContent = isNew ? 'New personality' : (isBuiltin ? 'View "' + p.name + '" (built-in, read-only)' : 'Edit "' + p.name + '"')
+      card.appendChild(header)
+
+      const fields = document.createElement('div')
+      fields.style.cssText = 'display:flex;flex-direction:column;gap:8px;'
+      const mkField = (label, key, type) => {
+        const wrap = document.createElement('label')
+        wrap.style.cssText = 'display:flex;flex-direction:column;gap:2px;font-size:12px;color:var(--text-muted);'
+        wrap.textContent = label
+        const input = type === 'textarea' ? document.createElement('textarea') : document.createElement('input')
+        input.value = p[key] ?? ''
+        input.dataset.key = key
+        if (type === 'textarea') {
+          input.rows = 8
+          input.style.cssText = 'font-family:monospace;font-size:12px;'
+        }
+        if (isBuiltin) input.disabled = true
+        wrap.appendChild(input)
+        fields.appendChild(wrap)
+        return input
+      }
+      const nameI = mkField('Name', 'name', 'input')
+      const descI = mkField('Description (one line)', 'description', 'input')
+      const promptI = mkField('System prompt — replaces the default constraint block', 'systemPrompt', 'textarea')
+      card.appendChild(fields)
+
+      const footer = document.createElement('div')
+      footer.style.cssText = 'margin-top:12px;display:flex;justify-content:flex-end;gap:6px;'
+      const cancelB = document.createElement('button')
+      cancelB.className = 'kebab-item'
+      cancelB.textContent = 'Cancel'
+      cancelB.onclick = () => overlay.remove()
+      footer.appendChild(cancelB)
+      if (!isBuiltin) {
+        const saveB = document.createElement('button')
+        saveB.className = 'kebab-item primary'
+        saveB.textContent = isNew ? 'Create' : 'Save'
+        saveB.onclick = async () => {
+          const body = { name: nameI.value.trim(), description: descI.value, systemPrompt: promptI.value }
+          if (!body.name || !body.systemPrompt) { alert('Name and system prompt are required.'); return }
+          const url = isNew ? '/api/personalities' : '/api/personalities/' + p.id
+          const method = isNew ? 'POST' : 'PATCH'
+          const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+          if (!res.ok) { alert('Save failed: ' + await res.text()); return }
+          personalitiesCache = null
+          overlay.remove()
+          if (parentClose) parentClose()
+          openPersonalitiesPanel()
+        }
+        footer.appendChild(saveB)
+      }
+      card.appendChild(footer)
+
+      overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
+      document.body.appendChild(overlay)
+    }
 
     async function addTeammate(leadName) {
       try {

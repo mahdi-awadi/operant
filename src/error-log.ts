@@ -2,8 +2,13 @@
 // SQLite-backed log of autopilot failures (timeout, parse_error, escalate).
 // Lets the user inspect what /btw actually returned when an answer didn't
 // reach Claude — the captured pane is the smoking gun in most cases.
+//
+// Schema lives in src/hub-db.ts — this class only knows how to read/write
+// the autopilot_errors table over a Database the caller already opened.
 
 import { Database } from 'bun:sqlite'
+import { openHubDb } from './hub-db'
+import { dirname } from 'path'
 
 export type ErrorStatus = 'parse_error' | 'timeout' | 'escalate' | 'risk' | 'other'
 
@@ -35,25 +40,19 @@ type Row = {
 
 export class ErrorLog {
   private db: Database
+  private ownsDb: boolean
 
-  constructor(dbPath: string) {
-    this.db = new Database(dbPath, { create: true })
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS autopilot_errors (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        ts INTEGER NOT NULL,
-        session_name TEXT NOT NULL,
-        session_path TEXT NOT NULL,
-        status TEXT NOT NULL,
-        reason TEXT,
-        raw_question TEXT,
-        wrapped_question TEXT,
-        captured_pane TEXT,
-        duration_ms INTEGER NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_autopilot_errors_ts ON autopilot_errors(ts DESC);
-      CREATE INDEX IF NOT EXISTS idx_autopilot_errors_session ON autopilot_errors(session_name, ts DESC);
-    `)
+  constructor(dbOrPath: Database | string) {
+    if (typeof dbOrPath === 'string') {
+      // Backward-compatible path-string form: spin up a hub-db in the
+      // file's directory. Used by older tests that pass a path directly.
+      const handle = openHubDb(dirname(dbOrPath))
+      this.db = handle.db
+      this.ownsDb = true
+    } else {
+      this.db = dbOrPath
+      this.ownsDb = false
+    }
   }
 
   record(e: ErrorEntry): void {
@@ -101,7 +100,7 @@ export class ErrorLog {
   }
 
   close(): void {
-    this.db.close()
+    if (this.ownsDb) this.db.close()
   }
 }
 

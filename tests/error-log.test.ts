@@ -1,26 +1,31 @@
 // tests/error-log.test.ts
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
 import { ErrorLog } from '../src/error-log'
-import { existsSync, unlinkSync } from 'fs'
+import { openHubDb } from '../src/hub-db'
+import { existsSync, mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import type { HubDbHandle } from '../src/hub-db'
 
 describe('ErrorLog', () => {
-  let dbPath: string
+  let dir: string
+  let handle: HubDbHandle
   let log: ErrorLog
 
   beforeEach(() => {
-    dbPath = join(tmpdir(), `hub-errors-test-${Date.now()}-${Math.random().toString(36).slice(2)}.sqlite`)
-    log = new ErrorLog(dbPath)
+    dir = mkdtempSync(join(tmpdir(), 'hub-errors-test-'))
+    handle = openHubDb(dir)
+    log = new ErrorLog(handle.db)
   })
 
   afterEach(() => {
     log.close()
-    if (existsSync(dbPath)) unlinkSync(dbPath)
+    handle.close()
+    rmSync(dir, { recursive: true, force: true })
   })
 
   test('creates the database file on construction', () => {
-    expect(existsSync(dbPath)).toBe(true)
+    expect(existsSync(join(dir, 'hub.sqlite'))).toBe(true)
   })
 
   test('record + recent round-trips an entry', () => {
@@ -67,14 +72,17 @@ describe('ErrorLog', () => {
     expect(rows.every(r => r.sessionName === 'a')).toBe(true)
   })
 
-  test('persists across instances (same path)', () => {
+  test('persists across handles to the same hub.sqlite', () => {
     log.record({ ts: 100, sessionName: 's', sessionPath: '/p:0', status: 'timeout', durationMs: 1 })
     log.close()
-    const log2 = new ErrorLog(dbPath)
+    handle.close()
+    const reopen = openHubDb(dir)
+    const log2 = new ErrorLog(reopen.db)
     try {
       expect(log2.recent().length).toBe(1)
     } finally {
       log2.close()
+      reopen.close()
     }
   })
 

@@ -27,6 +27,23 @@ describe('wrapQuestion', () => {
     const wrapped = wrapQuestion('pick one', '')
     expect(wrapped.toLowerCase()).toContain('escalate')
   })
+  test('with a personality, splices that personality\'s system_prompt in place of the default block', () => {
+    const wrapped = wrapQuestion('pick A or B', '', {
+      name: 'Pragmatist',
+      systemPrompt: 'BE TERSE. Reply under 50 words.',
+    })
+    expect(wrapped).toContain('Personality: Pragmatist')
+    expect(wrapped).toContain('BE TERSE. Reply under 50 words.')
+    // The default verbose constraint block must NOT also be present.
+    expect(wrapped).not.toContain('industry-standard approach')
+    expect(wrapped).toContain('Question from Claude:')
+    expect(wrapped).toContain('pick A or B')
+  })
+  test('without a personality, uses the default constraint block (back-compat)', () => {
+    const wrapped = wrapQuestion('pick A or B', '')
+    expect(wrapped).toContain('industry-standard')
+    expect(wrapped).not.toContain('Personality:')
+  })
   test('includes autopilot.md preferences block when provided', () => {
     const wrapped = wrapQuestion('pick one', '- Prefer Bun\n- Always TDD')
     expect(wrapped).toContain('Prefer Bun')
