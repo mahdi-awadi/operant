@@ -311,10 +311,14 @@ export class WebFrontend {
           const personalityId = personalityIdRaw ? parseInt(personalityIdRaw, 10) : undefined
           const limitRaw = url.searchParams.get('limit')
           const limit = limitRaw ? Math.max(1, Math.min(parseInt(limitRaw, 10) || 100, 1000)) : 100
+          // Default ON: caller almost always wants the linked feedback rows
+          // for surfacing in the History modal. Set ?feedback=0 to opt out.
+          const withFeedback = url.searchParams.get('feedback') !== '0'
           return Response.json(dec.recent({
             session,
             personalityId: Number.isFinite(personalityId as number) ? personalityId : undefined,
             limit,
+            withFeedback,
           }))
         }
 
@@ -929,10 +933,11 @@ export class WebFrontend {
 
   private async handleAutopilotVeto(req: Request): Promise<Response> {
     try {
-      const { name, action, edited } = (await req.json()) as {
+      const { name, action, edited, reason } = (await req.json()) as {
         name: string
         action: 'send' | 'edit' | 'cancel'
         edited?: string
+        reason?: string         // user's free-text "why" — captured for cancel/edit
       }
       const path = this.deps.registry.findByName(name)
       if (!path) return new Response(`Session not found: ${name}`, { status: 404 })
@@ -959,6 +964,22 @@ export class WebFrontend {
         })
       }
       // action === 'cancel': no injection, just drop the draft
+
+      // Capture feedback against the original decision row when the user
+      // overrode or rejected the autopilot's draft. Send carries no
+      // feedback — the silent "yes" doesn't tell us anything.
+      if ((action === 'cancel' || action === 'edit') && pending.decisionId !== undefined) {
+        try {
+          this.deps.decisions?.recordFeedback(pending.decisionId, {
+            ts: Date.now(),
+            action,
+            reason: reason?.trim() || undefined,
+            editedAnswer: action === 'edit' ? edited : undefined,
+          })
+        } catch (err) {
+          process.stderr.write(`hub: decisions.recordFeedback failed: ${err}\n`)
+        }
+      }
 
       return Response.json({ ok: true })
     } catch (err) {

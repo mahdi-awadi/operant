@@ -78,6 +78,20 @@ const SCHEMA_STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_autopilot_decisions_ts ON autopilot_decisions(ts DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_autopilot_decisions_session ON autopilot_decisions(session_name, ts DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_autopilot_decisions_personality ON autopilot_decisions(personality_id, ts DESC)`,
+
+  // Per-decision feedback — captured when the user vetoes ("cancel") or
+  // overrides ("edit") an autopilot draft inside the veto window. Lets
+  // personalities evolve from real corrections without ML. ON DELETE
+  // CASCADE: if the decision row is purged, its feedback goes with it.
+  `CREATE TABLE IF NOT EXISTS decision_feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    decision_id INTEGER NOT NULL REFERENCES autopilot_decisions(id) ON DELETE CASCADE,
+    ts INTEGER NOT NULL,
+    action TEXT NOT NULL,
+    reason TEXT,
+    edited_answer TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_decision_feedback_decision ON decision_feedback(decision_id)`,
 ]
 
 export function openHubDb(dir: string): HubDbHandle {

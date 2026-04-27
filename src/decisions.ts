@@ -6,6 +6,17 @@
 
 import { Database } from 'bun:sqlite'
 
+export type FeedbackAction = 'cancel' | 'edit'
+
+export type FeedbackEntry = {
+  id?: number
+  decisionId: number
+  ts: number
+  action: FeedbackAction
+  reason?: string
+  editedAnswer?: string
+}
+
 export type DecisionEntry = {
   id?: number
   ts: number              // epoch ms
@@ -16,6 +27,27 @@ export type DecisionEntry = {
   rawQuestion: string
   answer: string
   durationMs: number
+  feedback?: FeedbackEntry[]   // attached when recent({ withFeedback: true })
+}
+
+type FeedbackRow = {
+  id: number
+  decision_id: number
+  ts: number
+  action: string
+  reason: string | null
+  edited_answer: string | null
+}
+
+function feedbackRowToEntry(r: FeedbackRow): FeedbackEntry {
+  return {
+    id: r.id,
+    decisionId: r.decision_id,
+    ts: r.ts,
+    action: r.action as FeedbackAction,
+    reason: r.reason ?? undefined,
+    editedAnswer: r.edited_answer ?? undefined,
+  }
 }
 
 type Row = {
@@ -47,8 +79,8 @@ function rowToEntry(r: Row): DecisionEntry {
 export class Decisions {
   constructor(private db: Database) {}
 
-  record(e: DecisionEntry): void {
-    this.db.prepare(
+  record(e: DecisionEntry): number {
+    const result = this.db.prepare(
       `INSERT INTO autopilot_decisions
        (ts, session_name, session_path, personality_id, personality_name, raw_question, answer, duration_ms)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -62,9 +94,32 @@ export class Decisions {
       e.answer,
       e.durationMs,
     )
+    return Number(result.lastInsertRowid)
   }
 
-  recent(opts?: { session?: string; personalityId?: number; limit?: number }): DecisionEntry[] {
+  getById(id: number): DecisionEntry | undefined {
+    const r = this.db.prepare(`SELECT * FROM autopilot_decisions WHERE id = ?`).get(id) as Row | undefined
+    return r ? rowToEntry(r) : undefined
+  }
+
+  // Capture user feedback when an autopilot draft is vetoed or edited.
+  // Pairs the user's free-text reason with the original decision row so
+  // personalities can later be tuned from real corrections.
+  recordFeedback(decisionId: number, f: Omit<FeedbackEntry, 'decisionId' | 'id'>): number {
+    const result = this.db.prepare(
+      `INSERT INTO decision_feedback (decision_id, ts, action, reason, edited_answer)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run(
+      decisionId,
+      f.ts,
+      f.action,
+      f.reason ?? null,
+      f.editedAnswer ?? null,
+    )
+    return Number(result.lastInsertRowid)
+  }
+
+  recent(opts?: { session?: string; personalityId?: number; limit?: number; withFeedback?: boolean }): DecisionEntry[] {
     const limit = Math.max(1, Math.min(opts?.limit ?? 100, 1000))
     const conds: string[] = []
     const params: (string | number)[] = []
@@ -74,7 +129,30 @@ export class Decisions {
     const rows = this.db
       .prepare(`SELECT * FROM autopilot_decisions ${where} ORDER BY ts DESC LIMIT ?`)
       .all(...params, limit) as Row[]
-    return rows.map(rowToEntry)
+    const entries = rows.map(rowToEntry)
+    if (opts?.withFeedback) {
+      // Attach feedback newest-first per decision. One round-trip across all
+      // decision ids in this batch — avoids the N+1 select-per-row pattern.
+      const ids = entries.map((e) => e.id!).filter(Boolean)
+      if (ids.length > 0) {
+        const placeholders = ids.map(() => '?').join(',')
+        const fbRows = this.db
+          .prepare(`SELECT * FROM decision_feedback WHERE decision_id IN (${placeholders}) ORDER BY ts DESC`)
+          .all(...ids) as FeedbackRow[]
+        const byDecision = new Map<number, FeedbackEntry[]>()
+        for (const r of fbRows) {
+          const e = feedbackRowToEntry(r)
+          if (!byDecision.has(e.decisionId)) byDecision.set(e.decisionId, [])
+          byDecision.get(e.decisionId)!.push(e)
+        }
+        for (const e of entries) {
+          e.feedback = byDecision.get(e.id!) ?? []
+        }
+      } else {
+        for (const e of entries) e.feedback = []
+      }
+    }
+    return entries
   }
 
   // Storage hygiene — bound per-session history to N rows so chatty

@@ -313,8 +313,9 @@ socketServer.on('tool_call', (path: string, name: string, args: Record<string, u
         if (result.status === 'answered') {
           // Audit trail — the autopilot actually answered, log it. Failure
           // outcomes already go to errorLog above; this complements that.
+          let decisionId: number | undefined
           try {
-            decisions.record({
+            decisionId = decisions.record({
               ts: Date.now(),
               sessionName,
               sessionPath: path,
@@ -337,7 +338,7 @@ socketServer.on('tool_call', (path: string, name: string, args: Record<string, u
               })
               telegramFrontend?.deliverToUser(v.sessionName, `🤖 Autopilot sent: ${v.draft}`)
               webFrontend?.deliverToUser(v.sessionName, `🤖 Autopilot sent: ${v.draft}`)
-            })
+            }, decisionId)
             telegramFrontend?.deliverAutopilotDraft(sessionName, veto.draft, vetoMs)
             webFrontend?.deliverAutopilotDraft(path, sessionName, veto.draft, vetoMs)
           } else {

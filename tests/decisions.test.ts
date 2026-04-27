@@ -90,6 +90,79 @@ describe('Decisions', () => {
     expect(dec.recent({ limit: 5 }).length).toBe(5)
   })
 
+  test('record returns the inserted decision id (so callers can attach feedback)', () => {
+    const id = dec.record({
+      ts: 1, sessionName: 's', sessionPath: '/p:0',
+      rawQuestion: 'q', answer: 'a', durationMs: 1,
+    })
+    expect(typeof id).toBe('number')
+    expect(id).toBeGreaterThan(0)
+    expect(dec.getById(id)?.rawQuestion).toBe('q')
+  })
+
+  test('recordFeedback + recent({ withFeedback: true }) round-trips veto reasons', () => {
+    const id = dec.record({
+      ts: 1, sessionName: 's', sessionPath: '/p:0',
+      rawQuestion: 'q', answer: 'a', durationMs: 1,
+    })
+    dec.recordFeedback(id, { ts: 2, action: 'cancel', reason: 'too verbose' })
+    const rows = dec.recent({ withFeedback: true })
+    expect(rows[0]?.feedback).toEqual([
+      expect.objectContaining({ action: 'cancel', reason: 'too verbose' }),
+    ])
+  })
+
+  test('recordFeedback for an edit captures the edited answer', () => {
+    const id = dec.record({
+      ts: 1, sessionName: 's', sessionPath: '/p:0',
+      rawQuestion: 'q', answer: 'A', durationMs: 1,
+    })
+    dec.recordFeedback(id, {
+      ts: 2, action: 'edit',
+      reason: 'preferred B for compatibility',
+      editedAnswer: 'B',
+    })
+    const [row] = dec.recent({ withFeedback: true })
+    expect(row?.feedback?.[0]).toMatchObject({
+      action: 'edit',
+      reason: 'preferred B for compatibility',
+      editedAnswer: 'B',
+    })
+  })
+
+  test('multiple feedback entries on one decision are returned newest first', () => {
+    const id = dec.record({
+      ts: 1, sessionName: 's', sessionPath: '/p:0',
+      rawQuestion: 'q', answer: 'a', durationMs: 1,
+    })
+    dec.recordFeedback(id, { ts: 100, action: 'cancel', reason: 'first' })
+    dec.recordFeedback(id, { ts: 200, action: 'cancel', reason: 'second' })
+    const [row] = dec.recent({ withFeedback: true })
+    const reasons = (row?.feedback ?? []).map((f) => f.reason)
+    expect(reasons).toEqual(['second', 'first'])
+  })
+
+  test('feedback rows cascade-delete when their decision row is removed (FK CASCADE)', () => {
+    const id = dec.record({
+      ts: 1, sessionName: 's', sessionPath: '/p:0',
+      rawQuestion: 'q', answer: 'a', durationMs: 1,
+    })
+    dec.recordFeedback(id, { ts: 2, action: 'cancel', reason: 'x' })
+    handle.db.prepare(`DELETE FROM autopilot_decisions WHERE id = ?`).run(id)
+    const orphans = handle.db.prepare(`SELECT count(*) AS c FROM decision_feedback`).get() as any
+    expect(orphans.c).toBe(0)
+  })
+
+  test('recent({ withFeedback: false }) does NOT include the feedback array', () => {
+    const id = dec.record({
+      ts: 1, sessionName: 's', sessionPath: '/p:0',
+      rawQuestion: 'q', answer: 'a', durationMs: 1,
+    })
+    dec.recordFeedback(id, { ts: 2, action: 'cancel', reason: 'x' })
+    const [row] = dec.recent()  // default: no feedback
+    expect((row as any).feedback).toBeUndefined()
+  })
+
   test('purgeKeepLast keeps only the N most recent rows per session', () => {
     for (let i = 0; i < 30; i++) {
       dec.record({ ts: i, sessionName: 'a', sessionPath: '/a:0', rawQuestion: 'q', answer: 'a', durationMs: 1 })

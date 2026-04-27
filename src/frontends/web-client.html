@@ -1162,6 +1162,8 @@
           <span id="autopilot-veto-countdown" style="font-size:11px;color:var(--text-muted);margin-left:auto;">(${secondsLeft()}s)</span>
         </h4>
         <textarea id="autopilot-veto-draft">${escapeHtml(msg.draft)}</textarea>
+        <input id="autopilot-veto-reason" type="text" placeholder="Optional: why are you editing or cancelling? (helps tune this personality)"
+          style="margin-top:6px;width:100%;background:var(--input-bg);color:var(--text);border:1px solid var(--border);border-radius:5px;padding:6px 8px;font:inherit;">
         <div class="veto-actions">
           <button class="veto-send" onclick="submitVeto('${escapeHtml(msg.sessionName)}','send')">✅ Send</button>
           <button class="veto-edit" onclick="submitVeto('${escapeHtml(msg.sessionName)}','edit')">✏️ Edit &amp; send</button>
@@ -1192,13 +1194,15 @@
 
     async function submitVeto(sessionName, action) {
       const textarea = document.getElementById('autopilot-veto-draft')
+      const reasonInput = document.getElementById('autopilot-veto-reason')
       const edited = textarea ? textarea.value : ''
+      const reason = reasonInput ? reasonInput.value.trim() : ''
       dismissVetoCard()
       try {
         await fetch('/api/autopilot/veto', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: sessionName, action, edited }),
+          body: JSON.stringify({ name: sessionName, action, edited, reason }),
         })
       } catch (err) {
         console.error('Veto action failed', err)
@@ -1734,6 +1738,29 @@
             item.style.cursor = 'default'
             item.onclick = null
           }
+        }
+
+        // Attached feedback (cancel/edit reasons captured during veto window)
+        const fb = Array.isArray(r.feedback) ? r.feedback : []
+        if (fb.length > 0) {
+          const fbWrap = document.createElement('div')
+          fbWrap.style.cssText = 'margin-top:6px;padding-top:6px;border-top:1px dashed var(--border);font-size:12px;'
+          for (const entry of fb) {
+            const line = document.createElement('div')
+            const verb = entry.action === 'cancel' ? 'Cancelled' : 'Edited'
+            const when = new Date(entry.ts).toLocaleString()
+            const reason = entry.reason ? ' — "' + escapeHtml(entry.reason) + '"' : ''
+            line.style.cssText = 'color:var(--text-muted);'
+            line.innerHTML = '<strong>' + verb + '</strong> at ' + escapeHtml(when) + reason
+            fbWrap.appendChild(line)
+            if (entry.action === 'edit' && entry.editedAnswer) {
+              const ed = document.createElement('div')
+              ed.style.cssText = 'margin-top:2px;padding-left:10px;color:var(--text);'
+              ed.textContent = '↳ user wrote: ' + entry.editedAnswer
+              fbWrap.appendChild(ed)
+            }
+          }
+          item.appendChild(fbWrap)
         }
         list.appendChild(item)
       }
