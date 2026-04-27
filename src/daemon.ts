@@ -22,6 +22,7 @@ import { ErrorLog } from './error-log'
 import { openHubDb } from './hub-db'
 import { Personalities } from './personalities'
 import { Decisions } from './decisions'
+import { Messages } from './messages'
 
 const DRIFT_RATE_LIMIT_MS = 2 * 60 * 1000 // 2 minutes between alerts per session
 const lastDriftNotif = new Map<string, number>()
@@ -113,10 +114,13 @@ const hubDb = openHubDb(HUB_DIR)
 const errorLog = new ErrorLog(hubDb.db)
 const personalities = new Personalities(hubDb.db)
 const decisions = new Decisions(hubDb.db)
+const messages = new Messages(hubDb.db)
 // Bound error-log storage at 5000 entries — captured panes can be large.
 setInterval(() => errorLog.purgeKeepLast(5000), 60 * 60 * 1000).unref()
 // Bound decision history to last 500 per session.
 setInterval(() => decisions.purgeKeepLastPerSession(500), 60 * 60 * 1000).unref()
+// Bound visible chat history to last 1000 per session.
+setInterval(() => messages.purgeKeepLastPerSession(1000), 60 * 60 * 1000).unref()
 const autopilotRunner = new AutopilotRunner({
   screenManager,
   btwTimeoutMs: autopilotDefaults.btwTimeoutMs,
@@ -511,6 +515,7 @@ async function start(): Promise<void> {
     errorLog,
     personalities,
     decisions,
+    messages,
   })
   await webFrontend.start()
   process.stderr.write(`hub: web UI at http://localhost:${webFrontend.port}\n`)

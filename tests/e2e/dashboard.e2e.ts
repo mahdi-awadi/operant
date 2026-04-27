@@ -161,6 +161,34 @@ test('compose-draft dot appears on sidebar rows that have unsent text (other tha
   await expect(alphaRow.locator('.compose-dot')).toBeVisible()
 })
 
+test('chat history is persisted to the server and replayed on a hard refresh', async ({ page }) => {
+  await authedPage(page)
+  // Block real WS message routing — the test only cares about persistence,
+  // and routing requires a router which the test server doesn't wire.
+  // Sending via the API endpoint persists the user message regardless.
+
+  // Send a message via the public API as the "web-user" identity.
+  const res = await page.request.post(`${srv.url}/api/send`, {
+    headers: { cookie: srv.cookie, 'content-type': 'application/json' },
+    data: { sessionName: 'alpha', text: 'remember me across reloads' },
+  })
+  expect(res.ok()).toBe(true)
+
+  // Land on alpha — history is empty because the message just landed
+  // server-side. Force a reload so the client lazy-loads from /messages.
+  await page.locator('.session-name', { hasText: 'alpha' }).click()
+  await page.reload()
+  // Re-seed the localStorage gate after reload (cookie persists).
+  await page.evaluate(() => {
+    localStorage.setItem('hub_user', JSON.stringify({ id: 11111, first_name: 'Test' }))
+  })
+  await page.reload()
+  await page.locator('.session-name', { hasText: 'alpha' }).click()
+
+  // The historical message must be in the chat
+  await expect(page.locator('.msg-bubble', { hasText: 'remember me across reloads' })).toBeVisible()
+})
+
 test('autopilot toggle shows the spinner while POST is in flight', async ({ page }) => {
   await authedPage(page)
   // Slow the autopilot endpoint so we can actually catch the spinner mid-flight.

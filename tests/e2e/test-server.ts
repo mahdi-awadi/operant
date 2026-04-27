@@ -8,6 +8,7 @@ import { SessionRegistry } from '../../src/session-registry'
 import { openHubDb } from '../../src/hub-db'
 import { Personalities } from '../../src/personalities'
 import { Decisions } from '../../src/decisions'
+import { Messages } from '../../src/messages'
 import { ErrorLog } from '../../src/error-log'
 import type { SessionConfig } from '../../src/types'
 import { mkdtempSync, rmSync } from 'fs'
@@ -48,12 +49,21 @@ export async function startTestServer(opts?: {
   const errorLog = new ErrorLog(hubDb.db)
   const personalities = new Personalities(hubDb.db)
   const decisions = new Decisions(hubDb.db)
+  const messages = new Messages(hubDb.db)
+
+  // No-op router: lets endpoints that gate on `router != null` (e.g. /api/send)
+  // run without spawning real shim processes. Tests that need to verify the
+  // outbound message can intercept via page.route() if the router is exercised.
+  const stubRouter = {
+    routeToSession: () => undefined,
+    routeFromSession: () => undefined,
+  } as any
 
   const web = new WebFrontend({
     port: 0,                          // OS picks a free port
     host: '127.0.0.1',
     registry,
-    router: null as any,
+    router: stubRouter,
     permissions: null as any,
     socketServer: null as any,
     screenManager: null as any,
@@ -64,6 +74,7 @@ export async function startTestServer(opts?: {
     errorLog,
     personalities,
     decisions,
+    messages,
   })
   await web.start()
 

@@ -2077,9 +2077,13 @@
       const area = document.getElementById('messages')
       area.innerHTML = ''
 
-      const msgs = messagesBySession[name] || []
-      for (const m of msgs) {
-        appendMessage(m, false)
+      // Lazy-load history from the server the first time the user lands on
+      // this session — survives a hard refresh of the dashboard.
+      if (!messagesBySession[name]) {
+        loadSessionHistory(name)
+      } else {
+        const msgs = messagesBySession[name]
+        for (const m of msgs) appendMessage(m, false)
       }
 
       // If this session has a pending autopilot draft (within its 30s veto
@@ -2095,6 +2099,37 @@
 
       renderSidebar()
       scrollToBottom()
+    }
+
+    // Fetch and render a session's stored chat history. Mutates
+    // messagesBySession[name] so subsequent selectSession calls hit the
+    // in-memory cache. If the server returns nothing, leaves the array
+    // empty so we don't keep refetching.
+    async function loadSessionHistory(name) {
+      // Mark as loading so concurrent selectSession calls don't refetch.
+      messagesBySession[name] = []
+      try {
+        const res = await fetch('/api/sessions/' + encodeURIComponent(name) + '/messages?limit=200')
+        if (!res.ok) return
+        const rows = await res.json()
+        if (!Array.isArray(rows) || rows.length === 0) return
+        // API returns newest-first; reverse for chronological chat order.
+        const ordered = rows.slice().reverse().map((r) => ({
+          role: r.role,
+          text: r.text,
+          ts: r.ts,
+          files: r.files,
+        }))
+        messagesBySession[name] = ordered
+        // Only render if the user is still on this session.
+        if (activeSession === name) {
+          const area = document.getElementById('messages')
+          area.innerHTML = ''
+          for (const m of ordered) appendMessage(m, false)
+        }
+      } catch (err) {
+        console.error('loadSessionHistory failed', err)
+      }
     }
 
     function appendMessage(msg, isOther) {

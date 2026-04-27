@@ -18,6 +18,7 @@ import type { AutopilotRunner } from '../autopilot'
 import type { ErrorLog } from '../error-log'
 import type { Personalities, PersonalityInput } from '../personalities'
 import type { Decisions } from '../decisions'
+import type { Messages } from '../messages'
 import { saveSessions } from '../config'
 import { listPriorSessions } from '../claude-sessions'
 
@@ -120,6 +121,7 @@ type WebFrontendDeps = {
   errorLog?: ErrorLog
   personalities?: Personalities
   decisions?: Decisions
+  messages?: Messages
   projectsRootOverride?: string  // test-only: override ~/.claude/projects root
 }
 
@@ -351,6 +353,19 @@ export class WebFrontend {
           }
         }
 
+        // GET /api/sessions/:name/messages — replay history on dashboard
+        // refresh. Returns rows newest-first; the client reverses for display.
+        {
+          const m = url.pathname.match(/^\/api\/sessions\/([^/]+)\/messages$/)
+          if (m && req.method === 'GET') {
+            const dao = self.deps.messages
+            if (!dao) return Response.json([])
+            const limitRaw = url.searchParams.get('limit')
+            const limit = limitRaw ? Math.max(1, Math.min(parseInt(limitRaw, 10) || 200, 1000)) : 200
+            return Response.json(dao.recent({ session: decodeURIComponent(m[1]!), limit }))
+          }
+        }
+
         if (url.pathname === '/api/session/rules' && req.method === 'POST') {
           return self.handleRules(req)
         }
@@ -405,6 +420,18 @@ export class WebFrontend {
   }
 
   deliverToUser(sessionName: string, text: string, files?: string[]): void {
+    // Persist before broadcast so a hard refresh can replay the chat.
+    try {
+      this.deps.messages?.record({
+        ts: Date.now(),
+        sessionName,
+        role: 'claude',
+        text,
+        files,
+      })
+    } catch (err) {
+      process.stderr.write(`web: messages.record (claude) failed: ${err}\n`)
+    }
     this.broadcastToClients({ type: 'message', sessionName, text, files })
   }
 
@@ -468,6 +495,16 @@ export class WebFrontend {
     if (msg.type === 'message') {
       const { text, sessionName } = msg as { text: string; sessionName: string }
       if (this.deps.router && text && sessionName) {
+        try {
+          this.deps.messages?.record({
+            ts: Date.now(),
+            sessionName,
+            role: 'user',
+            text,
+          })
+        } catch (err) {
+          process.stderr.write(`web: messages.record (user/ws) failed: ${err}\n`)
+        }
         this.deps.router.routeToSession(sessionName, text, 'web', 'web-user')
       }
     } else if (msg.type === 'spawn') {
@@ -728,6 +765,16 @@ export class WebFrontend {
     try {
       const { sessionName, text } = (await req.json()) as { sessionName: string; text: string }
       if (!this.deps.router) return new Response('No router', { status: 503 })
+      try {
+        this.deps.messages?.record({
+          ts: Date.now(),
+          sessionName,
+          role: 'user',
+          text,
+        })
+      } catch (err) {
+        process.stderr.write(`web: messages.record (user/api) failed: ${err}\n`)
+      }
       this.deps.router.routeToSession(sessionName, text, 'web', 'web-user')
       return Response.json({ ok: true })
     } catch (err) {
@@ -1011,7 +1058,17 @@ export class WebFrontend {
         const text = (body.text ?? '').trim()
         if (!text) return Response.json({ ok: false, reason: 'empty answer' }, { status: 400 })
         // Route the user's answer through the normal message path — same as
-        // typing in the web chat input.
+        // typing in the web chat input. Persist for history first.
+        try {
+          this.deps.messages?.record({
+            ts: Date.now(),
+            sessionName: body.name,
+            role: 'user',
+            text,
+          })
+        } catch (err) {
+          process.stderr.write(`web: messages.record (user/escalate) failed: ${err}\n`)
+        }
         this.deps.router?.routeToSession(body.name, text, 'web', 'web-user')
         return Response.json({ ok: true })
       }

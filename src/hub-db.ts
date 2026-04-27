@@ -92,6 +92,19 @@ const SCHEMA_STATEMENTS = [
     edited_answer TEXT
   )`,
   `CREATE INDEX IF NOT EXISTS idx_decision_feedback_decision ON decision_feedback(decision_id)`,
+
+  // Web-visible chat history. Persisted per session so reloading the
+  // dashboard does not wipe context. Bounded by a per-session purge run
+  // hourly. files_json holds attachment paths/URLs as a JSON array string.
+  `CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts INTEGER NOT NULL,
+    session_name TEXT NOT NULL,
+    role TEXT NOT NULL,
+    text TEXT NOT NULL,
+    files_json TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_messages_session_ts ON messages(session_name, ts DESC)`,
 ]
 
 export function openHubDb(dir: string): HubDbHandle {
