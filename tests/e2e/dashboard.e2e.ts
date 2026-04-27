@@ -68,6 +68,49 @@ test('kebab menu opens with autopilot + trust + close items', async ({ page }) =
   await expect(page.locator('.kebab-item', { hasText: /History/ })).toBeVisible()
 })
 
+test('personality picker opens as a modal with grouped options + active indicator', async ({ page }) => {
+  await authedPage(page)
+  const alphaRow = page.locator('.session-item', { has: page.locator('.session-name', { hasText: 'alpha' }) })
+  await alphaRow.hover()
+  await alphaRow.locator('.kebab-btn').click()
+  // Click the Personality submenu item
+  await page.locator('.kebab-item', { hasText: /Personality:/ }).click()
+
+  // Modal should be visible
+  const modal = page.locator('.persona-picker-modal')
+  await expect(modal).toBeVisible()
+
+  // Header includes the session name in the title
+  await expect(modal).toContainText('Personality for')
+  await expect(modal).toContainText('alpha')
+
+  // The "Default" option exists and is active by default (no personality assigned yet)
+  const defaultOption = modal.locator('.persona-option', {
+    has: page.locator('.persona-option-name', { hasText: /^Default$/ }),
+  })
+  await expect(defaultOption).toBeVisible()
+  await expect(defaultOption).toHaveClass(/active/)
+  await expect(defaultOption.locator('.persona-option-check')).toBeVisible()
+
+  // Built-in section header
+  await expect(modal.locator('.persona-group-heading', { hasText: /^Built-in$/i })).toBeVisible()
+
+  // All five built-in personalities show up with the built-in tag — match
+  // by exact name on the title element so descriptions don't cross-contaminate
+  // the selector.
+  for (const name of ['Senior Engineer', 'Pragmatist', 'Architect', 'Safety-First', 'Researcher']) {
+    const opt = modal.locator('.persona-option', {
+      has: page.locator('.persona-option-name', { hasText: new RegExp('^' + name) }),
+    })
+    await expect(opt).toBeVisible()
+    await expect(opt.locator('.persona-option-tag', { hasText: 'built-in' })).toBeVisible()
+  }
+
+  // Esc closes the modal
+  await page.keyboard.press('Escape')
+  await expect(modal).toHaveCount(0)
+})
+
 test('GET /api/sessions returns the seeded sessions when authed', async ({ request }) => {
   const res = await request.get(`${srv.url}/api/sessions`, {
     headers: { cookie: srv.cookie },

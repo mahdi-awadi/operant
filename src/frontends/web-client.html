@@ -681,6 +681,70 @@
     .kebab-item.primary { color: #4acfcf; font-weight: 600; }
     .kebab-item.active { background: rgba(74,207,207,0.08); }
 
+    /* Personality picker — a focused modal with grouped options */
+    .persona-picker-card {
+      min-width: 380px;
+      max-width: 440px;
+      gap: 4px;
+    }
+    .persona-group {
+      display: flex; flex-direction: column; gap: 4px;
+      margin-top: 2px;
+    }
+    .persona-group-heading {
+      margin-top: 14px; margin-bottom: 4px;
+      font-size: 11px; font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase; letter-spacing: 0.06em;
+    }
+    .persona-option {
+      display: flex; align-items: flex-start; gap: 10px;
+      padding: 10px 12px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid var(--border); border-radius: 8px;
+      color: var(--text); font: inherit; cursor: pointer;
+      transition: background 0.08s, border-color 0.08s;
+      text-align: left;
+    }
+    body[data-theme="light"] .persona-option { background: rgba(0,0,0,0.02); }
+    .persona-option:hover { background: rgba(74,207,207,0.06); border-color: #4acfcf80; }
+    .persona-option.active {
+      background: rgba(74,207,207,0.12);
+      border-color: #4acfcf;
+    }
+    body[data-theme="light"] .persona-option.active { background: rgba(0,139,139,0.08); border-color: #008b8b; }
+    .persona-option-dot {
+      width: 12px; height: 12px; border-radius: 50%;
+      border: 1.5px solid var(--text-muted);
+      margin-top: 3px; flex-shrink: 0;
+      transition: background 0.08s, border-color 0.08s;
+    }
+    .persona-option-dot.filled {
+      background: #4acfcf; border-color: #4acfcf;
+      box-shadow: inset 0 0 0 2px var(--bg);
+    }
+    body[data-theme="light"] .persona-option-dot.filled { background: #008b8b; border-color: #008b8b; }
+    .persona-option-name {
+      font-weight: 600; font-size: 13px;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .persona-option-tag {
+      font-size: 10px; font-weight: 500;
+      padding: 1px 6px; border-radius: 999px;
+      background: rgba(255,255,255,0.06); color: var(--text-muted);
+      text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    body[data-theme="light"] .persona-option-tag { background: rgba(0,0,0,0.06); }
+    .persona-option-tag.custom { color: #fbbf24; background: rgba(251,191,36,0.1); }
+    .persona-option-desc {
+      margin-top: 3px; color: var(--text-muted); font-size: 11px;
+      line-height: 1.4;
+    }
+    .persona-option-check {
+      color: #4acfcf; font-weight: 700; font-size: 14px; margin-top: 1px;
+    }
+    body[data-theme="light"] .persona-option-check { color: #008b8b; }
+
     /* Pending autopilot-draft chip on a sidebar row */
     .draft-chip {
       font-size: 10px; line-height: 1; padding: 2px 6px;
@@ -1508,38 +1572,152 @@
       return personalitiesCache
     }
 
-    async function openPersonalityPicker(anchorEl, s) {
+    async function openPersonalityPicker(_anchorEl, s) {
       const list = await loadPersonalities()
-      // Remove any existing picker
-      document.querySelectorAll('.persona-picker').forEach(el => el.remove())
-      const pop = document.createElement('div')
-      pop.className = 'kebab-menu persona-picker'
-      pop.style.right = '12px'
-      pop.style.minWidth = '220px'
-      pop.onclick = (e) => e.stopPropagation()
+      // Replace any existing picker / kebab menu — only one popover at a time.
+      document.querySelectorAll('.persona-picker-modal').forEach((el) => el.remove())
+      closeSessionMenu()
 
-      const renderRow = (label, onClick, active) => {
-        const b = document.createElement('button')
-        b.className = 'kebab-item' + (active ? ' active' : '')
-        b.textContent = (active ? '• ' : '  ') + label
-        b.onclick = onClick
-        pop.appendChild(b)
+      const overlay = document.createElement('div')
+      overlay.className = 'modal-overlay persona-picker-modal'
+      overlay.innerHTML = '<div class="modal-card persona-picker-card" role="dialog" aria-label="Choose personality"></div>'
+      const card = overlay.querySelector('.modal-card')
+
+      const close = () => overlay.remove()
+      overlay.onclick = (e) => { if (e.target === overlay) close() }
+      const onKey = (e) => {
+        if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey) }
+      }
+      document.addEventListener('keydown', onKey)
+
+      // --- Header ---
+      const header = document.createElement('div')
+      header.className = 'modal-header'
+      header.innerHTML =
+        '<div>' +
+        '  <div style="font-weight:600;">Personality for <span style="color:#4acfcf;">' + escapeHtml(s.name) + '</span></div>' +
+        '  <div style="color:var(--text-muted);font-size:11px;margin-top:2px;">Choose how autopilot speaks for this session</div>' +
+        '</div>'
+      const closeBtn = document.createElement('button')
+      closeBtn.className = 'icon-btn'
+      closeBtn.textContent = '×'
+      closeBtn.onclick = close
+      header.appendChild(closeBtn)
+      card.appendChild(header)
+
+      // --- Option renderer ---
+      const buildOption = ({ id, name, description, group, active, isNone }) => {
+        const opt = document.createElement('button')
+        opt.className = 'persona-option' + (active ? ' active' : '')
+        opt.setAttribute('aria-pressed', String(active))
+        opt.onclick = async () => {
+          await assignPersonality(s.name, id)
+          close()
+        }
+        const dot = document.createElement('span')
+        dot.className = 'persona-option-dot' + (active ? ' filled' : '')
+        opt.appendChild(dot)
+
+        const body = document.createElement('div')
+        body.style.cssText = 'flex:1;min-width:0;text-align:left;'
+        const title = document.createElement('div')
+        title.className = 'persona-option-name'
+        title.textContent = name
+        if (group === 'builtin') {
+          const tag = document.createElement('span')
+          tag.className = 'persona-option-tag'
+          tag.textContent = 'built-in'
+          title.appendChild(tag)
+        } else if (group === 'custom') {
+          const tag = document.createElement('span')
+          tag.className = 'persona-option-tag custom'
+          tag.textContent = 'custom'
+          title.appendChild(tag)
+        }
+        body.appendChild(title)
+
+        if (description) {
+          const desc = document.createElement('div')
+          desc.className = 'persona-option-desc'
+          desc.textContent = description
+          body.appendChild(desc)
+        } else if (isNone) {
+          const desc = document.createElement('div')
+          desc.className = 'persona-option-desc'
+          desc.textContent = 'Use the built-in default constraints (decisive, balanced, escalates on irreversible).'
+          body.appendChild(desc)
+        }
+        opt.appendChild(body)
+
+        if (active) {
+          const check = document.createElement('span')
+          check.className = 'persona-option-check'
+          check.textContent = '✓'
+          opt.appendChild(check)
+        }
+        return opt
       }
 
-      renderRow('None (default constraints)', async () => {
-        await assignPersonality(s.name, null)
-        document.querySelectorAll('.persona-picker').forEach(el => el.remove())
-        closeSessionMenu()
-      }, !s.personalityId)
+      // --- "None" row ---
+      const list1 = document.createElement('div')
+      list1.className = 'persona-group'
+      list1.appendChild(buildOption({
+        id: null, name: 'Default',
+        active: !s.personalityId,
+        isNone: true,
+      }))
+      card.appendChild(list1)
 
-      for (const p of list) {
-        renderRow(p.name + (p.builtin ? '' : ' (custom)'), async () => {
-          await assignPersonality(s.name, p.id)
-          document.querySelectorAll('.persona-picker').forEach(el => el.remove())
-          closeSessionMenu()
-        }, s.personalityId === p.id)
+      // --- Built-in section ---
+      const builtins = list.filter((p) => p.builtin)
+      if (builtins.length > 0) {
+        const heading = document.createElement('div')
+        heading.className = 'persona-group-heading'
+        heading.textContent = 'Built-in'
+        card.appendChild(heading)
+        const grp = document.createElement('div')
+        grp.className = 'persona-group'
+        for (const p of builtins) {
+          grp.appendChild(buildOption({
+            id: p.id, name: p.name, description: p.description,
+            group: 'builtin',
+            active: s.personalityId === p.id,
+          }))
+        }
+        card.appendChild(grp)
       }
-      anchorEl.parentElement.appendChild(pop)
+
+      // --- Custom section ---
+      const customs = list.filter((p) => !p.builtin)
+      if (customs.length > 0) {
+        const heading = document.createElement('div')
+        heading.className = 'persona-group-heading'
+        heading.textContent = 'Custom'
+        card.appendChild(heading)
+        const grp = document.createElement('div')
+        grp.className = 'persona-group'
+        for (const p of customs) {
+          grp.appendChild(buildOption({
+            id: p.id, name: p.name, description: p.description,
+            group: 'custom',
+            active: s.personalityId === p.id,
+          }))
+        }
+        card.appendChild(grp)
+      }
+
+      // --- Footer link to the full Personalities panel ---
+      const footer = document.createElement('div')
+      footer.style.cssText = 'margin-top:12px;padding-top:10px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;'
+      const manage = document.createElement('button')
+      manage.className = 'kebab-item'
+      manage.style.cssText = 'flex:1;'
+      manage.textContent = 'Manage all personalities…'
+      manage.onclick = () => { close(); openPersonalitiesPanel() }
+      footer.appendChild(manage)
+      card.appendChild(footer)
+
+      document.body.appendChild(overlay)
     }
 
     async function assignPersonality(sessionName, personalityId) {

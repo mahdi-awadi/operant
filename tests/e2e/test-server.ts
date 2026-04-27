@@ -5,7 +5,14 @@
 
 import { WebFrontend, signSession } from '../../src/frontends/web'
 import { SessionRegistry } from '../../src/session-registry'
+import { openHubDb } from '../../src/hub-db'
+import { Personalities } from '../../src/personalities'
+import { Decisions } from '../../src/decisions'
+import { ErrorLog } from '../../src/error-log'
 import type { SessionConfig } from '../../src/types'
+import { mkdtempSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 
 export type SeededSession = {
   path: string
@@ -34,6 +41,14 @@ export async function startTestServer(opts?: {
     registry.register(s.path, s.overrides)
   }
 
+  // Each test instance gets its own hub.sqlite in a fresh temp dir so DAOs
+  // don't pollute each other or the user's real channel data.
+  const dbDir = mkdtempSync(join(tmpdir(), 'hub-e2e-'))
+  const hubDb = openHubDb(dbDir)
+  const errorLog = new ErrorLog(hubDb.db)
+  const personalities = new Personalities(hubDb.db)
+  const decisions = new Decisions(hubDb.db)
+
   const web = new WebFrontend({
     port: 0,                          // OS picks a free port
     host: '127.0.0.1',
@@ -46,6 +61,9 @@ export async function startTestServer(opts?: {
     telegramBotUsername: 'test_bot',
     telegramAllowFrom: [TEST_USER],
     taskMonitor: null,
+    errorLog,
+    personalities,
+    decisions,
   })
   await web.start()
 
@@ -56,7 +74,11 @@ export async function startTestServer(opts?: {
     url: `http://127.0.0.1:${port}`,
     cookie: `hub_session=${cookieValue}`,
     registry,
-    stop: () => web.stop(),
+    stop: async () => {
+      await web.stop()
+      hubDb.close()
+      rmSync(dbDir, { recursive: true, force: true })
+    },
     registerSession: (path, overrides) => registry.register(path, overrides),
   }
 }
