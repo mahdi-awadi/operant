@@ -1,8 +1,12 @@
 // tests/frontends/rubika.test.ts
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
+import { rmSync } from 'fs'
+import { join } from 'path'
 import { RubikaFrontend, deriveWebhookSecret, type RubikaUpdateBody, type RubikaInlineMessageBody, parseCommand, formatSessionList, formatStatus, chunkText } from '../../src/frontends/rubika'
 import { SessionRegistry } from '../../src/session-registry'
-import type { SessionState } from '../../src/types'
+import { saveProfiles, loadProfiles } from '../../src/profiles'
+import { HUB_DIR } from '../../src/config'
+import type { SessionState, Profile } from '../../src/types'
 
 // In-memory router stub — captures calls so we can assert routing.
 class StubRouter {
@@ -548,5 +552,179 @@ describe('RubikaFrontend.handleInlineWebhook', () => {
   test('logs unknown prefix without throwing', () => {
     const { r } = makeFrontend()
     expect(() => r.handleInlineWebhook(inline('u1', 'unknown:prefix'))).not.toThrow()
+  })
+})
+
+// Helper: build a NewMessage update
+function update(senderId: string, text: string): RubikaUpdateBody {
+  return {
+    update: {
+      type: 'NewMessage',
+      chat_id: 'chat-' + senderId,
+      new_message: {
+        message_id: 'm1',
+        text,
+        time: '1700000000',
+        is_edited: false,
+        sender_type: 'User',
+        sender_id: senderId,
+        aux_data: { start_id: null, button_id: null },
+      },
+    },
+  }
+}
+
+describe('cmdStatus', () => {
+  test('/status with one session — reply text contains session name (no HTML)', async () => {
+    const { r, registry, sender } = makeFrontend()
+    registry.register('/p/sap:0', { name: 'sap' })
+    r.handleWebhook(update('u1', '/status'))
+    await new Promise(rs => setTimeout(rs, 5))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toMatch(/sap/)
+    expect(body.text).not.toMatch(/<\/?[^>]+>/)
+  })
+
+  test('/status with no sessions — "No sessions connected."', async () => {
+    const { r, sender } = makeFrontend()
+    r.handleWebhook(update('u1', '/status'))
+    await new Promise(rs => setTimeout(rs, 5))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toBe('No sessions connected.')
+  })
+})
+
+describe('cmdProfiles', () => {
+  // HUB_DIR is the temp dir set by tests/setup.ts preload — safe to read/write.
+  // Clean up any profiles.json left by a previous test.
+  const profilesFile = join(HUB_DIR, 'profiles.json')
+
+  afterEach(() => {
+    rmSync(profilesFile, { force: true })
+  })
+
+  test('/profiles with no user profiles returns built-in profiles listing', async () => {
+    // loadProfilesForHub with an empty dir returns built-ins — just verify non-empty reply
+    const { r, sender } = makeFrontend()
+    r.handleWebhook(update('u1', '/profiles'))
+    await new Promise(rs => setTimeout(rs, 5))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    // Built-ins exist, so we get a listing (not "No profiles defined.")
+    expect(body.text).toMatch(/Profiles:/)
+    expect(body.text).toMatch(/careful/)
+  })
+
+  test('/profiles with a user-defined profile lists its name and trust', async () => {
+    const myProfile: Profile = {
+      name: 'myproj',
+      description: 'My project',
+      trust: 'ask',
+      rules: [],
+      facts: [],
+      prefix: '',
+    }
+    saveProfiles([myProfile], HUB_DIR)
+    const { r, sender } = makeFrontend()
+    r.handleWebhook(update('u1', '/profiles'))
+    await new Promise(rs => setTimeout(rs, 5))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toContain('myproj')
+    expect(body.text).toContain('ask')
+  })
+})
+
+describe('cmdProfile', () => {
+  // Use HUB_DIR (temp dir from setup.ts preload) for all profile reads/writes.
+  const profilesFile = join(HUB_DIR, 'profiles.json')
+
+  afterEach(() => {
+    rmSync(profilesFile, { force: true })
+  })
+
+  test('/profile <unknown> — "Profile not found"', async () => {
+    const { r, sender } = makeFrontend()
+    r.handleWebhook(update('u1', '/profile nonexistent'))
+    await new Promise(rs => setTimeout(rs, 5))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toMatch(/Profile "nonexistent" not found/)
+  })
+
+  test('/profile <name> shows details — Trust, Rules count, Facts count', async () => {
+    const myProfile: Profile = {
+      name: 'myproj',
+      description: 'A project profile',
+      trust: 'ask',
+      rules: ['rule one', 'rule two'],
+      facts: ['fact one'],
+      prefix: '',
+    }
+    saveProfiles([myProfile], HUB_DIR)
+    const { r, sender } = makeFrontend()
+    r.handleWebhook(update('u1', '/profile myproj'))
+    await new Promise(rs => setTimeout(rs, 5))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toContain('Profile: myproj')
+    expect(body.text).toContain('Trust: ask')
+    expect(body.text).toContain('Rules (2):')
+    expect(body.text).toContain('Facts (1):')
+    // No HTML tags
+    expect(body.text).not.toMatch(/<\/?[^>]+>/)
+  })
+
+  test('/profile create <name> writes a new profile', async () => {
+    const { r, sender } = makeFrontend()
+    r.handleWebhook(update('u1', '/profile create newone'))
+    await new Promise(rs => setTimeout(rs, 5))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toContain('Created profile "newone"')
+    // Verify it actually got saved by loading it back
+    const saved = loadProfiles(HUB_DIR)
+    expect(saved.find(p => p.name === 'newone')).toBeDefined()
+  })
+
+  test('/profile create <name> when name already exists — "already exists"', async () => {
+    const myProfile: Profile = {
+      name: 'existing',
+      description: '',
+      trust: 'ask',
+      rules: [],
+      facts: [],
+      prefix: '',
+    }
+    saveProfiles([myProfile], HUB_DIR)
+    const { r, sender } = makeFrontend()
+    r.handleWebhook(update('u1', '/profile create existing'))
+    await new Promise(rs => setTimeout(rs, 5))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toContain('already exists')
+  })
+
+  test('/profile delete <name> removes the profile', async () => {
+    const myProfile: Profile = {
+      name: 'todelete',
+      description: '',
+      trust: 'ask',
+      rules: [],
+      facts: [],
+      prefix: '',
+    }
+    saveProfiles([myProfile], HUB_DIR)
+    const { r, sender } = makeFrontend()
+    r.handleWebhook(update('u1', '/profile delete todelete'))
+    await new Promise(rs => setTimeout(rs, 5))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toContain('Deleted profile "todelete"')
+    // Verify removal
+    const saved = loadProfiles(HUB_DIR)
+    expect(saved.find(p => p.name === 'todelete')).toBeUndefined()
+  })
+
+  test('/profile with no args returns usage string', async () => {
+    const { r, sender } = makeFrontend()
+    r.handleWebhook(update('u1', '/profile'))
+    await new Promise(rs => setTimeout(rs, 5))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toContain('Usage:')
+    expect(body.text).toContain('/profile create')
   })
 })

@@ -411,9 +411,76 @@ export class RubikaFrontend {
     }
     await this.sendButtons(chatId, text, sessions.map(s => [{ id: `select:${s.name}`, label: s.name }]))
   }
-  private async cmdStatus(c: string): Promise<void> { await this.replyTo('', c, 'todo: status') }
-  private async cmdProfiles(c: string): Promise<void> { await this.replyTo('', c, 'todo: profiles') }
-  private async cmdProfile(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: profile') }
+  private async cmdStatus(chatId: string): Promise<void> {
+    const sessions = this.deps.registry.list()
+    await this.replyTo('', chatId, formatStatus(sessions))
+  }
+
+  private async cmdProfiles(chatId: string): Promise<void> {
+    const profiles = loadProfilesForHub()
+    if (profiles.length === 0) {
+      await this.replyTo('', chatId, 'No profiles defined.')
+      return
+    }
+    const lines = profiles.map(p => {
+      const desc = p.description ? ` — ${p.description}` : ''
+      return `• ${p.name} (${p.trust})${desc}`
+    })
+    await this.replyTo('', chatId, `Profiles:\n${lines.join('\n')}`)
+  }
+
+  private async cmdProfile(chatId: string, args: string[]): Promise<void> {
+    if (args.length === 0 || !args[0]) {
+      await this.replyTo('', chatId, 'Usage: /profile <name> | /profile create <name> | /profile delete <name>')
+      return
+    }
+    const action = args[0]
+    const profiles = loadProfilesForHub()
+
+    if (action === 'create' && args[1]) {
+      const name = args[1]
+      if (getProfile(name, profiles)) {
+        await this.replyTo('', chatId, `Profile "${name}" already exists`)
+        return
+      }
+      const newProfile: Profile = {
+        name,
+        description: 'User-created profile',
+        trust: 'ask',
+        rules: [],
+        facts: [],
+        prefix: '',
+      }
+      saveProfilesForHub([...profiles, newProfile])
+      await this.replyTo('', chatId, `Created profile "${name}"`)
+      return
+    }
+
+    if (action === 'delete' && args[1]) {
+      const name = args[1]
+      const filtered = profiles.filter(p => p.name !== name)
+      saveProfilesForHub(filtered)
+      await this.replyTo('', chatId, `Deleted profile "${name}"`)
+      return
+    }
+
+    // Show profile details
+    const profile = getProfile(action, profiles)
+    if (!profile) {
+      await this.replyTo('', chatId, `Profile "${action}" not found`)
+      return
+    }
+    const lines = [
+      `Profile: ${profile.name}`,
+      profile.description ? profile.description : '',
+      `Trust: ${profile.trust}`,
+      `Rules (${profile.rules.length}):`,
+      ...profile.rules.map(r => `  • ${r}`),
+      `Facts (${profile.facts.length}):`,
+      ...profile.facts.map(f => `  • ${f}`),
+    ].filter(Boolean)
+    await this.replyTo('', chatId, lines.join('\n'))
+  }
   private async cmdSpawn(_s: string, c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: spawn') }
   private async cmdTeam(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: team') }
   private async cmdKill(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: kill') }
