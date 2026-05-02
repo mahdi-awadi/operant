@@ -481,11 +481,147 @@ export class RubikaFrontend {
     ].filter(Boolean)
     await this.replyTo('', chatId, lines.join('\n'))
   }
-  private async cmdSpawn(_s: string, c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: spawn') }
-  private async cmdTeam(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: team') }
-  private async cmdKill(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: kill') }
-  private async cmdRemove(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: remove') }
-  private async cmdRename(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: rename') }
+  private async cmdSpawn(senderId: string, chatId: string, rawArgs: string[]): Promise<void> {
+    if (rawArgs.length < 2) {
+      await this.replyTo(senderId, chatId, 'Usage: /spawn <name> <path> [--profile <name>] [team-size]')
+      return
+    }
+
+    // Parse --profile flag
+    let profileName: string | undefined
+    const args: string[] = []
+    for (let i = 0; i < rawArgs.length; i++) {
+      if (rawArgs[i] === '--profile' && rawArgs[i + 1]) {
+        profileName = rawArgs[i + 1]
+        i++
+      } else {
+        args.push(rawArgs[i])
+      }
+    }
+
+    const [name, projectPath, sizeStr] = args
+    const teamSize = sizeStr ? parseInt(sizeStr) : 1
+
+    if (profileName) {
+      const profiles = loadProfilesForHub()
+      if (!getProfile(profileName, profiles)) {
+        await this.replyTo(senderId, chatId, `Profile "${profileName}" not found. Use /profiles to see available.`)
+        return
+      }
+    }
+
+    try {
+      if (teamSize > 1) {
+        await this.screenManager!.spawnTeam(name, projectPath, teamSize, undefined, profileName)
+        this.activeSessionByUser.set(senderId, name)
+        await this.replyTo(senderId, chatId, `Spawned team ${name} (${teamSize} agents) at ${projectPath}${profileName ? ` with profile ${profileName}` : ''} — now active`)
+      } else {
+        await this.screenManager!.spawn(name, projectPath, undefined, profileName)
+        this.activeSessionByUser.set(senderId, name)
+        await this.replyTo(senderId, chatId, `Spawned ${name} at ${projectPath}${profileName ? ` with profile ${profileName}` : ''} — now active`)
+      }
+    } catch (err) {
+      await this.replyTo(senderId, chatId, `Failed to spawn: ${err}`)
+    }
+  }
+
+  private async cmdTeam(chatId: string, args: string[]): Promise<void> {
+    if (args.length === 0 || !args[0]) {
+      await this.replyTo('', chatId, 'Usage: /team <name> [add]')
+      return
+    }
+    const teamName = args[0]
+    const action = args[1]
+
+    if (action === 'add') {
+      const newName = await this.screenManager!.addTeammate(teamName)
+      if (newName) {
+        await this.replyTo('', chatId, `Added teammate: ${newName}`)
+      } else {
+        await this.replyTo('', chatId, `Team lead "${teamName}" not found`)
+      }
+      return
+    }
+
+    // Show team status
+    const path = this.deps.registry.findByName(teamName)
+    if (!path) {
+      await this.replyTo('', chatId, `Session "${teamName}" not found`)
+      return
+    }
+    const folder = path.replace(/:\d+$/, '')
+    const team = this.deps.registry.getTeam(folder)
+    if (team.length <= 1) {
+      await this.replyTo('', chatId, `${teamName} is a solo session, not a team`)
+      return
+    }
+
+    const lines = team.map((s, i) => {
+      const icon = s.status === 'active' ? '🟢' : '🔴'
+      const role = i === 0 ? '👑 ' : '  ├ '
+      return `${role}${s.name} ${icon}`
+    })
+
+    await this.replyTo('', chatId, lines.join('\n'))
+  }
+
+  private async cmdKill(chatId: string, args: string[]): Promise<void> {
+    const name = args[0]
+    if (!name) {
+      await this.replyTo('', chatId, 'Usage: /kill <name>')
+      return
+    }
+    const path = this.deps.registry.findByName(name)
+    if (!path) {
+      await this.replyTo('', chatId, `Session not found: ${name}`)
+      return
+    }
+    if (this.screenManager!.isManaged(name)) {
+      await this.screenManager!.gracefulKill(name)
+    } else {
+      this.socketServer!.disconnectSession(path)
+    }
+    this.deps.registry.unregister(path)
+    await this.replyTo('', chatId, `Killed session ${name}`)
+  }
+
+  private async cmdRemove(chatId: string, args: string[]): Promise<void> {
+    const name = args[0]
+    if (!name) {
+      await this.replyTo('', chatId, 'Usage: /remove <name>')
+      return
+    }
+    const path = this.deps.registry.findByName(name)
+    if (!path) {
+      await this.replyTo('', chatId, `Session not found: ${name}`)
+      return
+    }
+    const state = this.deps.registry.get(path)
+    if (state && state.status !== 'disconnected') {
+      await this.replyTo('', chatId, `Session ${name} is still connected. Use /kill to close it first.`)
+      return
+    }
+    this.screenManager!.forgetManaged(name)
+    this.socketServer!.disconnectSession(path)
+    this.deps.registry.unregister(path)
+    saveSessions(this.deps.registry.toSaveFormat())
+    await this.replyTo('', chatId, `Removed ${name} from the list`)
+  }
+
+  private async cmdRename(chatId: string, args: string[]): Promise<void> {
+    if (args.length < 2 || !args[0] || !args[1]) {
+      await this.replyTo('', chatId, 'Usage: /rename <old> <new>')
+      return
+    }
+    const [oldName, newName] = args
+    const path = this.deps.registry.findByName(oldName)
+    if (!path) {
+      await this.replyTo('', chatId, `Session not found: ${oldName}`)
+      return
+    }
+    this.deps.registry.rename(path, newName)
+    await this.replyTo('', chatId, `Renamed ${oldName} → ${newName}`)
+  }
   private async cmdTrust(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: trust') }
   private async cmdAutopilot(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: autopilot') }
   private async cmdRules(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: rules') }

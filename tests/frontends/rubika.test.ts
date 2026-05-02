@@ -58,11 +58,15 @@ class StubAutopilotRunner {
   async probe(_n: string, _t: number) { return { ok: true } as const }
 }
 class StubScreenManager {
+  spawnCalls: any[][] = []
+  spawnTeamCalls: any[][] = []
+  gracefulKillCalls: string[] = []
+  managedNames: Set<string> = new Set()
   async addTeammate(_n: string) { return null }
-  async spawn(..._a: any[]) {}
-  async spawnTeam(..._a: any[]) {}
-  async gracefulKill(_n: string) {}
-  isManaged(_n: string) { return false }
+  async spawn(...a: any[]) { this.spawnCalls.push(a) }
+  async spawnTeam(...a: any[]) { this.spawnTeamCalls.push(a) }
+  async gracefulKill(n: string) { this.gracefulKillCalls.push(n) }
+  isManaged(n: string) { return this.managedNames.has(n) }
   forgetManaged(_n: string) {}
   getManagedByPath(_p: string) { return null }
 }
@@ -726,5 +730,87 @@ describe('cmdProfile', () => {
     const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
     expect(body.text).toContain('Usage:')
     expect(body.text).toContain('/profile create')
+  })
+})
+
+describe('cmdSpawn / cmdKill / cmdRemove / cmdRename', () => {
+  test('/spawn with no args replies with usage', async () => {
+    const { r, sender } = makeFrontend()
+    r.handleWebhook(update('u1', '/spawn'))
+    await new Promise(rs => setTimeout(rs, 5))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toContain('Usage: /spawn')
+  })
+
+  test('/spawn alpha /home/foo calls screenManager.spawn and sets active session', async () => {
+    const { r, sender, screenManager } = makeFrontend()
+    r.handleWebhook(update('u1', '/spawn alpha /home/foo'))
+    await new Promise(rs => setTimeout(rs, 5))
+    expect(screenManager.spawnCalls.length).toBe(1)
+    expect(screenManager.spawnCalls[0]).toEqual(['alpha', '/home/foo', undefined, undefined])
+    expect((r as any).activeSessionByUser.get('u1')).toBe('alpha')
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toContain('Spawned alpha at /home/foo')
+    expect(body.text).toContain('now active')
+  })
+
+  test('/spawn alpha /home/foo 3 calls spawnTeam(name, path, 3, undefined, undefined)', async () => {
+    const { r, screenManager } = makeFrontend()
+    r.handleWebhook(update('u1', '/spawn alpha /home/foo 3'))
+    await new Promise(rs => setTimeout(rs, 5))
+    expect(screenManager.spawnTeamCalls.length).toBe(1)
+    expect(screenManager.spawnTeamCalls[0]).toEqual(['alpha', '/home/foo', 3, undefined, undefined])
+  })
+
+  test('/spawn with --profile foo unknown profile replies error', async () => {
+    const { r, sender } = makeFrontend()
+    r.handleWebhook(update('u1', '/spawn alpha /home/foo --profile unknownprofile99'))
+    await new Promise(rs => setTimeout(rs, 5))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toContain('Profile "unknownprofile99" not found')
+    expect(body.text).toContain('/profiles')
+  })
+
+  test('/kill <name> calls screenManager.gracefulKill when managed', async () => {
+    const { r, sender, registry, screenManager } = makeFrontend()
+    registry.register('/p/alpha:0', { name: 'alpha' })
+    screenManager.managedNames.add('alpha')
+    r.handleWebhook(update('u1', '/kill alpha'))
+    await new Promise(rs => setTimeout(rs, 5))
+    expect(screenManager.gracefulKillCalls).toEqual(['alpha'])
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toContain('Killed session alpha')
+  })
+
+  test('/kill <unknown> replies "Session not found"', async () => {
+    const { r, sender } = makeFrontend()
+    r.handleWebhook(update('u1', '/kill ghostsession'))
+    await new Promise(rs => setTimeout(rs, 5))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toContain('Session not found: ghostsession')
+  })
+
+  test('/remove on connected session replies hint to /kill first', async () => {
+    const { r, sender, registry } = makeFrontend()
+    registry.register('/p/alpha:0', { name: 'alpha' })
+    // Default status is 'active' (connected), not 'disconnected'
+    r.handleWebhook(update('u1', '/remove alpha'))
+    await new Promise(rs => setTimeout(rs, 5))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toContain('still connected')
+    expect(body.text).toContain('/kill')
+  })
+
+  test('/rename foo bar updates registry', async () => {
+    const { r, sender, registry } = makeFrontend()
+    registry.register('/p/foo:0', { name: 'foo' })
+    r.handleWebhook(update('u1', '/rename foo bar'))
+    await new Promise(rs => setTimeout(rs, 5))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toContain('Renamed foo')
+    expect(body.text).toContain('bar')
+    // Verify registry updated — foo should be gone, bar should exist
+    expect(registry.findByName('bar')).toBeTruthy()
+    expect(registry.findByName('foo')).toBeUndefined()
   })
 })
