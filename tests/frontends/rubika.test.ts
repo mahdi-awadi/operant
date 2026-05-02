@@ -1,7 +1,8 @@
 // tests/frontends/rubika.test.ts
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { rmSync, writeFileSync, unlinkSync } from 'fs'
-import { join } from 'path'
+import { rmSync, writeFileSync, unlinkSync, mkdtempSync } from 'fs'
+import { join, join as joinPath } from 'path'
+import { tmpdir } from 'os'
 import { RubikaFrontend, deriveWebhookSecret, type RubikaUpdateBody, type RubikaInlineMessageBody, parseCommand, formatSessionList, formatStatus, chunkText, mimeToType, guessMime } from '../../src/frontends/rubika'
 import { SessionRegistry } from '../../src/session-registry'
 import { saveProfiles, loadProfiles } from '../../src/profiles'
@@ -1344,4 +1345,164 @@ describe('guessMime', () => {
   test('mp3 → audio/mpeg', async () => expect(await guessMime('/tmp/x.mp3')).toBe('audio/mpeg'))
   test('pdf → application/pdf', async () => expect(await guessMime('/tmp/x.pdf')).toBe('application/pdf'))
   test('unknown ext → application/octet-stream', async () => expect(await guessMime('/tmp/x.xyz')).toBe('application/octet-stream'))
+})
+
+// ── Task 15: inbound file save ────────────────────────────────────────────────
+
+describe('inbound file save (Task 15)', () => {
+  // Build an inbound update with a file_inline field (no text)
+  function fileUpdate(senderId: string, fileId: string, fileName: string): RubikaUpdateBody {
+    return {
+      update: {
+        type: 'NewMessage',
+        chat_id: 'chat-' + senderId,
+        new_message: {
+          message_id: 'm-file',
+          text: '',
+          time: '1700000000',
+          is_edited: false,
+          sender_type: 'User',
+          sender_id: senderId,
+          file_inline: { file_id: fileId, file_name: fileName },
+        } as any,
+      },
+    }
+  }
+
+  test('inbound file_inline with active session saves to <session.path>/<uploadDir>/<file_name> and replies 📎', async () => {
+    const tmpDir = mkdtempSync(joinPath(tmpdir(), 'rubika-test-'))
+    try {
+      const { r, registry, sender } = makeFrontend()
+      registry.register(`${tmpDir}:0`, { name: 'sap' })
+
+      const fileContent = Buffer.from('hello file')
+      const originalFetch = globalThis.fetch
+      // Mock fetch for the download step
+      let fetchCalled = false
+      globalThis.fetch = (async (url: RequestInfo | URL, _init?: RequestInit) => {
+        fetchCalled = true
+        expect(String(url)).toBe('https://cdn.rubika.ir/file123')
+        return {
+          ok: true,
+          arrayBuffer: async () => fileContent.buffer,
+        } as unknown as Response
+      }) as typeof fetch
+
+      // getFile returns a download_url
+      sender.reply = { download_url: 'https://cdn.rubika.ir/file123' }
+
+      try {
+        r.handleWebhook(fileUpdate('u1', 'file123', 'test-doc.txt'))
+        // Give async save a moment to complete
+        await new Promise(rs => setTimeout(rs, 30))
+
+        expect(fetchCalled).toBe(true)
+
+        // File should exist at tmpDir/./test-doc.txt
+        const fs = await import('node:fs/promises')
+        const written = await fs.readFile(joinPath(tmpDir, 'test-doc.txt'))
+        expect(written.toString()).toBe('hello file')
+
+        // Reply should contain 📎 and the relative path
+        const reply = sender.calls.find(c => c.method === 'sendMessage')
+        expect(reply).toBeDefined()
+        expect((reply!.body as any).text).toContain('📎 Saved')
+        expect((reply!.body as any).text).toContain('test-doc.txt')
+      } finally {
+        globalThis.fetch = originalFetch
+      }
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  test('inbound file with no active session replies "No active session." and does not save', async () => {
+    const { r, sender } = makeFrontend()
+    // registry is empty — no active session
+
+    const originalFetch = globalThis.fetch
+    let fetchCalled = false
+    globalThis.fetch = (async () => {
+      fetchCalled = true
+      return { ok: true, arrayBuffer: async () => new ArrayBuffer(0) } as unknown as Response
+    }) as typeof fetch
+
+    try {
+      r.handleWebhook(fileUpdate('u1', 'file123', 'doc.txt'))
+      await new Promise(rs => setTimeout(rs, 20))
+
+      expect(fetchCalled).toBe(false)
+      const reply = sender.calls.find(c => c.method === 'sendMessage')
+      expect(reply).toBeDefined()
+      expect((reply!.body as any).text).toMatch(/no active session/i)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test('inbound file with empty allowFrom does nothing (no save, no send)', async () => {
+    const registry = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
+    registry.register('/p/sap:0', { name: 'sap' })
+    const router = new StubRouter()
+    const sender = new FakeSender()
+    const r = new RubikaFrontend({
+      token: 't',
+      allowFrom: [], // deny-all
+      registry,
+      router: router as any,
+      sender: (m, b) => sender.send(m, b),
+    })
+
+    const originalFetch = globalThis.fetch
+    let fetchCalled = false
+    globalThis.fetch = (async () => {
+      fetchCalled = true
+      return { ok: true, arrayBuffer: async () => new ArrayBuffer(0) } as unknown as Response
+    }) as typeof fetch
+
+    try {
+      r.handleWebhook(fileUpdate('u1', 'file123', 'doc.txt'))
+      await new Promise(rs => setTimeout(rs, 20))
+
+      expect(fetchCalled).toBe(false)
+      expect(sender.calls.length).toBe(0)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test('file save error (bad download) replies "⚠️ Could not save file: ..."', async () => {
+    const tmpDir = mkdtempSync(joinPath(tmpdir(), 'rubika-test-'))
+    try {
+      const { r, registry, sender } = makeFrontend()
+      registry.register(`${tmpDir}:0`, { name: 'sap' })
+
+      // getFile returns a download_url but the HTTP fetch fails
+      sender.reply = { download_url: 'https://cdn.rubika.ir/file123' }
+
+      const originalFetch = globalThis.fetch
+      globalThis.fetch = (async () => {
+        return {
+          ok: false,
+          status: 503,
+          arrayBuffer: async () => new ArrayBuffer(0),
+        } as unknown as Response
+      }) as typeof fetch
+
+      try {
+        r.handleWebhook(fileUpdate('u1', 'file123', 'bad.txt'))
+        await new Promise(rs => setTimeout(rs, 30))
+
+        const errReply = sender.calls.find(
+          c => c.method === 'sendMessage' && (c.body as any).text?.includes('⚠️ Could not save file:'),
+        )
+        expect(errReply).toBeDefined()
+        expect((errReply!.body as any).text).toContain('503')
+      } finally {
+        globalThis.fetch = originalFetch
+      }
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
 })

@@ -130,6 +130,11 @@ export type RubikaUpdateBody = {
       sender_type: 'User' | 'Bot'
       sender_id: string
       aux_data?: { start_id: string | null; button_id: string | null }
+      // TODO: field name unverified — no file messages in live queue at implementation
+      // time. `file_inline` matches the outbound field name used by Rubika for
+      // sendMessage; `file` is a possible legacy alias. Adjust if the live API
+      // returns a different key when a user sends a photo/document.
+      file_inline?: { file_id: string; file_name: string; size?: number; type?: string }
     }
   } | null
   // Rubika delivers inline-button clicks on a separate endpoint; we ignore
@@ -272,6 +277,29 @@ export class RubikaFrontend {
       return
     }
     this.chatIdByUser.set(senderId, inner.chat_id)
+
+    // ── Inbound file (photo / document) ─────────────────────────────────────
+    // TODO: field name `file_inline` is unverified against live Rubika traffic;
+    // no file messages were in the queue at implementation time. The name matches
+    // the outbound field Rubika uses for sendMessage. Update if Rubika uses a
+    // different key in inbound updates.
+    const inboundFile = (m as any).file_inline as { file_id: string; file_name: string } | undefined
+    if (inboundFile) {
+      const target = this.activeSessionByUser.get(senderId) ?? this.firstActiveSessionName()
+      if (!target) {
+        this.send('sendMessage', { chat_id: inner.chat_id, text: 'No active session.' }).catch(() => {})
+        return
+      }
+      const sessionPath = this.deps.registry.findByName(target)
+      const sess = sessionPath ? this.deps.registry.get(sessionPath) : null
+      if (!sessionPath || !sess) return
+      const folderPath = this.deps.registry.folderPath(sessionPath)
+      this.saveInboundFile(senderId, inner.chat_id, folderPath, sess.uploadDir, inboundFile).catch((err) => {
+        this.send('sendMessage', { chat_id: inner.chat_id, text: `⚠️ Could not save file: ${err}` }).catch(() => {})
+      })
+      return
+    }
+
     const text = (m.text || '').trim()
     if (text.length === 0) return
 
@@ -916,6 +944,29 @@ export class RubikaFrontend {
   private firstActiveSessionName(): string | null {
     const list = this.deps.registry.list()
     return list.find((s) => s.status === 'active')?.name ?? null
+  }
+
+  private async saveInboundFile(
+    _senderId: string,
+    chatId: string,
+    sessionPath: string,
+    uploadDir: string,
+    file: { file_id: string; file_name: string },
+  ): Promise<void> {
+    const fs = await import('node:fs/promises')
+    const path = await import('node:path')
+    const dir = path.resolve(sessionPath, uploadDir)
+    await fs.mkdir(dir, { recursive: true })
+    // `getFile` is confirmed as a recognized Rubika bot API method (returns
+    // INVALID_INPUT on a bad file_id, not "Invalid Method"). Expected to return
+    // { download_url: string } for a valid file_id.
+    const r1 = (await this.send('getFile', { file_id: file.file_id })) as { download_url: string }
+    const res = await fetch(r1.download_url)
+    if (!res.ok) throw new Error(`download HTTP ${res.status}`)
+    const buf = Buffer.from(await res.arrayBuffer())
+    const target = path.join(dir, file.file_name)
+    await fs.writeFile(target, buf)
+    await this.send('sendMessage', { chat_id: chatId, text: `📎 Saved ${path.relative(sessionPath, target)}` })
   }
 
   // ── HTTP plumbing ────────────────────────────────────────────────────────
