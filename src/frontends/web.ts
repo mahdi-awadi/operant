@@ -20,7 +20,7 @@ import type { ErrorLog } from '../error-log'
 import type { Personalities, PersonalityInput } from '../personalities'
 import type { Decisions } from '../decisions'
 import type { Messages } from '../messages'
-import type { RubikaFrontend } from './rubika'
+import type { RubikaFrontend, RubikaUpdateBody } from './rubika'
 import { saveSessions } from '../config'
 import { listPriorSessions } from '../claude-sessions'
 
@@ -80,6 +80,9 @@ function parseCookie(header: string | null, name: string): string | null {
   return null
 }
 
+// Note: there is an inherent TOCTOU window between closing this probe server
+// and opening the real Bun.serve. In practice this is safe in single-process
+// test and daemon contexts.
 async function pickEphemeralPort(hostname: string): Promise<number> {
   const server = createServer()
   await new Promise<void>((resolve, reject) => {
@@ -396,14 +399,14 @@ export class WebFrontend {
         // Skips auth middleware since Rubika doesn't carry our session cookie.
         {
           const m = url.pathname.match(/^\/api\/rubika\/webhook\/([A-Za-z0-9_-]+)$/)
-          if (m && req.method === 'POST') {
+          if (req.method === 'POST' && m) {
             const r = self.rubika
             if (!r) return new Response('not configured', { status: 503 })
             if (m[1] !== r.webhookPath.split('/').pop()) {
-              return new Response('forbidden', { status: 401 })
+              return new Response('unauthorized', { status: 401 })
             }
             return req.json().then((body: unknown) => {
-              r.handleWebhook(body as never)
+              r.handleWebhook(body as RubikaUpdateBody)
               return new Response('ok')
             }).catch((err) => {
               process.stderr.write(`web: rubika webhook parse error: ${err}\n`)
@@ -422,8 +425,8 @@ export class WebFrontend {
               return new Response('unauthorized', { status: 401 })
             }
             return req.json().then((body: unknown) => {
-              r.handleInlineWebhook(body as any)
-              return new Response('ok', { status: 200 })
+              r.handleInlineWebhook(body)
+              return new Response('ok')
             }).catch((err) => {
               process.stderr.write(`web: rubika inline webhook parse error: ${err}\n`)
               return new Response('bad request', { status: 400 })
