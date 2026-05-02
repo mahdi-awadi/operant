@@ -96,6 +96,7 @@ export type HubConfig = {
   rubikaAllowFrom?: string[]
   rubikaApiBase?: string                   // default "https://botapi.rubika.ir/v3"
   rubikaWebhookBase?: string               // public origin where Rubika should POST updates, e.g. "https://hub.tech-gate.online"
+  rubikaPollingMs?: number                 // getUpdates polling interval ms; undefined = default 2000; set to 0 to disable
   defaultTrust: TrustLevel
   defaultUploadDir: string
   autopilot?: Partial<AutopilotDefaults>   // optional overrides of DEFAULT_AUTOPILOT_DEFAULTS

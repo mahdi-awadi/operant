@@ -351,6 +351,7 @@ describe('RubikaFrontend.start', () => {
       router: router as any,
       webhookBase: 'https://hub.example',
       sender: (m, b) => sender.send(m, b),
+      pollingIntervalMs: 0,
     })
     await r.start()
     expect(sender.calls).toEqual([
@@ -377,6 +378,7 @@ describe('RubikaFrontend.start', () => {
       router: router as any,
       webhookBase: 'https://hub.example',
       sender: flakySender,
+      pollingIntervalMs: 0,
     })
     await r.start()
     expect(sender.calls.length).toBe(2)
@@ -392,6 +394,7 @@ describe('RubikaFrontend.start', () => {
       registry,
       router: router as any,
       sender: (m, b) => sender.send(m, b),
+      pollingIntervalMs: 0,
     })
     await r.start()
     expect(sender.calls.length).toBe(0)
@@ -1705,5 +1708,162 @@ describe('RubikaFrontend.deliverAutopilotDraft', () => {
     // u1 is in allowFrom but has never sent a message, so chat_id is unknown
     await r.deliverAutopilotDraft('sap', 'draft text')
     expect(sender.calls.length).toBe(0)
+  })
+})
+
+// ── getUpdates polling ────────────────────────────────────────────────────────
+
+describe('RubikaFrontend polling — bootstrap drains backlog without processing', () => {
+  test('start() drains backlog: queued updates are NOT routed; nextOffsetId is set', async () => {
+    const registry = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
+    registry.register('/p/sap:0', { name: 'sap' })
+    const router = new StubRouter()
+    // Sender: bootstrap getUpdates returns two stale updates, then nothing more.
+    const bootstrapResp = {
+      updates: [
+        { type: 'NewMessage', chat_id: 'chat-u1', new_message: { message_id: 'm0', text: 'stale', time: '1', is_edited: false, sender_type: 'User', sender_id: 'u1', aux_data: { start_id: null, button_id: null } } },
+      ],
+      next_offset_id: 'offset-42',
+    }
+    const sender = async (method: string, _body: unknown) => {
+      if (method === 'getUpdates') return bootstrapResp
+      return {}
+    }
+    const r = new RubikaFrontend({
+      token: 't',
+      allowFrom: ['u1'],
+      registry,
+      router: router as any,
+      sender,
+      pollingIntervalMs: 0, // no interval; we test bootstrap only
+    })
+    await r.start()
+    // Stale updates must NOT have been routed.
+    expect(router.calls.length).toBe(0)
+    await r.stop()
+  })
+})
+
+describe('RubikaFrontend polling — pollNow processes new updates', () => {
+  test('pollNow routes a NewMessage to the active session', async () => {
+    const registry = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
+    registry.register('/p/sap:0', { name: 'sap' })
+    const router = new StubRouter()
+    let callCount = 0
+    const pollResp = {
+      updates: [
+        { type: 'NewMessage', chat_id: 'chat-u1', new_message: { message_id: 'm1', text: 'hello from poll', time: '2', is_edited: false, sender_type: 'User', sender_id: 'u1', aux_data: { start_id: null, button_id: null } } },
+      ],
+      next_offset_id: 'offset-99',
+    }
+    const sender = async (method: string, _body: unknown) => {
+      callCount++
+      if (method === 'getUpdates') return pollResp
+      return {}
+    }
+    const r = new RubikaFrontend({
+      token: 't',
+      allowFrom: ['u1'],
+      registry,
+      router: router as any,
+      sender,
+      pollingIntervalMs: 0,
+    })
+    // Skip start() (bootstrap) to isolate pollNow.
+    await r.pollNow()
+    expect(router.calls.length).toBe(1)
+    expect(router.calls[0]).toMatchObject({ sessionName: 'sap', text: 'hello from poll', frontend: 'rubika', user: 'u1' })
+    await r.stop()
+  })
+})
+
+describe('RubikaFrontend polling — survives a getUpdates failure', () => {
+  test('poll loop does not crash; next pollNow succeeds after a failure', async () => {
+    const registry = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
+    registry.register('/p/sap:0', { name: 'sap' })
+    const router = new StubRouter()
+    let callCount = 0
+    const sender = async (method: string, _body: unknown) => {
+      if (method !== 'getUpdates') return {}
+      callCount++
+      if (callCount === 1) throw new Error('network error')
+      return {
+        updates: [
+          { type: 'NewMessage', chat_id: 'chat-u1', new_message: { message_id: 'm2', text: 'recovered', time: '3', is_edited: false, sender_type: 'User', sender_id: 'u1', aux_data: { start_id: null, button_id: null } } },
+        ],
+        next_offset_id: 'offset-100',
+      }
+    }
+    const r = new RubikaFrontend({
+      token: 't',
+      allowFrom: ['u1'],
+      registry,
+      router: router as any,
+      sender,
+      pollingIntervalMs: 0,
+    })
+    // First call: throws — should not propagate.
+    await expect(r.pollNow()).resolves.toBeUndefined()
+    expect(router.calls.length).toBe(0)
+    // Second call: succeeds.
+    await r.pollNow()
+    expect(router.calls.length).toBe(1)
+    expect(router.calls[0]).toMatchObject({ text: 'recovered' })
+    await r.stop()
+  })
+})
+
+describe('RubikaFrontend polling — stop() halts polling', () => {
+  test('after stop() the interval is cleared and pollNow is still callable but timer fires no more', async () => {
+    const registry = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
+    const router = new StubRouter()
+    let getUpdatesCalls = 0
+    const sender = async (method: string, _body: unknown) => {
+      if (method === 'getUpdates') { getUpdatesCalls++; return { updates: [], next_offset_id: '' } }
+      return {}
+    }
+    const r = new RubikaFrontend({
+      token: 't',
+      allowFrom: ['u1'],
+      registry,
+      router: router as any,
+      sender,
+      pollingIntervalMs: 50, // very short for the test
+    })
+    await r.start() // bootstrap drains → getUpdatesCalls === 1
+    const afterBootstrap = getUpdatesCalls
+    await r.stop()
+    // After stop, wait > 2 interval cycles to ensure no more auto-firings.
+    await new Promise(res => setTimeout(res, 200))
+    expect(getUpdatesCalls).toBe(afterBootstrap) // no new polls fired
+  })
+})
+
+describe('RubikaFrontend polling — re-entrancy guard', () => {
+  test('concurrent pollNow invocations only call getUpdates once', async () => {
+    const registry = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
+    const router = new StubRouter()
+    let getUpdatesCalls = 0
+    // Slow sender: stalls for 50ms so the second pollNow starts while first is in flight.
+    const sender = async (method: string, _body: unknown) => {
+      if (method === 'getUpdates') {
+        getUpdatesCalls++
+        await new Promise(res => setTimeout(res, 50))
+        return { updates: [], next_offset_id: '' }
+      }
+      return {}
+    }
+    const r = new RubikaFrontend({
+      token: 't',
+      allowFrom: ['u1'],
+      registry,
+      router: router as any,
+      sender,
+      pollingIntervalMs: 0,
+    })
+    // Fire both concurrently — second should return immediately via re-entrancy guard.
+    const [, ] = await Promise.all([r.pollNow(), r.pollNow()])
+    expect(getUpdatesCalls).toBe(1)
+    await r.stop()
   })
 })

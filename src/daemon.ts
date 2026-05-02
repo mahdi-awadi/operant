@@ -589,6 +589,7 @@ async function start(): Promise<void> {
         autopilotRunner,
         apiBase: config.rubikaApiBase,
         webhookBase: config.rubikaWebhookBase,
+        pollingIntervalMs: config.rubikaPollingMs,
       })
       // Wire the webhook endpoint into the existing WebFrontend before
       // start() registers the URL with Rubika.

@@ -115,6 +115,8 @@ export type RubikaFrontendDeps = {
   apiBase?: string
   webhookBase?: string
   sender?: RubikaSendFn
+  /** getUpdates polling interval in ms. Default 2000. Set to 0 to disable. Min 1000 (enforced). */
+  pollingIntervalMs?: number
 }
 
 // Inbound payload shape per the Rubika docs. We only extract what we need.
@@ -179,6 +181,11 @@ export class RubikaFrontend {
   private verificationRunner?: VerificationRunner
   private vetoController?: VetoController
   private autopilotRunner?: AutopilotRunner
+  // Polling state
+  private pollTimer: ReturnType<typeof setInterval> | null = null
+  private nextOffsetId: string | null = null
+  private polling = false
+  private readonly pollingIntervalMs: number
 
   constructor(deps: RubikaFrontendDeps) {
     this.deps = deps
@@ -193,6 +200,15 @@ export class RubikaFrontend {
     this.vetoController = deps.vetoController
     this.autopilotRunner = deps.autopilotRunner
     this.inlineWebhookPath = `/api/rubika/inline-webhook/${deriveInlineWebhookSecret(deps.token)}`
+    // pollingIntervalMs: 0 = disabled; otherwise enforce min 1000ms, default 2000ms
+    const raw = deps.pollingIntervalMs
+    if (raw === 0) {
+      this.pollingIntervalMs = 0
+    } else if (raw === undefined) {
+      this.pollingIntervalMs = 2000
+    } else {
+      this.pollingIntervalMs = Math.max(1000, raw)
+    }
   }
 
   // Tell Rubika where to POST updates. Idempotent — safe to call on each
@@ -201,15 +217,26 @@ export class RubikaFrontend {
   async start(): Promise<void> {
     if (this.started) return
     this.started = true
-    if (!this.deps.webhookBase) {
+    if (this.deps.webhookBase) {
+      const base = this.deps.webhookBase.replace(/\/$/, '')
+      const updateUrl = `${base}${this.webhookPath}`
+      const inlineUrl = `${base}${this.inlineWebhookPath}`
+      await this.registerEndpoint('ReceiveUpdate', updateUrl)
+      await this.registerEndpoint('ReceiveInlineMessage', inlineUrl)
+    } else {
       process.stderr.write('rubika: rubikaWebhookBase not configured — webhooks NOT registered\n')
-      return
     }
-    const base = this.deps.webhookBase.replace(/\/$/, '')
-    const updateUrl = `${base}${this.webhookPath}`
-    const inlineUrl = `${base}${this.inlineWebhookPath}`
-    await this.registerEndpoint('ReceiveUpdate', updateUrl)
-    await this.registerEndpoint('ReceiveInlineMessage', inlineUrl)
+
+    if (this.pollingIntervalMs > 0) {
+      // Bootstrap: drain stale backlog without processing updates.
+      try {
+        const resp = (await this.send('getUpdates', { limit: 50, offset_id: '' })) as { updates?: unknown[]; next_offset_id?: string }
+        this.nextOffsetId = resp?.next_offset_id ?? null
+      } catch (err) {
+        process.stderr.write(`rubika: bootstrap getUpdates failed (will retry on first poll): ${err}\n`)
+      }
+      this.pollTimer = setInterval(() => { this.pollOnce().catch(() => {}) }, this.pollingIntervalMs)
+    }
   }
 
   private async registerEndpoint(type: 'ReceiveUpdate' | 'ReceiveInlineMessage', url: string): Promise<void> {
@@ -230,9 +257,50 @@ export class RubikaFrontend {
 
   async stop(): Promise<void> {
     this.started = false
-    // No-op for webhook mode; Rubika keeps the registered endpoint until we
-    // change it. We don't deregister on stop — a daemon restart should not
-    // drop messages mid-flight.
+    if (this.pollTimer !== null) {
+      clearInterval(this.pollTimer)
+      this.pollTimer = null
+    }
+    this.polling = false
+    // Webhook mode: Rubika keeps the registered endpoint until we change it.
+    // We don't deregister on stop — a daemon restart should not drop messages
+    // mid-flight.
+  }
+
+  // ── Polling (getUpdates fallback) ────────────────────────────────────────
+
+  /** Public for tests — runs one poll cycle immediately. */
+  async pollNow(): Promise<void> {
+    return this.pollOnce()
+  }
+
+  private async pollOnce(): Promise<void> {
+    if (this.polling) return
+    this.polling = true
+    try {
+      const resp = (await this.send('getUpdates', {
+        limit: 50,
+        offset_id: this.nextOffsetId ?? '',
+      })) as { updates?: unknown[]; next_offset_id?: string }
+      const updates = resp?.updates ?? []
+      if (updates.length > 0) {
+        process.stderr.write(`rubika: poll delivered ${updates.length} update(s)\n`)
+        for (const update of updates) {
+          const u = update as { type?: string; chat_id?: string; new_message?: unknown }
+          if (u.type === 'NewMessage') {
+            const body: RubikaUpdateBody = { update: u as RubikaUpdateBody['update'] }
+            this.handleWebhook(body)
+          }
+        }
+      }
+      if (resp?.next_offset_id !== undefined) {
+        this.nextOffsetId = resp.next_offset_id
+      }
+    } catch (err) {
+      process.stderr.write(`rubika: poll failed: ${err}\n`)
+    } finally {
+      this.polling = false
+    }
   }
 
   // ── Outbound (Claude → user) ─────────────────────────────────────────────
