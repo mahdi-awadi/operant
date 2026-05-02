@@ -1154,7 +1154,7 @@ describe('uploadFile', () => {
     globalThis.fetch = (async (_url: RequestInfo | URL, _init?: RequestInit) => {
       return {
         ok: true,
-        json: async () => ({ file_id: fakeFileId }),
+        json: async () => ({ status: 'OK', data: { file_id: fakeFileId } }),
       } as unknown as Response
     }) as unknown as typeof fetch
 
@@ -1242,7 +1242,7 @@ describe('deliverToUser with files', () => {
     globalThis.fetch = (async (_url: RequestInfo | URL, _init?: RequestInit) => {
       return {
         ok: true,
-        json: async () => ({ file_id: fakeFileId }),
+        json: async () => ({ status: 'OK', data: { file_id: fakeFileId } }),
       } as unknown as Response
     }) as unknown as typeof fetch
 
@@ -1300,7 +1300,7 @@ describe('deliverToUser with files', () => {
       const fileId = fakeIds[fetchCount++] ?? 'fid-x'
       return {
         ok: true,
-        json: async () => ({ file_id: fileId }),
+        json: async () => ({ status: 'OK', data: { file_id: fileId } }),
       } as unknown as Response
     }) as unknown as typeof fetch
 

@@ -1128,10 +1128,17 @@ export class RubikaFrontend {
     const fileName = path.basename(filePath)
     const type = mimeToType(mime)
     const r1 = (await this.send('requestSendFile', { type })) as { upload_url: string }
-    const upload = await fetch(r1.upload_url, { method: 'POST', body: buf })
+    // Rubika expects multipart form-data (verified 2026-05-02). Raw body POST
+    // returns {"status":"SERVER_ERROR"}.
+    const fd = new FormData()
+    fd.append('file', new Blob([new Uint8Array(buf)], { type: mime }), fileName)
+    const upload = await fetch(r1.upload_url, { method: 'POST', body: fd })
     if (!upload.ok) throw new Error(`upload HTTP ${upload.status}`)
-    const j = await upload.json() as { file_id: string }
-    return { file_id: j.file_id, file_name: fileName, size: buf.byteLength, type }
+    const j = (await upload.json()) as { status?: string; data?: { file_id?: string } }
+    if (j.status !== 'OK' || !j.data?.file_id) {
+      throw new Error(`upload failed: ${JSON.stringify(j)}`)
+    }
+    return { file_id: j.data.file_id, file_name: fileName, size: buf.byteLength, type }
   }
 }
 
