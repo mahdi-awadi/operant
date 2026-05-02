@@ -401,7 +401,16 @@ export class RubikaFrontend {
       '👋 Connected to Claude Code Hub. Use /list to pick a session or send any message to talk to the active one.')
   }
 
-  private async cmdList(_s: string, c: string): Promise<void> { await this.replyTo('', c, 'todo: list') }
+  private async cmdList(senderId: string, chatId: string): Promise<void> {
+    const sessions = this.deps.registry.list()
+    const active = this.activeSessionByUser.get(senderId) ?? null
+    const text = formatSessionList(sessions, active)
+    if (sessions.length === 0) {
+      await this.replyTo(senderId, chatId, text)
+      return
+    }
+    await this.sendButtons(chatId, text, sessions.map(s => [{ id: `select:${s.name}`, label: s.name }]))
+  }
   private async cmdStatus(c: string): Promise<void> { await this.replyTo('', c, 'todo: status') }
   private async cmdProfiles(c: string): Promise<void> { await this.replyTo('', c, 'todo: profiles') }
   private async cmdProfile(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: profile') }

@@ -298,6 +298,27 @@ describe('RubikaFrontend.dispatchCommand', () => {
     expect(router.calls.length).toBe(1)
     expect(router.calls[0]).toMatchObject({ text: 'hello world' })
   })
+
+  test('/list shows "No sessions connected." when registry empty', async () => {
+    const { r, sender } = makeFrontend()
+    r.handleWebhook(update('u1', '/list'))
+    await new Promise(rs => setTimeout(rs, 5))
+    expect((sender.calls[0]!.body as any).text).toBe('No sessions connected.')
+    expect((sender.calls[0]!.body as any).inline_keypad).toBeUndefined()
+  })
+
+  test('/list renders sessions with select:<name> inline buttons', async () => {
+    const { r, sender, registry } = makeFrontend()
+    registry.register('/p/sap:0', { name: 'sap' })
+    registry.register('/p/gold:0', { name: 'gold' })
+    r.handleWebhook(update('u1', '/list'))
+    await new Promise(rs => setTimeout(rs, 5))
+    const body = sender.calls[0]!.body as any
+    expect(body.text).toContain('sap')
+    expect(body.text).toContain('gold')
+    expect(body.inline_keypad.rows).toHaveLength(2)
+    expect(body.inline_keypad.rows[0].buttons[0].id).toBe('select:sap')
+  })
 })
 
 describe('RubikaFrontend.start', () => {
