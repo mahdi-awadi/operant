@@ -902,23 +902,54 @@ export class RubikaFrontend {
   // ── HTTP plumbing ────────────────────────────────────────────────────────
   private async realSend(method: string, body: unknown): Promise<unknown> {
     const url = `${this.apiBase}/${this.deps.token}/${method}`
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    if (!res.ok) {
-      throw new Error(`rubika ${method} HTTP ${res.status}: ${await res.text().catch(() => '')}`)
+    const ac = new AbortController()
+    const t = setTimeout(() => ac.abort(), 30_000)
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: ac.signal,
+      })
+      if (!res.ok) {
+        throw new Error(`rubika ${method} HTTP ${res.status}: ${await res.text().catch(() => '')}`)
+      }
+      const j = (await res.json()) as { status?: string; data?: unknown }
+      // Rubika returns HTTP 200 even for application-level failures, with
+      // status: "INVALID_INPUT" / "INVALID_AUTH" / etc. Treat anything other
+      // than "OK" as a thrown error so callers see real failures instead of
+      // silently no-op'ing.
+      if (j && typeof j === 'object' && j.status && j.status !== 'OK') {
+        throw new Error(`rubika ${method} ${j.status}: ${JSON.stringify(j)}`)
+      }
+      if (j && typeof j === 'object' && 'data' in j) return j.data
+      return j
+    } finally {
+      clearTimeout(t)
     }
-    const j = (await res.json()) as { status?: string; data?: unknown }
-    // Rubika returns HTTP 200 even for application-level failures, with
-    // status: "INVALID_INPUT" / "INVALID_AUTH" / etc. Treat anything other
-    // than "OK" as a thrown error so callers see real failures instead of
-    // silently no-op'ing.
-    if (j && typeof j === 'object' && j.status && j.status !== 'OK') {
-      throw new Error(`rubika ${method} ${j.status}: ${JSON.stringify(j)}`)
-    }
-    if (j && typeof j === 'object' && 'data' in j) return j.data
-    return j
   }
+
+  private async uploadFile(filePath: string, mime: string): Promise<{ file_id: string; file_name: string; size: number; type: string }> {
+    const fs = await import('node:fs/promises')
+    const path = await import('node:path')
+    const buf = await fs.readFile(filePath)
+    const fileName = path.basename(filePath)
+    const type = mimeToType(mime)
+    const r1 = (await this.send('requestSendFile', { type })) as { upload_url: string }
+    const upload = await fetch(r1.upload_url, { method: 'POST', body: buf })
+    if (!upload.ok) throw new Error(`upload HTTP ${upload.status}`)
+    const j = await upload.json() as { file_id: string }
+    return { file_id: j.file_id, file_name: fileName, size: buf.byteLength, type }
+  }
+}
+
+// ── Pure helpers ─────────────────────────────────────────────────────────────
+
+export function mimeToType(mime: string): 'Image' | 'Video' | 'Voice' | 'Music' | 'Gif' | 'File' {
+  if (mime.startsWith('image/gif')) return 'Gif'
+  if (mime.startsWith('image/')) return 'Image'
+  if (mime.startsWith('video/')) return 'Video'
+  if (mime.startsWith('audio/ogg') || mime.startsWith('audio/opus')) return 'Voice'
+  if (mime.startsWith('audio/')) return 'Music'
+  return 'File'
 }

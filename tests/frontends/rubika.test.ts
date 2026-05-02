@@ -2,7 +2,7 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
 import { rmSync } from 'fs'
 import { join } from 'path'
-import { RubikaFrontend, deriveWebhookSecret, type RubikaUpdateBody, type RubikaInlineMessageBody, parseCommand, formatSessionList, formatStatus, chunkText } from '../../src/frontends/rubika'
+import { RubikaFrontend, deriveWebhookSecret, type RubikaUpdateBody, type RubikaInlineMessageBody, parseCommand, formatSessionList, formatStatus, chunkText, mimeToType } from '../../src/frontends/rubika'
 import { SessionRegistry } from '../../src/session-registry'
 import { saveProfiles, loadProfiles } from '../../src/profiles'
 import { HUB_DIR } from '../../src/config'
@@ -1086,5 +1086,93 @@ describe('cmdVerify', () => {
     await new Promise(rs => setTimeout(rs, 10))
     const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
     expect(body.text.toLowerCase()).toContain('no verification commands')
+  })
+})
+
+describe('mimeToType', () => {
+  test('image/gif → Gif', () => expect(mimeToType('image/gif')).toBe('Gif'))
+  test('image/png → Image', () => expect(mimeToType('image/png')).toBe('Image'))
+  test('image/jpeg → Image', () => expect(mimeToType('image/jpeg')).toBe('Image'))
+  test('video/mp4 → Video', () => expect(mimeToType('video/mp4')).toBe('Video'))
+  test('audio/ogg → Voice', () => expect(mimeToType('audio/ogg')).toBe('Voice'))
+  test('audio/opus → Voice', () => expect(mimeToType('audio/opus')).toBe('Voice'))
+  test('audio/mpeg → Music', () => expect(mimeToType('audio/mpeg')).toBe('Music'))
+  test('application/pdf → File', () => expect(mimeToType('application/pdf')).toBe('File'))
+  test('application/octet-stream → File', () => expect(mimeToType('application/octet-stream')).toBe('File'))
+})
+
+describe('uploadFile', () => {
+  test('calls requestSendFile with the correct type and POSTs buffer to upload_url, returns file_id', async () => {
+    const { r, sender } = makeFrontend()
+
+    // First sender call (requestSendFile) returns upload_url.
+    // We intercept the second fetch (the upload) via globalThis.fetch.
+    sender.reply = { upload_url: 'https://upload.example/x' }
+
+    const fakeFileId = 'file-abc-123'
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async (_url: RequestInfo | URL, _init?: RequestInit) => {
+      return {
+        ok: true,
+        json: async () => ({ file_id: fakeFileId }),
+      } as unknown as Response
+    }) as typeof fetch
+
+    try {
+      // Write a tiny temp file to upload
+      const tmpPath = '/tmp/rubika-upload-test.png'
+      await import('node:fs/promises').then(fs => fs.writeFile(tmpPath, Buffer.from([0x89, 0x50, 0x4e, 0x47])))
+
+      const result = await (r as any).uploadFile(tmpPath, 'image/png')
+
+      // The sender should have been called with requestSendFile + type=Image
+      expect(sender.calls.length).toBe(1)
+      expect(sender.calls[0]).toMatchObject({ method: 'requestSendFile', body: { type: 'Image' } })
+
+      // The returned object carries back the file_id from the upload response
+      expect(result.file_id).toBe(fakeFileId)
+      expect(result.file_name).toBe('rubika-upload-test.png')
+      expect(result.type).toBe('Image')
+      expect(typeof result.size).toBe('number')
+      expect(result.size).toBeGreaterThan(0)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test('realSend passes AbortSignal to fetch — spy confirms signal is wired', async () => {
+    let capturedSignal: AbortSignal | undefined
+
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+      capturedSignal = init?.signal ?? undefined
+      // Return a valid Rubika response to avoid parse errors
+      return {
+        ok: true,
+        json: async () => ({ status: 'OK', data: {} }),
+        text: async () => '',
+      } as unknown as Response
+    }) as typeof fetch
+
+    try {
+      // Build a frontend without a custom sender so realSend is exercised
+      const registry = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
+      const router = new StubRouter()
+      const r = new RubikaFrontend({
+        token: 'tok',
+        allowFrom: ['u1'],
+        registry,
+        router: router as any,
+        apiBase: 'https://botapi.rubika.ir/v3',
+      })
+      // Trigger realSend via start() (which calls updateBotEndpoints — no webhookBase = skips)
+      // Instead call a public method that routes through send → realSend:
+      // deliverToUser with a known chatId set
+      ;(r as any).chatIdByUser.set('u1', 'chat-u1')
+      await r.deliverToUser('sap', 'hello')
+      expect(capturedSignal).toBeInstanceOf(AbortSignal)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
   })
 })
