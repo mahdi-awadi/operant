@@ -166,7 +166,6 @@ export class RubikaFrontend {
   private send: RubikaSendFn
   private activeSessionByUser = new Map<string, string>()
   private chatIdByUser = new Map<string, string>()
-  private vetoEditPending = new Map<string, { id: string; kind: 'edit' | 'cancel' }>()
   private started = false
   private permissions?: PermissionEngine
   private screenManager?: ScreenManager
@@ -279,51 +278,61 @@ export class RubikaFrontend {
     this.chatIdByUser.set(senderId, im.chat_id)
     const buttonId = im.aux_data.button_id
 
-    // Format: "<prefix>:<verb>:<id?>"
-    const [prefix, verb, ...rest] = buttonId.split(':')
-    const id = rest.join(':')
-
     try {
-      switch (prefix) {
-        case 'perm':
-          if (verb && this.permissions) {
-            const decision = verb === 'allow' ? 'allow' : verb === 'always' ? 'always-allow' : 'deny'
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            ;(this.permissions as any).respond(id, decision)
-          }
-          break
-        case 'vp':
-          if (verb && this.autopilotRunner) {
-            // Edit/cancel collect a follow-up reason via vetoEditPending; send is immediate
-            if (verb === 'send') {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              ;(this.autopilotRunner as any).veto(id, 'send')
-            } else if (verb === 'edit' || verb === 'cancel') {
-              this.vetoEditPending.set(senderId, { id, kind: verb })
-              this.send('sendMessage', {
-                chat_id: im.chat_id,
-                text: verb === 'edit' ? 'Send your edited reply:' : 'Send your cancel reason:',
-              }).catch(() => {})
-            }
-          }
-          break
-        case 'select':
-          if (verb) this.activeSessionByUser.set(senderId, [verb, ...rest].join(':'))
-          break
-        case 'team':
-          if (verb === 'add' && this.screenManager) {
-            this.screenManager.addTeammate(id).catch(() => {})
-          }
-          break
-        case 'autopilot':
-          if (this.autopilotRunner) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            ;(this.autopilotRunner as any).toggle(id, verb === 'on')
-          }
-          break
-        default:
-          process.stderr.write(`rubika: unknown inline button prefix "${prefix}"\n`)
+      if (buttonId.startsWith('select:')) {
+        const sessionName = buttonId.slice('select:'.length)
+        this.activeSessionByUser.set(senderId, sessionName)
+        return
       }
+      if (buttonId.startsWith('perm:allow:') || buttonId.startsWith('perm:deny:')) {
+        const isAllow = buttonId.startsWith('perm:allow:')
+        const requestId = buttonId.slice(isAllow ? 'perm:allow:'.length : 'perm:deny:'.length)
+        if (!this.permissions || !this.socketServer) return
+        const result = this.permissions.resolve(requestId, isAllow ? 'allow' : 'deny')
+        if (result) {
+          this.socketServer.sendToSession(result.sessionPath, {
+            type: 'permission_response',
+            requestId: result.response.requestId,
+            behavior: result.response.behavior,
+          })
+        }
+        return
+      }
+      const apMatch = buttonId.match(/^ap-(send|cancel):(.+)$/)
+      if (apMatch) {
+        const [, action, sessionName] = apMatch
+        const path = this.deps.registry.findByName(sessionName)
+        if (!path || !this.vetoController) return
+        const pending = this.vetoController.cancel(path)
+        if (!pending) return
+        if (action === 'send' && this.socketServer) {
+          this.socketServer.sendToSession(path, {
+            type: 'channel_message',
+            content: pending.draft,
+            meta: { source: 'autopilot', frontend: 'rubika' },
+          })
+        }
+        return
+      }
+      const driftMatch = buttonId.match(/^drift:(ignore|remind):(.+)$/)
+      if (driftMatch) {
+        const [, action, sessionName] = driftMatch
+        if (action === 'ignore') return
+        const path = this.deps.registry.findByName(sessionName)
+        if (!path || !this.socketServer) return
+        const profiles = loadProfilesForHub()
+        const rules = this.deps.registry.getEffectiveRules(path, profiles)
+        const reminder =
+          `⚠️ Project rule reminder: ${rules.slice(0, 2).join('; ')}. ` +
+          `Please re-do your last action without shortcuts, root-causing the issue instead.`
+        this.socketServer.sendToSession(path, {
+          type: 'channel_message',
+          content: reminder,
+          meta: { source: 'hub', frontend: 'rubika', user: 'drift-check', session: sessionName },
+        })
+        return
+      }
+      process.stderr.write(`rubika: unknown inline button id "${buttonId}"\n`)
     } catch (err) {
       process.stderr.write(`rubika: inline handler error for "${buttonId}": ${err}\n`)
     }

@@ -25,18 +25,33 @@ class FakeSender {
 }
 
 class StubPermissionEngine {
-  responses: { rid: string; decision: string }[] = []
-  respond(rid: string, decision: string) { this.responses.push({ rid, decision }) }
-}
-class StubAutopilotRunner {
-  vetos: { id: string; decision: string; reason?: string }[] = []
-  veto(id: string, decision: string, reason?: string) { this.vetos.push({ id, decision, reason }) }
-  toggle(_n: string, _on: boolean) {}
-  async quickProbe(_n: string) { return { ok: true } as const }
-  async probe(_n: string, _t: number) { return { ok: true } as const }
+  resolveCalls: { rid: string; behavior: 'allow' | 'deny' }[] = []
+  nextResult: { response: { requestId: string; behavior: 'allow' | 'deny' }; sessionPath: string } | null = null
+  resolve(rid: string, behavior: 'allow' | 'deny') {
+    this.resolveCalls.push({ rid, behavior })
+    return this.nextResult
+  }
 }
 class StubVetoController {
-  drafts = new Map<string, { sessionName: string; draft: string }>()
+  cancelCalls: string[] = []
+  nextCancel: { path: string; sessionName: string; draft: string; expiresAt: number; decisionId: string } | undefined
+  cancel(path: string) {
+    this.cancelCalls.push(path)
+    const r = this.nextCancel
+    this.nextCancel = undefined
+    return r
+  }
+}
+class StubSocketServer {
+  sent: { path: string; message: any }[] = []
+  sendToSession(path: string, message: any) { this.sent.push({ path, message }); return true }
+  disconnectSession(_p: string) {}
+}
+class StubAutopilotRunner {
+  toggleCalls: { name: string; on: boolean }[] = []
+  toggle(name: string, on: boolean) { this.toggleCalls.push({ name, on }) }
+  async quickProbe(_n: string) { return { ok: true } as const }
+  async probe(_n: string, _t: number) { return { ok: true } as const }
 }
 class StubScreenManager {
   async addTeammate(_n: string) { return null }
@@ -56,8 +71,11 @@ function makeFrontend() {
   const router = new StubRouter()
   const sender = new FakeSender()
   const permissions = new StubPermissionEngine()
+  const socketServer = new StubSocketServer()
+  const vetoController = new StubVetoController()
   const autopilotRunner = new StubAutopilotRunner()
   const screenManager = new StubScreenManager()
+  const verificationRunner = new StubVerificationRunner()
   const r = new RubikaFrontend({
     token: 't',
     allowFrom: ['u1'],
@@ -65,10 +83,13 @@ function makeFrontend() {
     router: router as any,
     sender: (m, b) => sender.send(m, b),
     permissions: permissions as any,
+    socketServer: socketServer as any,
+    vetoController: vetoController as any,
     autopilotRunner: autopilotRunner as any,
     screenManager: screenManager as any,
+    verificationRunner: verificationRunner as any,
   })
-  return { r, registry, router, sender, permissions, autopilotRunner, screenManager }
+  return { r, registry, router, sender, permissions, socketServer, vetoController, autopilotRunner, screenManager, verificationRunner }
 }
 
 describe('deriveWebhookSecret', () => {
@@ -371,7 +392,7 @@ describe('chunkText', () => {
 })
 
 describe('RubikaFrontend.handleInlineWebhook', () => {
-  function inline(senderId: string, buttonId: string): RubikaInlineMessageBody {
+  function inline(senderId: string, buttonId: string) {
     return {
       inline_message: {
         chat_id: `chat-${senderId}`,
@@ -385,39 +406,76 @@ describe('RubikaFrontend.handleInlineWebhook', () => {
   test('rejects non-allowed senders', () => {
     const { r, permissions } = makeFrontend()
     r.handleInlineWebhook(inline('attacker', 'perm:allow:1'))
-    expect(permissions.responses).toEqual([])
+    expect(permissions.resolveCalls).toEqual([])
   })
 
-  test('routes perm:allow:<rid> to permissionEngine.respond(rid, "allow")', () => {
-    const { r, permissions } = makeFrontend()
-    r.handleInlineWebhook(inline('u1', 'perm:allow:42'))
-    expect(permissions.responses).toEqual([{ rid: '42', decision: 'allow' }])
-  })
-
-  test('routes perm:always:<rid> as "always-allow"', () => {
-    const { r, permissions } = makeFrontend()
-    r.handleInlineWebhook(inline('u1', 'perm:always:42'))
-    expect(permissions.responses).toEqual([{ rid: '42', decision: 'always-allow' }])
-  })
-
-  test('routes perm:deny:<rid> as "deny"', () => {
-    const { r, permissions } = makeFrontend()
-    r.handleInlineWebhook(inline('u1', 'perm:deny:42'))
-    expect(permissions.responses).toEqual([{ rid: '42', decision: 'deny' }])
-  })
-
-  test('routes select:<name> to per-user activeSession map', () => {
+  test('select:<name> updates per-user active session map', () => {
     const { r, registry } = makeFrontend()
     registry.register('/p/sap:0', { name: 'sap' })
     r.handleInlineWebhook(inline('u1', 'select:sap'))
     expect((r as any).activeSessionByUser.get('u1')).toBe('sap')
   })
 
+  test('perm:allow:<rid> calls permissions.resolve and forwards via socketServer', () => {
+    const { r, permissions, socketServer } = makeFrontend()
+    permissions.nextResult = { response: { requestId: '42', behavior: 'allow' }, sessionPath: '/p:0' }
+    r.handleInlineWebhook(inline('u1', 'perm:allow:42'))
+    expect(permissions.resolveCalls).toEqual([{ rid: '42', behavior: 'allow' }])
+    expect(socketServer.sent[0]).toMatchObject({ path: '/p:0', message: { type: 'permission_response', requestId: '42', behavior: 'allow' } })
+  })
+
+  test('perm:deny:<rid> dispatches deny via permissions.resolve + socketServer', () => {
+    const { r, permissions, socketServer } = makeFrontend()
+    permissions.nextResult = { response: { requestId: '42', behavior: 'deny' }, sessionPath: '/p:0' }
+    r.handleInlineWebhook(inline('u1', 'perm:deny:42'))
+    expect(permissions.resolveCalls).toEqual([{ rid: '42', behavior: 'deny' }])
+    expect(socketServer.sent.length).toBe(1)
+  })
+
+  test('perm:allow:<rid> with no pending request makes no socket send', () => {
+    const { r, permissions, socketServer } = makeFrontend()
+    permissions.nextResult = null
+    r.handleInlineWebhook(inline('u1', 'perm:allow:42'))
+    expect(socketServer.sent).toEqual([])
+  })
+
+  test('ap-send:<sessionName> resolves the veto and sends the draft to the session', () => {
+    const { r, vetoController, socketServer, registry } = makeFrontend()
+    registry.register('/home/sap:0', { name: 'sap' })
+    vetoController.nextCancel = { path: '/home/sap:0', sessionName: 'sap', draft: 'hello there', expiresAt: 0, decisionId: 'd1' }
+    r.handleInlineWebhook(inline('u1', 'ap-send:sap'))
+    expect(vetoController.cancelCalls).toEqual(['/home/sap:0'])
+    expect(socketServer.sent[0]).toMatchObject({ path: '/home/sap:0', message: { type: 'channel_message', content: 'hello there' } })
+  })
+
+  test('ap-cancel:<sessionName> resolves the veto without sending', () => {
+    const { r, vetoController, socketServer, registry } = makeFrontend()
+    registry.register('/home/sap:0', { name: 'sap' })
+    vetoController.nextCancel = { path: '/home/sap:0', sessionName: 'sap', draft: 'hello', expiresAt: 0, decisionId: 'd1' }
+    r.handleInlineWebhook(inline('u1', 'ap-cancel:sap'))
+    expect(vetoController.cancelCalls).toEqual(['/home/sap:0'])
+    expect(socketServer.sent).toEqual([])
+  })
+
+  test('drift:remind:<sessionName> sends a rule-reminder channel_message', () => {
+    const { r, registry, socketServer } = makeFrontend()
+    registry.register('/home/sap:0', { name: 'sap' })
+    r.handleInlineWebhook(inline('u1', 'drift:remind:sap'))
+    expect(socketServer.sent[0]?.message.type).toBe('channel_message')
+    expect(socketServer.sent[0]?.message.content).toMatch(/Project rule/)
+  })
+
+  test('drift:ignore:<sessionName> is a no-op (no socket send)', () => {
+    const { r, socketServer } = makeFrontend()
+    r.handleInlineWebhook(inline('u1', 'drift:ignore:sap'))
+    expect(socketServer.sent).toEqual([])
+  })
+
   test('drops malformed payloads', () => {
     const { r, permissions } = makeFrontend()
     expect(() => r.handleInlineWebhook({} as any)).not.toThrow()
     expect(() => r.handleInlineWebhook({ inline_message: null } as any)).not.toThrow()
-    expect(permissions.responses).toEqual([])
+    expect(permissions.resolveCalls).toEqual([])
   })
 
   test('logs unknown prefix without throwing', () => {
