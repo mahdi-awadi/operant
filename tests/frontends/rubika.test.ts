@@ -1506,3 +1506,92 @@ describe('inbound file save (Task 15)', () => {
     }
   })
 })
+
+describe('RubikaFrontend.deliverPermissionRequest', () => {
+  test('sends sendMessage with 2 inline_keypad buttons for a known chat_id', async () => {
+    const { r, sender } = makeFrontend()
+    // Teach the frontend the chat_id for user u1 via a webhook
+    r.handleWebhook({
+      update: {
+        type: 'NewMessage',
+        chat_id: 'chat-99',
+        new_message: {
+          message_id: 'm1',
+          text: 'hi',
+          time: '0',
+          is_edited: false,
+          sender_type: 'User',
+          sender_id: 'u1',
+        },
+      },
+    })
+    sender.calls.length = 0 // clear routing noise
+
+    await r.deliverPermissionRequest({
+      sessionName: 'mysession',
+      requestId: '42',
+      toolName: 'bash',
+      description: 'run a command',
+      inputPreview: 'ls /tmp',
+    })
+
+    expect(sender.calls.length).toBe(1)
+    const call = sender.calls[0]!
+    expect(call.method).toBe('sendMessage')
+    const body = call.body as any
+    expect(body.chat_id).toBe('chat-99')
+    expect(body.text).toContain('mysession')
+    expect(body.text).toContain('bash')
+    const rows = body.inline_keypad.rows
+    expect(rows.length).toBe(1)
+    const buttons = rows[0].buttons
+    expect(buttons.length).toBe(2)
+    expect(buttons[0].id).toBe('perm:allow:42')
+    expect(buttons[0].button_text).toBe('Allow')
+    expect(buttons[1].id).toBe('perm:deny:42')
+    expect(buttons[1].button_text).toBe('Deny')
+  })
+
+  test('is a no-op when allowFrom is empty', async () => {
+    const registry = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
+    const router = new StubRouter()
+    const sender = new FakeSender()
+    const noAllow = new RubikaFrontend({
+      token: 't',
+      allowFrom: [],
+      registry,
+      router: router as any,
+      sender: (m, b) => sender.send(m, b),
+    })
+    await noAllow.deliverPermissionRequest({
+      sessionName: 'sess',
+      requestId: '1',
+      toolName: 'bash',
+      description: '',
+      inputPreview: '',
+    })
+    expect(sender.calls.length).toBe(0)
+  })
+
+  test('skips a user whose chat_id has not been learned yet', async () => {
+    const registry = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
+    const router = new StubRouter()
+    const sender = new FakeSender()
+    // u1 is in allowFrom but has never sent a message, so chat_id is unknown
+    const r = new RubikaFrontend({
+      token: 't',
+      allowFrom: ['u1'],
+      registry,
+      router: router as any,
+      sender: (m, b) => sender.send(m, b),
+    })
+    await r.deliverPermissionRequest({
+      sessionName: 'sess',
+      requestId: '7',
+      toolName: 'write',
+      description: '',
+      inputPreview: '',
+    })
+    expect(sender.calls.length).toBe(0)
+  })
+})

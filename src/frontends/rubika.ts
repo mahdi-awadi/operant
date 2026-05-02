@@ -229,6 +229,19 @@ export class RubikaFrontend {
   }
 
   // ── Outbound (Claude → user) ─────────────────────────────────────────────
+  async deliverPermissionRequest(req: PermissionRequest): Promise<void> {
+    if (this.deps.allowFrom.length === 0) return
+    const text = `🔒 ${req.sessionName} wants to use *${req.toolName}*\n\n${req.inputPreview ?? ''}`
+    for (const senderId of this.deps.allowFrom) {
+      const chatId = this.chatIdByUser.get(senderId)
+      if (!chatId) continue
+      await this.sendButtons(chatId, text, [[
+        { id: `perm:allow:${req.requestId}`, label: 'Allow' },
+        { id: `perm:deny:${req.requestId}`, label: 'Deny' },
+      ]])
+    }
+  }
+
   async deliverToUser(sessionName: string, text: string, files?: string[]): Promise<void> {
     if (this.deps.allowFrom.length === 0) return
     const fullText = `[${sessionName}] ${text}`
