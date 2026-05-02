@@ -673,10 +673,109 @@ export class RubikaFrontend {
   }
 
   private async cmdAutopilot(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: autopilot') }
-  private async cmdRules(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: rules') }
-  private async cmdFact(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: fact') }
-  private async cmdFacts(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: facts') }
-  private async cmdChannel(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: channel') }
+
+  private async cmdRules(chatId: string, args: string[]): Promise<void> {
+    if (args.length < 1) {
+      await this.replyTo('', chatId, 'Usage: /rules <session> [clear|<new rule text>]')
+      return
+    }
+    const sessionName = args[0]
+    const path = this.deps.registry.findByName(sessionName)
+    if (!path) {
+      await this.replyTo('', chatId, `Session "${sessionName}" not found`)
+      return
+    }
+
+    const profiles = loadProfilesForHub()
+
+    if (args.length === 1) {
+      const rules = this.deps.registry.getEffectiveRules(path, profiles)
+      if (rules.length === 0) {
+        await this.replyTo('', chatId, `No rules for ${sessionName}`)
+        return
+      }
+      const text = rules.map((r, i) => `${i + 1}. ${r}`).join('\n')
+      await this.replyTo('', chatId, `Rules for ${sessionName}:\n${text}`)
+      return
+    }
+
+    if (args[1] === 'clear') {
+      this.deps.registry.clearRules(path)
+      await this.replyTo('', chatId, `🗑 Cleared rules for ${sessionName}`)
+      return
+    }
+
+    const newRule = args.slice(1).join(' ')
+    this.deps.registry.addRule(path, newRule, profiles)
+    await this.replyTo('', chatId, `✅ Added rule to ${sessionName}: "${newRule}"`)
+  }
+
+  private async cmdFact(chatId: string, args: string[]): Promise<void> {
+    if (args.length < 2) {
+      await this.replyTo('', chatId, 'Usage: /fact <session> <fact text>')
+      return
+    }
+    const sessionName = args[0]
+    const path = this.deps.registry.findByName(sessionName)
+    if (!path) {
+      await this.replyTo('', chatId, `Session "${sessionName}" not found`)
+      return
+    }
+    const profiles = loadProfilesForHub()
+    const factText = args.slice(1).join(' ')
+    this.deps.registry.addFact(path, factText, profiles)
+    await this.replyTo('', chatId, `✅ Added fact to ${sessionName}: "${factText}"`)
+  }
+
+  private async cmdFacts(chatId: string, args: string[]): Promise<void> {
+    if (args.length < 1) {
+      await this.replyTo('', chatId, 'Usage: /facts <session> [clear]')
+      return
+    }
+    const sessionName = args[0]
+    const path = this.deps.registry.findByName(sessionName)
+    if (!path) {
+      await this.replyTo('', chatId, `Session "${sessionName}" not found`)
+      return
+    }
+
+    if (args[1] === 'clear') {
+      this.deps.registry.clearFacts(path)
+      await this.replyTo('', chatId, `🗑 Cleared facts for ${sessionName}`)
+      return
+    }
+
+    const profiles = loadProfilesForHub()
+    const facts = this.deps.registry.getEffectiveFacts(path, profiles)
+    if (facts.length === 0) {
+      await this.replyTo('', chatId, `No facts for ${sessionName}`)
+      return
+    }
+    const text = facts.map((f, i) => `${i + 1}. ${f}`).join('\n')
+    await this.replyTo('', chatId, `Facts for ${sessionName}:\n${text}`)
+  }
+
+  private async cmdChannel(chatId: string, args: string[]): Promise<void> {
+    if (args.length < 2) {
+      await this.replyTo('', chatId, 'Usage: /channel <session> <reset|instruction text>')
+      return
+    }
+    const sessionName = args[0]
+    const path = this.deps.registry.findByName(sessionName)
+    if (!path) {
+      await this.replyTo('', chatId, `Session "${sessionName}" not found`)
+      return
+    }
+    if (args[1] === 'reset') {
+      this.deps.registry.clearChannelOverride(path, 'rubika')
+      await this.replyTo('', chatId, `✅ Reset channel instructions for ${sessionName} (using default)`)
+      return
+    }
+    const text = args.slice(1).join(' ')
+    this.deps.registry.setChannelOverride(path, 'rubika', text)
+    await this.replyTo('', chatId, `✅ Channel instructions for ${sessionName} updated`)
+  }
+
   private async cmdVerify(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: verify') }
 
   private firstActiveSessionName(): string | null {

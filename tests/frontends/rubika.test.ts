@@ -916,3 +916,92 @@ describe('cmdTrust / cmdPrefix / cmdAll', () => {
     expect(router.broadcastCalls).toEqual([{ message: 'hello world', frontend: 'rubika', user: 'u1' }])
   })
 })
+
+describe('cmdRules / cmdFact / cmdFacts / cmdChannel', () => {
+  const profilesFile = join(HUB_DIR, 'profiles.json')
+
+  afterEach(() => {
+    rmSync(profilesFile, { force: true })
+  })
+
+  test('/rules <unknown> → "Session \"<unknown>\" not found"', async () => {
+    const { r, sender } = makeFrontend()
+    r.handleWebhook(update('u1', '/rules ghost'))
+    await new Promise(rs => setTimeout(rs, 5))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toBe('Session "ghost" not found')
+  })
+
+  test('/rules <name> with no rules → "No rules for <name>"', async () => {
+    const { r, sender, registry } = makeFrontend()
+    registry.register('/p/sap:0', { name: 'sap' })
+    r.handleWebhook(update('u1', '/rules sap'))
+    await new Promise(rs => setTimeout(rs, 5))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toBe('No rules for sap')
+  })
+
+  test('/rules <name> <text> → adds rule, replies with confirmation (no HTML)', async () => {
+    const { r, sender, registry } = makeFrontend()
+    registry.register('/p/sap:0', { name: 'sap' })
+    r.handleWebhook(update('u1', '/rules sap always write tests'))
+    await new Promise(rs => setTimeout(rs, 5))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toBe('✅ Added rule to sap: "always write tests"')
+    expect(body.text).not.toMatch(/<\/?[^>]+>/)
+  })
+
+  test('/rules <name> clear → "🗑 Cleared rules for <name>"', async () => {
+    const { r, sender, registry } = makeFrontend()
+    registry.register('/p/sap:0', { name: 'sap' })
+    r.handleWebhook(update('u1', '/rules sap clear'))
+    await new Promise(rs => setTimeout(rs, 5))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toBe('🗑 Cleared rules for sap')
+  })
+
+  test('/fact with no session arg → usage', async () => {
+    const { r, sender } = makeFrontend()
+    r.handleWebhook(update('u1', '/fact'))
+    await new Promise(rs => setTimeout(rs, 5))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toContain('Usage: /fact')
+  })
+
+  test('/fact <name> <text> → adds fact and replies confirmation', async () => {
+    const { r, sender, registry } = makeFrontend()
+    registry.register('/p/sap:0', { name: 'sap' })
+    r.handleWebhook(update('u1', '/fact sap the sky is blue'))
+    await new Promise(rs => setTimeout(rs, 5))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toBe('✅ Added fact to sap: "the sky is blue"')
+  })
+
+  test('/facts <name> clear → "🗑 Cleared facts for <name>"', async () => {
+    const { r, sender, registry } = makeFrontend()
+    registry.register('/p/sap:0', { name: 'sap' })
+    r.handleWebhook(update('u1', '/facts sap clear'))
+    await new Promise(rs => setTimeout(rs, 5))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toBe('🗑 Cleared facts for sap')
+  })
+
+  test('/channel <name> reset → clears override and replies confirmation', async () => {
+    const { r, sender, registry } = makeFrontend()
+    registry.register('/p/sap:0', { name: 'sap' })
+    r.handleWebhook(update('u1', '/channel sap reset'))
+    await new Promise(rs => setTimeout(rs, 5))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toBe('✅ Reset channel instructions for sap (using default)')
+  })
+
+  test('/channel <name> <text> → sets rubika channel override (assert via registry)', async () => {
+    const { r, sender, registry } = makeFrontend()
+    registry.register('/p/sap:0', { name: 'sap' })
+    r.handleWebhook(update('u1', '/channel sap be concise and helpful'))
+    await new Promise(rs => setTimeout(rs, 5))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toContain('updated')
+    expect(registry.getChannelOverride('/p/sap:0', 'rubika')).toBe('be concise and helpful')
+  })
+})
