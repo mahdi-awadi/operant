@@ -1264,12 +1264,13 @@ describe('deliverToUser with files', () => {
       expect(rsf).toBeDefined()
       expect((rsf!.body as any).type).toBe('Image')
 
-      // Should have called sendMessage with file_inline and caption text
-      const sm = sender.calls.find(c => c.method === 'sendMessage')
-      expect(sm).toBeDefined()
-      expect((sm!.body as any).text).toBe('[sap] caption')
-      expect((sm!.body as any).file_inline).toBeDefined()
-      expect((sm!.body as any).file_inline.file_id).toBe(fakeFileId)
+      // Should have called sendFile (NOT sendMessage) with the flat shape
+      // Rubika uses for actual photo/file delivery.
+      const sf = sender.calls.find(c => c.method === 'sendFile')
+      expect(sf).toBeDefined()
+      expect((sf!.body as any).text).toBe('[sap] caption')
+      expect((sf!.body as any).file_id).toBe(fakeFileId)
+      expect((sf!.body as any).type).toBe('Image')
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -1316,14 +1317,14 @@ describe('deliverToUser with files', () => {
 
       await r.deliverToUser('sap', 'caption', [tmpFile, tmpFile2])
 
-      const sendMsgs = sender.calls.filter(c => c.method === 'sendMessage')
-      expect(sendMsgs.length).toBe(2)
+      const sendFiles = sender.calls.filter(c => c.method === 'sendFile')
+      expect(sendFiles.length).toBe(2)
       // First message carries the caption
-      expect((sendMsgs[0]!.body as any).text).toBe('[sap] caption')
-      expect((sendMsgs[0]!.body as any).file_inline).toBeDefined()
-      // Second message has empty text but still has file_inline
-      expect((sendMsgs[1]!.body as any).text).toBe('')
-      expect((sendMsgs[1]!.body as any).file_inline).toBeDefined()
+      expect((sendFiles[0]!.body as any).text).toBe('[sap] caption')
+      expect((sendFiles[0]!.body as any).file_id).toBeDefined()
+      // Second message has empty text but still has the file
+      expect((sendFiles[1]!.body as any).text).toBe('')
+      expect((sendFiles[1]!.body as any).file_id).toBeDefined()
     } finally {
       globalThis.fetch = originalFetch
       try { unlinkSync(tmpFile2) } catch {}

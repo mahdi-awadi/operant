@@ -347,10 +347,17 @@ export class RubikaFrontend {
             try {
               const mime = await guessMime(files[i]!)
               const meta = await this.uploadFile(files[i]!, mime)
-              await this.send('sendMessage', {
+              // Rubika delivers attached files via sendFile with a flat body
+              // (chat_id, file_id, type, file_name, size, text). sendMessage
+              // with file_inline returns OK but the photo never renders for
+              // the recipient — verified 2026-05-02 against the live server.
+              await this.send('sendFile', {
                 chat_id: chatId,
+                file_id: meta.file_id,
+                type: meta.type,
+                file_name: meta.file_name,
+                size: meta.size,
                 text: i === 0 ? fullText : '',
-                file_inline: meta,
               })
             } catch (err) {
               await this.send('sendMessage', {
