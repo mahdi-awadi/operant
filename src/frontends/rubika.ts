@@ -1012,6 +1012,23 @@ export class RubikaFrontend {
     }
   }
 
+  async deliverAutopilotDraft(sessionName: string, draft: string): Promise<void> {
+    if (this.deps.allowFrom.length === 0) return
+    const text = `📝 ${sessionName} draft:\n\n${draft}`
+    for (const senderId of this.deps.allowFrom) {
+      const chatId = this.chatIdByUser.get(senderId)
+      if (!chatId) continue
+      try {
+        await this.sendButtons(chatId, text, [[
+          { id: `ap-send:${sessionName}`, label: '✅ Send' },
+          { id: `ap-cancel:${sessionName}`, label: '❌ Cancel' },
+        ]])
+      } catch (err) {
+        process.stderr.write(`rubika: deliverAutopilotDraft failed: ${err}\n`)
+      }
+    }
+  }
+
   private async uploadFile(filePath: string, mime: string): Promise<{ file_id: string; file_name: string; size: number; type: string }> {
     const fs = await import('node:fs/promises')
     const path = await import('node:path')

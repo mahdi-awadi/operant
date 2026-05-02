@@ -360,6 +360,7 @@ socketServer.on('tool_call', (path: string, name: string, args: Record<string, u
             }, decisionId)
             telegramFrontend?.deliverAutopilotDraft(sessionName, veto.draft, vetoMs)
             webFrontend?.deliverAutopilotDraft(path, sessionName, veto.draft, vetoMs)
+            rubikaFrontend?.deliverAutopilotDraft(sessionName, veto.draft)
           } else {
             socketServer.sendToSession(path, {
               type: 'channel_message',

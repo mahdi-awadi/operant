@@ -1595,3 +1595,79 @@ describe('RubikaFrontend.deliverPermissionRequest', () => {
     expect(sender.calls.length).toBe(0)
   })
 })
+
+describe('RubikaFrontend.deliverAutopilotDraft', () => {
+  test('sends message with 2 buttons keyed by sessionName and text contains draft', async () => {
+    const registry = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
+    const router = new StubRouter()
+    const sender = new FakeSender()
+    const r = new RubikaFrontend({
+      token: 't',
+      allowFrom: ['u1'],
+      registry,
+      router: router as any,
+      sender: (m, b) => sender.send(m, b),
+    })
+    // Simulate u1 having learned a chat_id via an inbound message
+    const body: RubikaUpdateBody = {
+      update: {
+        type: 'NewMessage',
+        chat_id: 'chat-u1',
+        new_message: {
+          message_id: 'm1',
+          text: 'hello',
+          time: '1700000000',
+          is_edited: false,
+          sender_type: 'User',
+          sender_id: 'u1',
+          aux_data: { start_id: null, button_id: null },
+        },
+      },
+    }
+    r.handleWebhook(body)
+    sender.calls.length = 0 // clear routing calls
+
+    await r.deliverAutopilotDraft('sap', 'draft text')
+
+    expect(sender.calls.length).toBe(1)
+    const call = sender.calls[0]
+    expect(call.method).toBe('sendMessage')
+    const b = call.body as any
+    expect(b.text).toContain('draft text')
+    const buttons = b.inline_keypad?.rows?.flatMap((r: any) => r.buttons) ?? []
+    expect(buttons.length).toBe(2)
+    expect(buttons[0].id).toBe('ap-send:sap')
+    expect(buttons[1].id).toBe('ap-cancel:sap')
+  })
+
+  test('is a no-op when allowFrom is empty', async () => {
+    const registry = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
+    const router = new StubRouter()
+    const sender = new FakeSender()
+    const r = new RubikaFrontend({
+      token: 't',
+      allowFrom: [],
+      registry,
+      router: router as any,
+      sender: (m, b) => sender.send(m, b),
+    })
+    await r.deliverAutopilotDraft('sap', 'draft text')
+    expect(sender.calls.length).toBe(0)
+  })
+
+  test('skips a user whose chat_id has not been learned yet', async () => {
+    const registry = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
+    const router = new StubRouter()
+    const sender = new FakeSender()
+    const r = new RubikaFrontend({
+      token: 't',
+      allowFrom: ['u1'],
+      registry,
+      router: router as any,
+      sender: (m, b) => sender.send(m, b),
+    })
+    // u1 is in allowFrom but has never sent a message, so chat_id is unknown
+    await r.deliverAutopilotDraft('sap', 'draft text')
+    expect(sender.calls.length).toBe(0)
+  })
+})
