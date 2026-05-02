@@ -672,7 +672,65 @@ export class RubikaFrontend {
     await this.replyTo('', chatId, 'Broadcast sent to all active sessions.')
   }
 
-  private async cmdAutopilot(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: autopilot') }
+  private async cmdAutopilot(chatId: string, args: string[]): Promise<void> {
+    if (args.length < 2 || !args[0] || (args[1] !== 'on' && args[1] !== 'off')) {
+      await this.replyTo('', chatId, 'Usage: /autopilot <name> on|off')
+      return
+    }
+    const name = args[0]
+    const enabled = args[1] === 'on'
+    const path = this.deps.registry.findByName(name)
+    if (!path) {
+      await this.replyTo('', chatId, `Session not found: ${name}`)
+      return
+    }
+    if (enabled) {
+      const runner = this.autopilotRunner
+      const managed = this.screenManager?.getManagedByPath(this.deps.registry.folderPath(path))
+      const tmuxName = managed?.sessionName ?? `hub-${name}`
+      if (runner) {
+        const quick = await runner.quickProbe(tmuxName)
+        if (!quick.ok) {
+          await this.replyTo('', chatId, `Autopilot precheck failed: ${quick.reason}`)
+          return
+        }
+      }
+      const existing = this.deps.registry.getAutopilot(path)
+      const current = this.deps.registry.get(path)
+      const prior = current?.trust
+      const priorTrust = existing?.priorTrust ?? prior
+      this.deps.registry.setTrust(path, 'auto')
+      this.deps.registry.setAutopilot(path, {
+        ...existing,
+        enabled: true,
+        priorTrust,
+        startedAt: existing?.startedAt ?? Date.now(),
+      })
+      saveSessions(this.deps.registry.toSaveFormat())
+      if (runner) {
+        runner.probe(tmuxName, 20_000).then(res => {
+          if (!res.ok) {
+            this.deliverToUser(name, `⚠️ Autopilot on but /btw confirmation failed: ${res.reason}`)
+          } else {
+            this.deliverToUser(name, `✅ Autopilot ready — /btw confirmed reachable.`)
+          }
+        }).catch(err => {
+          process.stderr.write(`rubika: autopilot bg probe error for ${name}: ${err}\n`)
+        })
+      }
+    } else {
+      const ap = this.deps.registry.getAutopilot(path)
+      if (ap?.priorTrust) this.deps.registry.setTrust(path, ap.priorTrust)
+      this.deps.registry.setAutopilot(path, {
+        ...ap,
+        enabled: false,
+        priorTrust: undefined,
+        startedAt: undefined,
+      })
+      saveSessions(this.deps.registry.toSaveFormat())
+    }
+    await this.replyTo('', chatId, `🤖 Autopilot ${enabled ? 'ON' : 'OFF'} for ${name}`)
+  }
 
   private async cmdRules(chatId: string, args: string[]): Promise<void> {
     if (args.length < 1) {
@@ -776,7 +834,65 @@ export class RubikaFrontend {
     await this.replyTo('', chatId, `✅ Channel instructions for ${sessionName} updated`)
   }
 
-  private async cmdVerify(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: verify') }
+  private async cmdVerify(chatId: string, args: string[]): Promise<void> {
+    const sessionName = args[0]
+    if (!sessionName) {
+      await this.replyTo('', chatId, 'Usage: /verify <session>')
+      return
+    }
+    const path = this.deps.registry.findByName(sessionName)
+    if (!path) {
+      await this.replyTo('', chatId, `Session "${sessionName}" not found`)
+      return
+    }
+    if (!this.verificationRunner) {
+      await this.replyTo('', chatId, 'Verification runner not available.')
+      return
+    }
+    const result = await this.verificationRunner.run(path)
+    await this.renderVerificationResult('', chatId, sessionName, result)
+  }
+
+  private async renderVerificationResult(
+    _senderId: string,
+    chatId: string,
+    sessionName: string,
+    result: VerificationResult,
+  ): Promise<void> {
+    switch (result.status) {
+      case 'pass':
+        await this.replyTo('', chatId, '✅')
+        return
+      case 'fail': {
+        const tail = result.tail.join('\n')
+        const text =
+          `❌ ${sessionName} — ${result.failedCommand} (exit ${result.exitCode})\n\n` +
+          `\`\`\`\n${tail}\n\`\`\``
+        await this.replyTo('', chatId, text)
+        return
+      }
+      case 'error':
+        switch (result.reason) {
+          case 'timeout':
+            await this.replyTo('', chatId, `⏱ ${sessionName} — "${result.details}" exceeded 120s`)
+            return
+          case 'no-commands':
+            await this.replyTo(
+              '',
+              chatId,
+              `⚠️ ${sessionName} has no verification commands. ` +
+              `Set them on the profile or add scripts to package.json.`,
+            )
+            return
+          case 'already-running':
+            await this.replyTo('', chatId, `⏳ Verification already running for ${sessionName}`)
+            return
+          case 'spawn-failed':
+            await this.replyTo('', chatId, `⚠️ ${sessionName}: ${result.details}`)
+            return
+        }
+    }
+  }
 
   private firstActiveSessionName(): string | null {
     const list = this.deps.registry.list()

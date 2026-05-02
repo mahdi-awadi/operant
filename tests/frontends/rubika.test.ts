@@ -58,8 +58,10 @@ class StubSocketServer {
 class StubAutopilotRunner {
   toggleCalls: { name: string; on: boolean }[] = []
   toggle(name: string, on: boolean) { this.toggleCalls.push({ name, on }) }
-  async quickProbe(_n: string) { return { ok: true } as const }
-  async probe(_n: string, _t: number) { return { ok: true } as const }
+  nextQuickProbe: { ok: true } | { ok: false; reason: string } = { ok: true }
+  async quickProbe(_n: string) { return this.nextQuickProbe }
+  nextProbe: { ok: true } | { ok: false; reason: string } = { ok: true }
+  async probe(_n: string, _t: number) { return this.nextProbe }
 }
 class StubScreenManager {
   spawnCalls: any[][] = []
@@ -77,7 +79,8 @@ class StubScreenManager {
   getManagedByPath(_p: string) { return null }
 }
 class StubVerificationRunner {
-  async run(_p: string) { return { status: 'pass' as const } }
+  nextResult: import('../../src/verification').VerificationResult = { status: 'pass' }
+  async run(_p: string) { return this.nextResult }
 }
 
 function makeFrontend() {
@@ -1003,5 +1006,85 @@ describe('cmdRules / cmdFact / cmdFacts / cmdChannel', () => {
     const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
     expect(body.text).toContain('updated')
     expect(registry.getChannelOverride('/p/sap:0', 'rubika')).toBe('be concise and helpful')
+  })
+})
+
+describe('cmdAutopilot', () => {
+  test('/autopilot foo on enables autopilot, sets trust auto, calls quickProbe, persists, replies ON', async () => {
+    const { r, registry, autopilotRunner, sender } = makeFrontend()
+    registry.register('/p/foo:0', { name: 'foo' })
+    r.handleWebhook(update('u1', '/autopilot foo on'))
+    await new Promise(rs => setTimeout(rs, 20))
+    expect(registry.get('/p/foo:0')?.trust).toBe('auto')
+    expect(registry.getAutopilot('/p/foo:0')?.enabled).toBe(true)
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toContain('🤖 Autopilot ON for foo')
+  })
+
+  test('/autopilot foo off disables autopilot, restores priorTrust', async () => {
+    const { r, registry, sender } = makeFrontend()
+    registry.register('/p/foo:0', { name: 'foo' })
+    // Enable first so there is a priorTrust to restore
+    registry.setTrust('/p/foo:0', 'ask')
+    registry.setAutopilot('/p/foo:0', { enabled: true, priorTrust: 'ask' })
+    r.handleWebhook(update('u1', '/autopilot foo off'))
+    await new Promise(rs => setTimeout(rs, 10))
+    expect(registry.getAutopilot('/p/foo:0')?.enabled).toBe(false)
+    expect(registry.get('/p/foo:0')?.trust).toBe('ask')
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toContain('🤖 Autopilot OFF for foo')
+  })
+
+  test('/autopilot foo on with failing quickProbe replies precheck failed', async () => {
+    const { r, registry, autopilotRunner, sender } = makeFrontend()
+    registry.register('/p/foo:0', { name: 'foo' })
+    autopilotRunner.nextQuickProbe = { ok: false, reason: 'tmux session not found' }
+    r.handleWebhook(update('u1', '/autopilot foo on'))
+    await new Promise(rs => setTimeout(rs, 10))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toContain('Autopilot precheck failed: tmux session not found')
+    expect(registry.getAutopilot('/p/foo:0')?.enabled).not.toBe(true)
+  })
+})
+
+describe('cmdVerify', () => {
+  test('/verify foo on passing run replies ✅', async () => {
+    const { r, registry, verificationRunner, sender } = makeFrontend()
+    registry.register('/p/foo:0', { name: 'foo' })
+    verificationRunner.nextResult = { status: 'pass' }
+    r.handleWebhook(update('u1', '/verify foo'))
+    await new Promise(rs => setTimeout(rs, 10))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toContain('✅')
+  })
+
+  test('/verify foo on failing run contains failed command name and tail', async () => {
+    const { r, registry, verificationRunner, sender } = makeFrontend()
+    registry.register('/p/foo:0', { name: 'foo' })
+    verificationRunner.nextResult = {
+      status: 'fail',
+      failedCommand: 'bun run test',
+      exitCode: 1,
+      tail: ['FAIL: some-test', 'AssertionError: expected 1 to equal 2'],
+    }
+    r.handleWebhook(update('u1', '/verify foo'))
+    await new Promise(rs => setTimeout(rs, 10))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toContain('bun run test')
+    expect(body.text).toContain('FAIL: some-test')
+  })
+
+  test('/verify foo with no-commands error contains "no verification commands"', async () => {
+    const { r, registry, verificationRunner, sender } = makeFrontend()
+    registry.register('/p/foo:0', { name: 'foo' })
+    verificationRunner.nextResult = {
+      status: 'error',
+      reason: 'no-commands',
+      details: '',
+    }
+    r.handleWebhook(update('u1', '/verify foo'))
+    await new Promise(rs => setTimeout(rs, 10))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text.toLowerCase()).toContain('no verification commands')
   })
 })
