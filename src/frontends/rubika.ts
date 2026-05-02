@@ -24,16 +24,19 @@
 import { createHmac } from 'node:crypto'
 import type { SessionRegistry } from '../session-registry'
 import type { MessageRouter } from '../message-router'
-import type { SessionState, PermissionRequest, TrustLevel, Profile } from '../types'
+import type { SessionState } from '../types'
 import type { PermissionEngine } from '../permission-engine'
 import type { ScreenManager } from '../screen-manager'
 import type { SocketServer } from '../socket-server'
 import type { TaskMonitor } from '../task-monitor'
-import type { VerificationRunner, VerificationResult } from '../verification'
+import type { VerificationRunner } from '../verification'
 import type { VetoController } from '../veto-controller'
 import type { AutopilotRunner } from '../autopilot'
-import { getProfile } from '../profiles'
-import { loadProfilesForHub, saveProfilesForHub, saveSessions } from '../config'
+// Type-only imports below are reserved for later tasks (Tasks 7-17).
+import type { PermissionRequest, TrustLevel, Profile } from '../types'
+import type { VerificationResult } from '../verification'
+import { getProfile } from '../profiles' // used in Task 7
+import { loadProfilesForHub, saveProfilesForHub, saveSessions } from '../config' // used in Tasks 7-12
 
 const DEFAULT_API_BASE = 'https://botapi.rubika.ir/v3'
 

@@ -1,6 +1,6 @@
 // tests/frontends/rubika.test.ts
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { RubikaFrontend, deriveWebhookSecret, type RubikaUpdateBody, parseCommand, formatSessionList, chunkText } from '../../src/frontends/rubika'
+import { RubikaFrontend, deriveWebhookSecret, type RubikaUpdateBody, parseCommand, formatSessionList, formatStatus, chunkText } from '../../src/frontends/rubika'
 import { SessionRegistry } from '../../src/session-registry'
 import type { SessionState } from '../../src/types'
 
@@ -239,5 +239,53 @@ describe('formatSessionList', () => {
     expect(out).toContain('🟢 sap')
     expect(out).toContain('[auto]')
     expect(out).toContain('← active')
+  })
+})
+
+describe('formatStatus', () => {
+  test('renders empty', () => {
+    expect(formatStatus([])).toBe('No sessions connected.')
+  })
+  test('renders session with path, trust, optional prefix; no HTML tags', () => {
+    const s: SessionState[] = [{
+      name: 'sap', path: '/p:0', status: 'active', trust: 'auto', prefix: 'hello',
+      uploadDir: '.', managed: false, teamIndex: 0, teamSize: 1, profileOverrides: {},
+    } as any]
+    const out = formatStatus(s)
+    expect(out).toContain('sap')
+    expect(out).toContain('path: /p:0')
+    expect(out).toContain('trust: auto')
+    expect(out).toContain('prefix: hello')
+    expect(out).not.toMatch(/<\/?[bi]>/)
+  })
+  test('omits prefix line when prefix is empty', () => {
+    const s: SessionState[] = [{
+      name: 'sap', path: '/p:0', status: 'active', trust: 'ask', prefix: '',
+      uploadDir: '.', managed: false, teamIndex: 0, teamSize: 1, profileOverrides: {},
+    } as any]
+    expect(formatStatus(s)).not.toContain('prefix:')
+  })
+})
+
+describe('chunkText', () => {
+  test('text shorter than limit returns a one-element array', () => {
+    expect(chunkText('hello', 100)).toEqual(['hello'])
+  })
+  test('text exactly equal to limit returns a one-element array', () => {
+    expect(chunkText('aaaa', 4)).toEqual(['aaaa'])
+  })
+  test('text with no newlines hard-cuts at limit', () => {
+    const out = chunkText('aaaaabbbbb', 5)
+    expect(out).toEqual(['aaaaa', 'bbbbb'])
+  })
+  test('text with a newline within the limit cuts on the newline', () => {
+    const out = chunkText('aaaa\nbbbbbbb', 7)
+    expect(out[0]).toBe('aaaa\n')
+    expect(out[1]).toBe('bbbbbbb')
+  })
+  test('multi-chunk with newline preference', () => {
+    const out = chunkText('line1\nline2\nlineeeeee3', 8)
+    expect(out.length).toBeGreaterThanOrEqual(2)
+    expect(out.join('')).toBe('line1\nline2\nlineeeeee3')
   })
 })
