@@ -224,16 +224,35 @@ export class RubikaFrontend {
   }
 
   // ── Outbound (Claude → user) ─────────────────────────────────────────────
-  async deliverToUser(sessionName: string, text: string, _files?: string[]): Promise<void> {
-    if (this.deps.allowFrom.length === 0) return       // deny-all guard
+  async deliverToUser(sessionName: string, text: string, files?: string[]): Promise<void> {
+    if (this.deps.allowFrom.length === 0) return
     const fullText = `[${sessionName}] ${text}`
     for (const senderId of this.deps.allowFrom) {
       const chatId = this.chatIdByUser.get(senderId)
       if (!chatId) continue
       try {
-        await this.send('sendMessage', { chat_id: chatId, text: fullText })
+        if (files && files.length > 0) {
+          for (let i = 0; i < files.length; i++) {
+            try {
+              const mime = await guessMime(files[i]!)
+              const meta = await this.uploadFile(files[i]!, mime)
+              await this.send('sendMessage', {
+                chat_id: chatId,
+                text: i === 0 ? fullText : '',
+                file_inline: meta,
+              })
+            } catch (err) {
+              await this.send('sendMessage', {
+                chat_id: chatId,
+                text: `[file too big to upload: ${files[i]}]\n${i === 0 ? fullText : ''}`,
+              })
+            }
+          }
+        } else {
+          await this.send('sendMessage', { chat_id: chatId, text: fullText })
+        }
       } catch (err) {
-        process.stderr.write(`rubika: sendMessage to ${chatId} failed: ${err}\n`)
+        process.stderr.write(`rubika: deliverToUser to ${chatId} failed: ${err}\n`)
       }
     }
   }
@@ -944,6 +963,17 @@ export class RubikaFrontend {
 }
 
 // ── Pure helpers ─────────────────────────────────────────────────────────────
+
+export async function guessMime(filePath: string): Promise<string> {
+  const ext = filePath.toLowerCase().split('.').pop() ?? ''
+  const map: Record<string, string> = {
+    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+    mp4: 'video/mp4', webm: 'video/webm',
+    mp3: 'audio/mpeg', ogg: 'audio/ogg', opus: 'audio/opus', wav: 'audio/wav',
+    pdf: 'application/pdf', txt: 'text/plain',
+  }
+  return map[ext] ?? 'application/octet-stream'
+}
 
 export function mimeToType(mime: string): 'Image' | 'Video' | 'Voice' | 'Music' | 'Gif' | 'File' {
   if (mime.startsWith('image/gif')) return 'Gif'

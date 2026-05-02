@@ -1,8 +1,8 @@
 // tests/frontends/rubika.test.ts
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { rmSync } from 'fs'
+import { rmSync, writeFileSync, unlinkSync } from 'fs'
 import { join } from 'path'
-import { RubikaFrontend, deriveWebhookSecret, type RubikaUpdateBody, type RubikaInlineMessageBody, parseCommand, formatSessionList, formatStatus, chunkText, mimeToType } from '../../src/frontends/rubika'
+import { RubikaFrontend, deriveWebhookSecret, type RubikaUpdateBody, type RubikaInlineMessageBody, parseCommand, formatSessionList, formatStatus, chunkText, mimeToType, guessMime } from '../../src/frontends/rubika'
 import { SessionRegistry } from '../../src/session-registry'
 import { saveProfiles, loadProfiles } from '../../src/profiles'
 import { HUB_DIR } from '../../src/config'
@@ -1175,4 +1175,173 @@ describe('uploadFile', () => {
       globalThis.fetch = originalFetch
     }
   })
+})
+
+describe('deliverToUser with files', () => {
+  let tmpFile: string
+
+  beforeEach(() => {
+    tmpFile = `/tmp/rubika-deliver-test-${Date.now()}.png`
+    writeFileSync(tmpFile, Buffer.from([0x89, 0x50, 0x4e, 0x47])) // minimal PNG header
+  })
+
+  afterEach(() => {
+    try { unlinkSync(tmpFile) } catch {}
+  })
+
+  test('single file — calls requestSendFile (type=Image for .png), uploads, sends sendMessage with file_inline and caption', async () => {
+    const registry = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
+    const router = new StubRouter()
+    const sender = new FakeSender()
+
+    // requestSendFile returns upload_url
+    sender.reply = { upload_url: 'https://upload.example/slot1' }
+
+    const fakeFileId = 'fid-001'
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async (_url: RequestInfo | URL, _init?: RequestInit) => {
+      return {
+        ok: true,
+        json: async () => ({ file_id: fakeFileId }),
+      } as unknown as Response
+    }) as typeof fetch
+
+    try {
+      const r = new RubikaFrontend({
+        token: 't',
+        allowFrom: ['u1'],
+        registry,
+        router: router as any,
+        sender: (m, b) => sender.send(m, b),
+      })
+      // Simulate inbound message to learn chat_id
+      ;(r as any).chatIdByUser.set('u1', 'chat-u1')
+
+      await r.deliverToUser('sap', 'caption', [tmpFile])
+
+      // Should have called requestSendFile with type=Image
+      const rsf = sender.calls.find(c => c.method === 'requestSendFile')
+      expect(rsf).toBeDefined()
+      expect((rsf!.body as any).type).toBe('Image')
+
+      // Should have called sendMessage with file_inline and caption text
+      const sm = sender.calls.find(c => c.method === 'sendMessage')
+      expect(sm).toBeDefined()
+      expect((sm!.body as any).text).toBe('[sap] caption')
+      expect((sm!.body as any).file_inline).toBeDefined()
+      expect((sm!.body as any).file_inline.file_id).toBe(fakeFileId)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test('two files — first message carries caption, second has empty text but still has file_inline', async () => {
+    const tmpFile2 = `/tmp/rubika-deliver-test2-${Date.now()}.png`
+    writeFileSync(tmpFile2, Buffer.from([0x89, 0x50, 0x4e, 0x47]))
+
+    const registry = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
+    const router = new StubRouter()
+    const sender = new FakeSender()
+
+    let callCount = 0
+    const fakeIds = ['fid-001', 'fid-002']
+    const customSender = async (method: string, body: unknown): Promise<unknown> => {
+      if (method === 'requestSendFile') {
+        const id = fakeIds[callCount++] ?? 'fid-x'
+        return { upload_url: `https://upload.example/slot${callCount}`, file_id: id }
+      }
+      sender.calls.push({ method, body })
+      return {}
+    }
+
+    const originalFetch = globalThis.fetch
+    let fetchCount = 0
+    globalThis.fetch = (async (_url: RequestInfo | URL, _init?: RequestInit) => {
+      const fileId = fakeIds[fetchCount++] ?? 'fid-x'
+      return {
+        ok: true,
+        json: async () => ({ file_id: fileId }),
+      } as unknown as Response
+    }) as typeof fetch
+
+    try {
+      const r = new RubikaFrontend({
+        token: 't',
+        allowFrom: ['u1'],
+        registry,
+        router: router as any,
+        sender: customSender,
+      })
+      ;(r as any).chatIdByUser.set('u1', 'chat-u1')
+
+      await r.deliverToUser('sap', 'caption', [tmpFile, tmpFile2])
+
+      const sendMsgs = sender.calls.filter(c => c.method === 'sendMessage')
+      expect(sendMsgs.length).toBe(2)
+      // First message carries the caption
+      expect((sendMsgs[0]!.body as any).text).toBe('[sap] caption')
+      expect((sendMsgs[0]!.body as any).file_inline).toBeDefined()
+      // Second message has empty text but still has file_inline
+      expect((sendMsgs[1]!.body as any).text).toBe('')
+      expect((sendMsgs[1]!.body as any).file_inline).toBeDefined()
+    } finally {
+      globalThis.fetch = originalFetch
+      try { unlinkSync(tmpFile2) } catch {}
+    }
+  })
+
+  test('upload failure — falls back to text-only sendMessage with [file too big to upload: <path>] prefix', async () => {
+    const registry = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
+    const router = new StubRouter()
+    const sender = new FakeSender()
+
+    // requestSendFile returns upload_url but the fetch upload step fails
+    const customSender = async (method: string, body: unknown): Promise<unknown> => {
+      if (method === 'requestSendFile') {
+        return { upload_url: 'https://upload.example/slot1' }
+      }
+      sender.calls.push({ method, body })
+      return {}
+    }
+
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async (_url: RequestInfo | URL, _init?: RequestInit) => {
+      return {
+        ok: false,
+        status: 413,
+        json: async () => ({}),
+      } as unknown as Response
+    }) as typeof fetch
+
+    try {
+      const r = new RubikaFrontend({
+        token: 't',
+        allowFrom: ['u1'],
+        registry,
+        router: router as any,
+        sender: customSender,
+      })
+      ;(r as any).chatIdByUser.set('u1', 'chat-u1')
+
+      await r.deliverToUser('sap', 'caption', [tmpFile])
+
+      const sm = sender.calls.find(c => c.method === 'sendMessage')
+      expect(sm).toBeDefined()
+      expect((sm!.body as any).text).toContain(`[file too big to upload: ${tmpFile}]`)
+      expect((sm!.body as any).text).toContain('[sap] caption')
+      // No file_inline on fallback
+      expect((sm!.body as any).file_inline).toBeUndefined()
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+})
+
+describe('guessMime', () => {
+  test('png → image/png', async () => expect(await guessMime('/tmp/x.png')).toBe('image/png'))
+  test('jpg → image/jpeg', async () => expect(await guessMime('/tmp/x.jpg')).toBe('image/jpeg'))
+  test('mp4 → video/mp4', async () => expect(await guessMime('/tmp/x.mp4')).toBe('video/mp4'))
+  test('mp3 → audio/mpeg', async () => expect(await guessMime('/tmp/x.mp3')).toBe('audio/mpeg'))
+  test('pdf → application/pdf', async () => expect(await guessMime('/tmp/x.pdf')).toBe('application/pdf'))
+  test('unknown ext → application/octet-stream', async () => expect(await guessMime('/tmp/x.xyz')).toBe('application/octet-stream'))
 })
