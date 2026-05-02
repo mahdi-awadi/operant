@@ -254,6 +254,52 @@ describe('RubikaFrontend.handleWebhook (inbound)', () => {
   })
 })
 
+describe('RubikaFrontend.dispatchCommand', () => {
+  function update(senderId: string, text: string): RubikaUpdateBody {
+    return {
+      update: {
+        type: 'NewMessage',
+        chat_id: 'chat-' + senderId,
+        new_message: {
+          message_id: 'm1',
+          text,
+          time: '1700000000',
+          is_edited: false,
+          sender_type: 'User',
+          sender_id: senderId,
+          aux_data: { start_id: null, button_id: null },
+        },
+      },
+    }
+  }
+
+  test('handleWebhook dispatches /<unknown> with helpful message', async () => {
+    const { r, sender } = makeFrontend()
+    r.handleWebhook(update('u1', '/nope'))
+    await new Promise(rs => setTimeout(rs, 5))
+    expect(sender.calls.find(c => c.method === 'sendMessage')?.body).toMatchObject({
+      text: expect.stringContaining('Unknown command'),
+    })
+  })
+
+  test('/start replies with welcome message', async () => {
+    const { r, sender } = makeFrontend()
+    r.handleWebhook(update('u1', '/start'))
+    await new Promise(rs => setTimeout(rs, 5))
+    expect(sender.calls.find(c => c.method === 'sendMessage')?.body).toMatchObject({
+      text: expect.stringContaining('Connected to Claude Code Hub'),
+    })
+  })
+
+  test('plain text still routes to session (no dispatch)', () => {
+    const { r, registry, router } = makeFrontend()
+    registry.register('/p/sap:0', { name: 'sap' })
+    r.handleWebhook(update('u1', 'hello world'))
+    expect(router.calls.length).toBe(1)
+    expect(router.calls[0]).toMatchObject({ text: 'hello world' })
+  })
+})
+
 describe('RubikaFrontend.start', () => {
   test('registers BOTH ReceiveUpdate and ReceiveInlineMessage', async () => {
     const registry = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })

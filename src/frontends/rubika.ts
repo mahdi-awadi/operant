@@ -256,6 +256,14 @@ export class RubikaFrontend {
     const text = (m.text || '').trim()
     if (text.length === 0) return
 
+    const parsed = parseCommand(text)
+    if (parsed) {
+      this.dispatchCommand(senderId, inner.chat_id, parsed.command, parsed.args).catch(err =>
+        process.stderr.write(`rubika: command "${parsed.command}" failed: ${err}\n`),
+      )
+      return
+    }
+
     const target = this.activeSessionByUser.get(senderId) ?? this.firstActiveSessionName()
     if (!target) {
       // No session to route to — surface that to the user instead of
@@ -337,6 +345,80 @@ export class RubikaFrontend {
       process.stderr.write(`rubika: inline handler error for "${buttonId}": ${err}\n`)
     }
   }
+
+  private async replyTo(_senderId: string, chatId: string, text: string): Promise<void> {
+    try {
+      await this.send('sendMessage', { chat_id: chatId, text })
+    } catch (err) {
+      process.stderr.write(`rubika: replyTo failed: ${err}\n`)
+    }
+  }
+
+  private async sendButtons(chatId: string, text: string, buttons: { id: string; label: string }[][]): Promise<void> {
+    try {
+      await this.send('sendMessage', {
+        chat_id: chatId,
+        text,
+        inline_keypad: {
+          rows: buttons.map(row => ({
+            buttons: row.map(b => ({ id: b.id, type: 'Simple', button_text: b.label })),
+          })),
+        },
+      })
+    } catch (err) {
+      process.stderr.write(`rubika: sendButtons failed: ${err}\n`)
+    }
+  }
+
+  private async dispatchCommand(senderId: string, chatId: string, command: string, args: string[]): Promise<void> {
+    switch (command) {
+      case 'start':    return this.cmdStart(senderId, chatId)
+      case 'list':     return this.cmdList(senderId, chatId)
+      case 'status':   return this.cmdStatus(chatId)
+      case 'profiles': return this.cmdProfiles(chatId)
+      case 'profile':  return this.cmdProfile(chatId, args)
+      case 'spawn':    return this.cmdSpawn(senderId, chatId, args)
+      case 'team':     return this.cmdTeam(chatId, args)
+      case 'kill':     return this.cmdKill(chatId, args)
+      case 'remove':   return this.cmdRemove(chatId, args)
+      case 'rename':   return this.cmdRename(chatId, args)
+      case 'trust':    return this.cmdTrust(chatId, args)
+      case 'autopilot':return this.cmdAutopilot(chatId, args)
+      case 'rules':    return this.cmdRules(chatId, args)
+      case 'fact':     return this.cmdFact(chatId, args)
+      case 'facts':    return this.cmdFacts(chatId, args)
+      case 'channel':  return this.cmdChannel(chatId, args)
+      case 'verify':   return this.cmdVerify(chatId, args)
+      case 'prefix':   return this.cmdPrefix(chatId, args)
+      case 'all':      return this.cmdAll(senderId, chatId, args)
+      default:
+        return this.replyTo(senderId, chatId, `Unknown command "/${command}". Try /list or /status.`)
+    }
+  }
+
+  private async cmdStart(senderId: string, chatId: string): Promise<void> {
+    await this.replyTo(senderId, chatId,
+      '👋 Connected to Claude Code Hub. Use /list to pick a session or send any message to talk to the active one.')
+  }
+
+  private async cmdList(_s: string, c: string): Promise<void> { await this.replyTo('', c, 'todo: list') }
+  private async cmdStatus(c: string): Promise<void> { await this.replyTo('', c, 'todo: status') }
+  private async cmdProfiles(c: string): Promise<void> { await this.replyTo('', c, 'todo: profiles') }
+  private async cmdProfile(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: profile') }
+  private async cmdSpawn(_s: string, c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: spawn') }
+  private async cmdTeam(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: team') }
+  private async cmdKill(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: kill') }
+  private async cmdRemove(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: remove') }
+  private async cmdRename(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: rename') }
+  private async cmdTrust(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: trust') }
+  private async cmdAutopilot(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: autopilot') }
+  private async cmdRules(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: rules') }
+  private async cmdFact(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: fact') }
+  private async cmdFacts(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: facts') }
+  private async cmdChannel(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: channel') }
+  private async cmdVerify(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: verify') }
+  private async cmdPrefix(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: prefix') }
+  private async cmdAll(_s: string, c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: all') }
 
   private firstActiveSessionName(): string | null {
     const list = this.deps.registry.list()
