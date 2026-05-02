@@ -61,8 +61,10 @@ class StubScreenManager {
   spawnCalls: any[][] = []
   spawnTeamCalls: any[][] = []
   gracefulKillCalls: string[] = []
+  addTeammateCalls: string[] = []
+  nextAddTeammate: string | null = null
   managedNames: Set<string> = new Set()
-  async addTeammate(_n: string) { return null }
+  async addTeammate(n: string) { this.addTeammateCalls.push(n); return this.nextAddTeammate }
   async spawn(...a: any[]) { this.spawnCalls.push(a) }
   async spawnTeam(...a: any[]) { this.spawnTeamCalls.push(a) }
   async gracefulKill(n: string) { this.gracefulKillCalls.push(n) }
@@ -812,5 +814,56 @@ describe('cmdSpawn / cmdKill / cmdRemove / cmdRename', () => {
     // Verify registry updated — foo should be gone, bar should exist
     expect(registry.findByName('bar')).toBeTruthy()
     expect(registry.findByName('foo')).toBeUndefined()
+  })
+})
+
+describe('cmdTeam', () => {
+  test('/team with no args replies usage', async () => {
+    const { r, sender } = makeFrontend()
+    r.handleWebhook(update('u1', '/team'))
+    await new Promise(rs => setTimeout(rs, 5))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toContain('Usage: /team <name> [add]')
+  })
+
+  test('/team <unknown> replies "Session not found"', async () => {
+    const { r, sender } = makeFrontend()
+    r.handleWebhook(update('u1', '/team ghostsession'))
+    await new Promise(rs => setTimeout(rs, 5))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toContain('Session "ghostsession" not found')
+  })
+
+  test('/team <name> on solo session replies "is a solo session"', async () => {
+    const { r, sender, registry } = makeFrontend()
+    registry.register('/p/alpha:0', { name: 'alpha' })
+    r.handleWebhook(update('u1', '/team alpha'))
+    await new Promise(rs => setTimeout(rs, 5))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toContain('alpha is a solo session, not a team')
+  })
+
+  test('/team <name> on a team renders members as plain text (no inline_keypad, has 👑 and ├ markers)', async () => {
+    const { r, sender, registry } = makeFrontend()
+    registry.register('/home/proj:0', { name: 'lead' })
+    registry.register('/home/proj:1', { name: 'mate1' })
+    r.handleWebhook(update('u1', '/team lead'))
+    await new Promise(rs => setTimeout(rs, 5))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.inline_keypad).toBeUndefined()
+    expect(body.text).toContain('👑')
+    expect(body.text).toContain('├')
+    expect(body.text).toContain('lead')
+    expect(body.text).toContain('mate1')
+  })
+
+  test('/team <name> add calls screenManager.addTeammate and replies with new name', async () => {
+    const { r, sender, screenManager } = makeFrontend()
+    screenManager.nextAddTeammate = 'lead-1'
+    r.handleWebhook(update('u1', '/team lead add'))
+    await new Promise(rs => setTimeout(rs, 5))
+    expect(screenManager.addTeammateCalls).toEqual(['lead'])
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toContain('Added teammate: lead-1')
   })
 })
