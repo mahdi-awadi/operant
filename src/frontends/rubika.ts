@@ -228,10 +228,21 @@ export class RubikaFrontend {
     }
 
     if (this.pollingIntervalMs > 0) {
-      // Bootstrap: drain stale backlog without processing updates.
+      // Bootstrap: drain stale backlog without processing updates, but harvest
+      // chat_ids from the historical traffic so outbound delivery survives
+      // daemon restarts even before the user sends a new message.
       try {
         const resp = (await this.send('getUpdates', { limit: 50, offset_id: '' })) as { updates?: unknown[]; next_offset_id?: string }
+        for (const u of resp?.updates ?? []) {
+          const upd = u as { chat_id?: string; new_message?: { sender_id?: string } }
+          const senderId = upd.new_message?.sender_id
+          const chatId = upd.chat_id
+          if (senderId && chatId && this.deps.allowFrom.includes(senderId)) {
+            this.chatIdByUser.set(senderId, chatId)
+          }
+        }
         this.nextOffsetId = resp?.next_offset_id ?? null
+        process.stderr.write(`rubika: bootstrap drained ${resp?.updates?.length ?? 0}; learned chat_ids for ${this.chatIdByUser.size} sender(s)\n`)
       } catch (err) {
         process.stderr.write(`rubika: bootstrap getUpdates failed (will retry on first poll): ${err}\n`)
       }
