@@ -1,0 +1,284 @@
+// src/frontends/rubika.ts
+// Rubika bot frontend — webhook-based MVP.
+//
+// Rubika's bot product is shaped like Telegram's but the wire format is
+// different (different base URL, message envelope, button system, no public
+// SDK). This module hand-rolls a small HTTP client + webhook handler that
+// translates Rubika's `NewMessage` updates into channelhub's
+// `MessageRouter.routeToSession` calls.
+//
+// Auth model:
+//   - Webhook URL contains an HMAC-derived secret segment so the URL itself
+//     is unguessable. Rubika has no native secret-token header (Telegram
+//     does), so the secret in the path is our only proof-of-origin.
+//   - Every inbound message is also checked against `rubikaAllowFrom` —
+//     same trust boundary as Telegram. Empty allowFrom = deny-all.
+//
+// Scope (MVP, day-1):
+//   - sendMessage fan-out via deliverToUser after inbound chat_id discovery
+//   - inbound NewMessage routing to the user's active session
+//   - per-user activeSession map, defaulting to the first active session
+//   - NO commands, permission UI, autopilot draft buttons, file uploads —
+//     those layer on in a follow-up PR per the agreed staged-rollout.
+
+import { createHmac } from 'node:crypto'
+import type { SessionRegistry } from '../session-registry'
+import type { MessageRouter } from '../message-router'
+import type { SessionState, PermissionRequest, TrustLevel, Profile } from '../types'
+import type { PermissionEngine } from '../permission-engine'
+import type { ScreenManager } from '../screen-manager'
+import type { SocketServer } from '../socket-server'
+import type { TaskMonitor } from '../task-monitor'
+import type { VerificationRunner, VerificationResult } from '../verification'
+import type { VetoController } from '../veto-controller'
+import type { AutopilotRunner } from '../autopilot'
+import { getProfile } from '../profiles'
+import { loadProfilesForHub, saveProfilesForHub, saveSessions } from '../config'
+
+const DEFAULT_API_BASE = 'https://botapi.rubika.ir/v3'
+
+// ── Pure helpers (exported for testability) ─────────────────────────────────
+
+export function parseCommand(text: string): { command: string; args: string[] } | null {
+  if (!text.startsWith('/')) return null
+  const parts = text.slice(1).split(/\s+/)
+  const command = parts[0] ?? ''
+  const args = parts.slice(1).filter((a) => a.length > 0)
+  return { command, args }
+}
+
+export function formatSessionList(sessions: SessionState[], activeSession: string | null): string {
+  if (sessions.length === 0) return 'No sessions connected.'
+  return sessions.map((s) => {
+    const icon = s.status === 'active' ? '🟢' : s.status === 'respawning' ? '🟡' : '🔴'
+    const trustLabel = s.trust === 'auto' ? ' [auto]' : ''
+    const activeMarker = s.name === activeSession ? ' ← active' : ''
+    const autopilotBadge = s.autopilot?.enabled === true ? ' 🤖' : ''
+    return `${icon} ${s.name}${trustLabel}${activeMarker}${autopilotBadge}`
+  }).join('\n')
+}
+
+export function formatStatus(sessions: SessionState[]): string {
+  if (sessions.length === 0) return 'No sessions connected.'
+  return sessions.map((s) => {
+    const icon = s.status === 'active' ? '🟢' : s.status === 'respawning' ? '🟡' : '🔴'
+    const autopilotBadge = s.autopilot?.enabled === true ? ' 🤖' : ''
+    const parts = [`${icon} ${s.name}${autopilotBadge} (${s.status})`]
+    parts.push(`  path: ${s.path}`)
+    parts.push(`  trust: ${s.trust}`)
+    if (s.prefix) parts.push(`  prefix: ${s.prefix}`)
+    return parts.join('\n')
+  }).join('\n\n')
+}
+
+export function chunkText(text: string, limit: number): string[] {
+  if (text.length <= limit) return [text]
+  const chunks: string[] = []
+  let remaining = text
+  while (remaining.length > limit) {
+    const slice = remaining.slice(0, limit)
+    const lastNewline = slice.lastIndexOf('\n')
+    const cutAt = lastNewline > 0 ? lastNewline + 1 : limit
+    chunks.push(remaining.slice(0, cutAt))
+    remaining = remaining.slice(cutAt)
+  }
+  if (remaining.length > 0) chunks.push(remaining)
+  return chunks
+}
+
+export function deriveInlineWebhookSecret(token: string): string {
+  return createHmac('sha256', 'channelhub-rubika-inline-webhook')
+    .update(token)
+    .digest('base64url')
+}
+
+// ── Types ────────────────────────────────────────────────────────────────────
+
+export type RubikaSendFn = (method: string, body: unknown) => Promise<unknown>
+
+export type RubikaFrontendDeps = {
+  token: string
+  allowFrom: string[]
+  registry: SessionRegistry
+  router: MessageRouter
+  // New deps for command parity:
+  permissions?: PermissionEngine
+  screenManager?: ScreenManager
+  socketServer?: SocketServer
+  taskMonitor?: TaskMonitor | null
+  verificationRunner?: VerificationRunner
+  vetoController?: VetoController
+  autopilotRunner?: AutopilotRunner
+  apiBase?: string
+  webhookBase?: string
+  sender?: RubikaSendFn
+}
+
+// Inbound payload shape per the Rubika docs. We only extract what we need.
+export type RubikaUpdateBody = {
+  update?: {
+    type: string
+    chat_id: string
+    new_message?: {
+      message_id: string
+      text: string
+      time: string
+      is_edited: boolean
+      sender_type: 'User' | 'Bot'
+      sender_id: string
+      aux_data?: { start_id: string | null; button_id: string | null }
+    }
+  } | null
+  // Rubika delivers inline-button clicks on a separate endpoint; we ignore
+  // them in MVP. Type defined for forward compat.
+  inline_message?: unknown
+}
+
+// ── Secret derivation ────────────────────────────────────────────────────────
+
+// HMAC the bot token under a static label. Result is base64url so it's safe
+// in a URL path. The token itself never leaves config.json.
+export function deriveWebhookSecret(token: string): string {
+  return createHmac('sha256', 'channelhub-rubika-webhook')
+    .update(token)
+    .digest('base64url')
+}
+
+// ── Frontend ─────────────────────────────────────────────────────────────────
+
+export class RubikaFrontend {
+  readonly webhookPath: string
+  readonly inlineWebhookPath: string
+  private deps: RubikaFrontendDeps
+  private apiBase: string
+  private send: RubikaSendFn
+  private activeSessionByUser = new Map<string, string>()
+  private chatIdByUser = new Map<string, string>()
+  private started = false
+  private permissions?: PermissionEngine
+  private screenManager?: ScreenManager
+  private socketServer?: SocketServer
+  private taskMonitor: TaskMonitor | null
+  private verificationRunner?: VerificationRunner
+  private vetoController?: VetoController
+  private autopilotRunner?: AutopilotRunner
+
+  constructor(deps: RubikaFrontendDeps) {
+    this.deps = deps
+    this.apiBase = deps.apiBase ?? DEFAULT_API_BASE
+    this.send = deps.sender ?? this.realSend.bind(this)
+    this.webhookPath = `/api/rubika/webhook/${deriveWebhookSecret(deps.token)}`
+    this.permissions = deps.permissions
+    this.screenManager = deps.screenManager
+    this.socketServer = deps.socketServer
+    this.taskMonitor = deps.taskMonitor ?? null
+    this.verificationRunner = deps.verificationRunner
+    this.vetoController = deps.vetoController
+    this.autopilotRunner = deps.autopilotRunner
+    this.inlineWebhookPath = `/api/rubika/inline-webhook/${deriveInlineWebhookSecret(deps.token)}`
+  }
+
+  // Tell Rubika where to POST updates. Idempotent — safe to call on each
+  // daemon boot. Logs but does not throw on failure so a temporarily
+  // unreachable Rubika doesn't block daemon startup.
+  async start(): Promise<void> {
+    if (this.started) return
+    this.started = true
+    if (!this.deps.webhookBase) {
+      process.stderr.write('rubika: rubikaWebhookBase not configured — webhook NOT registered\n')
+      return
+    }
+    const url = `${this.deps.webhookBase.replace(/\/$/, '')}${this.webhookPath}`
+    try {
+      // Rubika expects each event type to be registered separately. The docs
+      // call the method `updateBotEndpoints` (plural), but its body is a
+      // single `{ type, url }` pair. We only register `ReceiveUpdate` for MVP.
+      await this.send('updateBotEndpoints', {
+        type: 'ReceiveUpdate',
+        url,
+      })
+      process.stderr.write(`rubika: webhook registered → ${url}\n`)
+    } catch (err) {
+      process.stderr.write(`rubika: failed to register webhook (${err}); inbound delivery will not work until this is resolved\n`)
+    }
+  }
+
+  async stop(): Promise<void> {
+    this.started = false
+    // No-op for webhook mode; Rubika keeps the registered endpoint until we
+    // change it. We don't deregister on stop — a daemon restart should not
+    // drop messages mid-flight.
+  }
+
+  // ── Outbound (Claude → user) ─────────────────────────────────────────────
+  async deliverToUser(sessionName: string, text: string, _files?: string[]): Promise<void> {
+    if (this.deps.allowFrom.length === 0) return       // deny-all guard
+    const fullText = `[${sessionName}] ${text}`
+    for (const senderId of this.deps.allowFrom) {
+      const chatId = this.chatIdByUser.get(senderId)
+      if (!chatId) continue
+      try {
+        await this.send('sendMessage', { chat_id: chatId, text: fullText })
+      } catch (err) {
+        process.stderr.write(`rubika: sendMessage to ${chatId} failed: ${err}\n`)
+      }
+    }
+  }
+
+  // ── Inbound (user → daemon) ──────────────────────────────────────────────
+  // Called from the WebFrontend route handler when Rubika POSTs to the
+  // webhook URL. Synchronous in spirit — we route immediately and respond
+  // 200 to Rubika.
+  handleWebhook(body: RubikaUpdateBody): void {
+    const inner = body?.update
+    if (!inner || inner.type !== 'NewMessage' || !inner.new_message) return
+    const m = inner.new_message
+    if (m.sender_type !== 'User') return
+    const senderId = m.sender_id
+    if (!this.deps.allowFrom.includes(senderId)) {
+      process.stderr.write(`rubika: rejecting message from non-allowed sender ${senderId}\n`)
+      return
+    }
+    this.chatIdByUser.set(senderId, inner.chat_id)
+    const text = (m.text || '').trim()
+    if (text.length === 0) return
+
+    const target = this.activeSessionByUser.get(senderId) ?? this.firstActiveSessionName()
+    if (!target) {
+      // No session to route to — surface that to the user instead of
+      // silently dropping. Fire-and-forget; we still return 200 to Rubika.
+      this.send('sendMessage', { chat_id: inner.chat_id, text: 'No active session.' })
+        .catch((err) => process.stderr.write(`rubika: ack-send failed: ${err}\n`))
+      return
+    }
+    this.deps.router.routeToSession(target, text, 'rubika', senderId)
+  }
+
+  private firstActiveSessionName(): string | null {
+    const list = this.deps.registry.list()
+    return list.find((s) => s.status === 'active')?.name ?? null
+  }
+
+  // ── HTTP plumbing ────────────────────────────────────────────────────────
+  private async realSend(method: string, body: unknown): Promise<unknown> {
+    const url = `${this.apiBase}/${this.deps.token}/${method}`
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      throw new Error(`rubika ${method} HTTP ${res.status}: ${await res.text().catch(() => '')}`)
+    }
+    const j = (await res.json()) as { status?: string; data?: unknown }
+    // Rubika returns HTTP 200 even for application-level failures, with
+    // status: "INVALID_INPUT" / "INVALID_AUTH" / etc. Treat anything other
+    // than "OK" as a thrown error so callers see real failures instead of
+    // silently no-op'ing.
+    if (j && typeof j === 'object' && j.status && j.status !== 'OK') {
+      throw new Error(`rubika ${method} ${j.status}: ${JSON.stringify(j)}`)
+    }
+    if (j && typeof j === 'object' && 'data' in j) return j.data
+    return j
+  }
+}
