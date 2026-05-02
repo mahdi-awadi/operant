@@ -5,6 +5,7 @@ import { homedir } from 'os'
 import { fileURLToPath } from 'url'
 import { writeFile } from 'fs/promises'
 import { createHmac, createHash, timingSafeEqual } from 'crypto'
+import { createServer } from 'net'
 import type { SessionRegistry } from '../session-registry'
 import type { MessageRouter } from '../message-router'
 import type { PermissionEngine } from '../permission-engine'
@@ -19,6 +20,7 @@ import type { ErrorLog } from '../error-log'
 import type { Personalities, PersonalityInput } from '../personalities'
 import type { Decisions } from '../decisions'
 import type { Messages } from '../messages'
+import type { RubikaFrontend } from './rubika'
 import { saveSessions } from '../config'
 import { listPriorSessions } from '../claude-sessions'
 
@@ -78,6 +80,20 @@ function parseCookie(header: string | null, name: string): string | null {
   return null
 }
 
+async function pickEphemeralPort(hostname: string): Promise<number> {
+  const server = createServer()
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, hostname, () => resolve())
+  })
+  const address = server.address()
+  await new Promise<void>((resolve) => server.close(() => resolve()))
+  if (!address || typeof address === 'string') {
+    throw new Error('failed to allocate an ephemeral port')
+  }
+  return address.port
+}
+
 // Sanitize a user-supplied filename so it cannot traverse out of the upload
 // directory: strip any path components and anything outside [A-Za-z0-9._-].
 export function sanitizeFilename(name: string): string {
@@ -130,10 +146,20 @@ export class WebFrontend {
   private clients = new Set<import('bun').ServerWebSocket<unknown>>()
   private server: import('bun').Server<unknown> | null = null
   private _port: number
+  // Late-attached so the daemon can wire it AFTER WebFrontend.start() — the
+  // route handler closes over `this.rubika` and dispatches per-request.
+  private rubika: RubikaFrontend | null = null
 
   constructor(deps: WebFrontendDeps) {
     this.deps = deps
     this._port = deps.port
+  }
+
+  // Mount the Rubika webhook on this frontend's HTTP server. Called from the
+  // daemon after instantiating both. The path is derived from the bot token
+  // so an attacker can't post fake updates without knowing the token.
+  attachRubikaWebhook(rubika: RubikaFrontend): void {
+    this.rubika = rubika
   }
 
   get port(): number {
@@ -147,27 +173,37 @@ export class WebFrontend {
 
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const self = this
+    const hostname = this.deps.host ?? '127.0.0.1'
+    const port = this.deps.port === 0
+      ? await pickEphemeralPort(hostname)
+      : this.deps.port
 
     this.server = Bun.serve({
-      port: this.deps.port,
+      port,
       // Default loopback — remote access must go through an authenticated
       // reverse proxy. Operators can override via config.webHost to bind to
       // a private bridge IP (e.g. 172.20.0.1) so a containerized proxy can
       // reach it. See README "Remote access".
-      hostname: this.deps.host ?? '127.0.0.1',
+      hostname,
       fetch(req, server) {
         const url = new URL(req.url)
 
-        // Auth: anything under /api except the Telegram login endpoint requires
-        // a valid hub_session cookie issued by handleTelegramAuth. Same for
-        // WebSocket upgrades. Static assets (/, favicon) are public.
+        // Auth: anything under /api except the Telegram login endpoint and the
+        // Rubika webhook requires a valid hub_session cookie issued by
+        // handleTelegramAuth. Same for WebSocket upgrades. Static assets (/,
+        // favicon) are public. The Rubika webhook is auth'd via an HMAC-derived
+        // secret in the URL path itself + the sender allow-list inside the
+        // handler — Rubika doesn't carry our cookie.
         const isAuthEndpoint = url.pathname === '/api/auth/telegram'
+        const isRubikaWebhook =
+          url.pathname.startsWith('/api/rubika/webhook/') ||
+          url.pathname.startsWith('/api/rubika/inline-webhook/')
         const isStatic =
           url.pathname === '/' ||
           url.pathname === '/index.html' ||
           url.pathname === '/favicon.ico'
         const isWsUpgrade = url.pathname === '/ws'
-        const requiresAuth = (url.pathname.startsWith('/api/') && !isAuthEndpoint) || isWsUpgrade
+        const requiresAuth = (url.pathname.startsWith('/api/') && !isAuthEndpoint && !isRubikaWebhook) || isWsUpgrade
         if (requiresAuth) {
           const session = self.authenticate(req)
           if (!session) return new Response('Unauthorized', { status: 401 })
@@ -350,6 +386,48 @@ export class WebFrontend {
           const m = url.pathname.match(/^\/api\/sessions\/([^/]+)\/personality$/)
           if (m && req.method === 'POST') {
             return self.handleAssignPersonality(req, decodeURIComponent(m[1]!))
+          }
+        }
+
+        // POST /api/rubika/webhook/:secret — Rubika delivers updates here.
+        // The :secret segment is HMAC-derived from the bot token; mismatches
+        // → 401 so an attacker who guesses the path can't forge updates.
+        // Sender allow-list is enforced inside RubikaFrontend.handleWebhook.
+        // Skips auth middleware since Rubika doesn't carry our session cookie.
+        {
+          const m = url.pathname.match(/^\/api\/rubika\/webhook\/([A-Za-z0-9_-]+)$/)
+          if (m && req.method === 'POST') {
+            const r = self.rubika
+            if (!r) return new Response('not configured', { status: 503 })
+            if (m[1] !== r.webhookPath.split('/').pop()) {
+              return new Response('forbidden', { status: 401 })
+            }
+            return req.json().then((body: unknown) => {
+              r.handleWebhook(body as never)
+              return new Response('ok')
+            }).catch((err) => {
+              process.stderr.write(`web: rubika webhook parse error: ${err}\n`)
+              return new Response('bad request', { status: 400 })
+            })
+          }
+        }
+
+        // POST /api/rubika/inline-webhook/:secret — inline button click delivery.
+        {
+          const mInline = url.pathname.match(/^\/api\/rubika\/inline-webhook\/([A-Za-z0-9_-]+)$/)
+          if (req.method === 'POST' && mInline) {
+            const r = self.rubika
+            if (!r) return new Response('not configured', { status: 503 })
+            if (mInline[1] !== r.inlineWebhookPath.split('/').pop()) {
+              return new Response('unauthorized', { status: 401 })
+            }
+            return req.json().then((body: unknown) => {
+              r.handleInlineWebhook(body as any)
+              return new Response('ok', { status: 200 })
+            }).catch((err) => {
+              process.stderr.write(`web: rubika inline webhook parse error: ${err}\n`)
+              return new Response('bad request', { status: 400 })
+            })
           }
         }
 

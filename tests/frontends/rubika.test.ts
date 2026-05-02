@@ -187,7 +187,7 @@ describe('RubikaFrontend.handleWebhook (inbound)', () => {
 })
 
 describe('RubikaFrontend.start', () => {
-  test('registers ReceiveUpdate with Rubika endpoint payload shape', async () => {
+  test('registers BOTH ReceiveUpdate and ReceiveInlineMessage', async () => {
     const registry = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
     const router = new StubRouter()
     const sender = new FakeSender()
@@ -199,16 +199,49 @@ describe('RubikaFrontend.start', () => {
       webhookBase: 'https://hub.example',
       sender: (m, b) => sender.send(m, b),
     })
-
     await r.start()
+    expect(sender.calls).toEqual([
+      { method: 'updateBotEndpoints', body: { type: 'ReceiveUpdate', url: `https://hub.example${r.webhookPath}` } },
+      { method: 'updateBotEndpoints', body: { type: 'ReceiveInlineMessage', url: `https://hub.example${r.inlineWebhookPath}` } },
+    ])
+  })
 
-    expect(sender.calls).toEqual([{
-      method: 'updateBotEndpoints',
-      body: {
-        type: 'ReceiveUpdate',
-        url: `https://hub.example${r.webhookPath}`,
-      },
-    }])
+  test('continues if one registration fails', async () => {
+    const registry = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
+    const router = new StubRouter()
+    const sender = new FakeSender()
+    let n = 0
+    const flakySender = async (m: string, b: unknown) => {
+      sender.calls.push({ method: m, body: b })
+      n++
+      if (n === 1) throw new Error('rubika down')
+      return { status: 'OK' }
+    }
+    const r = new RubikaFrontend({
+      token: 't',
+      allowFrom: ['u1'],
+      registry,
+      router: router as any,
+      webhookBase: 'https://hub.example',
+      sender: flakySender,
+    })
+    await r.start()
+    expect(sender.calls.length).toBe(2)
+  })
+
+  test('skips registration when webhookBase is missing', async () => {
+    const registry = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
+    const router = new StubRouter()
+    const sender = new FakeSender()
+    const r = new RubikaFrontend({
+      token: 't',
+      allowFrom: ['u1'],
+      registry,
+      router: router as any,
+      sender: (m, b) => sender.send(m, b),
+    })
+    await r.start()
+    expect(sender.calls.length).toBe(0)
   })
 })
 

@@ -188,21 +188,22 @@ export class RubikaFrontend {
     if (this.started) return
     this.started = true
     if (!this.deps.webhookBase) {
-      process.stderr.write('rubika: rubikaWebhookBase not configured — webhook NOT registered\n')
+      process.stderr.write('rubika: rubikaWebhookBase not configured — webhooks NOT registered\n')
       return
     }
-    const url = `${this.deps.webhookBase.replace(/\/$/, '')}${this.webhookPath}`
+    const base = this.deps.webhookBase.replace(/\/$/, '')
+    const updateUrl = `${base}${this.webhookPath}`
+    const inlineUrl = `${base}${this.inlineWebhookPath}`
+    await this.registerEndpoint('ReceiveUpdate', updateUrl)
+    await this.registerEndpoint('ReceiveInlineMessage', inlineUrl)
+  }
+
+  private async registerEndpoint(type: 'ReceiveUpdate' | 'ReceiveInlineMessage', url: string): Promise<void> {
     try {
-      // Rubika expects each event type to be registered separately. The docs
-      // call the method `updateBotEndpoints` (plural), but its body is a
-      // single `{ type, url }` pair. We only register `ReceiveUpdate` for MVP.
-      await this.send('updateBotEndpoints', {
-        type: 'ReceiveUpdate',
-        url,
-      })
-      process.stderr.write(`rubika: webhook registered → ${url}\n`)
+      await this.send('updateBotEndpoints', { type, url })
+      process.stderr.write(`rubika: ${type} webhook registered → ${url}\n`)
     } catch (err) {
-      process.stderr.write(`rubika: failed to register webhook (${err}); inbound delivery will not work until this is resolved\n`)
+      process.stderr.write(`rubika: failed to register ${type} (${err})\n`)
     }
   }
 
@@ -255,6 +256,10 @@ export class RubikaFrontend {
       return
     }
     this.deps.router.routeToSession(target, text, 'rubika', senderId)
+  }
+
+  handleInlineWebhook(_body: unknown): void {
+    // Implemented in Task 3.
   }
 
   private firstActiveSessionName(): string | null {
