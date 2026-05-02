@@ -137,6 +137,15 @@ export type RubikaUpdateBody = {
   inline_message?: unknown
 }
 
+export type RubikaInlineMessageBody = {
+  inline_message?: {
+    chat_id: string
+    sender_id: string
+    message_id: string
+    aux_data?: { button_id?: string; start_id?: string | null }
+  } | null
+}
+
 // ── Secret derivation ────────────────────────────────────────────────────────
 
 // HMAC the bot token under a static label. Result is base64url so it's safe
@@ -157,6 +166,7 @@ export class RubikaFrontend {
   private send: RubikaSendFn
   private activeSessionByUser = new Map<string, string>()
   private chatIdByUser = new Map<string, string>()
+  private vetoEditPending = new Map<string, { id: string; kind: 'edit' | 'cancel' }>()
   private started = false
   private permissions?: PermissionEngine
   private screenManager?: ScreenManager
@@ -258,8 +268,65 @@ export class RubikaFrontend {
     this.deps.router.routeToSession(target, text, 'rubika', senderId)
   }
 
-  handleInlineWebhook(_body: unknown): void {
-    // Implemented in Task 3.
+  handleInlineWebhook(body: RubikaInlineMessageBody): void {
+    const im = body?.inline_message
+    if (!im || !im.aux_data?.button_id) return
+    const senderId = im.sender_id
+    if (!this.deps.allowFrom.includes(senderId)) {
+      process.stderr.write(`rubika: inline rejecting non-allowed sender ${senderId}\n`)
+      return
+    }
+    this.chatIdByUser.set(senderId, im.chat_id)
+    const buttonId = im.aux_data.button_id
+
+    // Format: "<prefix>:<verb>:<id?>"
+    const [prefix, verb, ...rest] = buttonId.split(':')
+    const id = rest.join(':')
+
+    try {
+      switch (prefix) {
+        case 'perm':
+          if (verb && this.permissions) {
+            const decision = verb === 'allow' ? 'allow' : verb === 'always' ? 'always-allow' : 'deny'
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            ;(this.permissions as any).respond(id, decision)
+          }
+          break
+        case 'vp':
+          if (verb && this.autopilotRunner) {
+            // Edit/cancel collect a follow-up reason via vetoEditPending; send is immediate
+            if (verb === 'send') {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              ;(this.autopilotRunner as any).veto(id, 'send')
+            } else if (verb === 'edit' || verb === 'cancel') {
+              this.vetoEditPending.set(senderId, { id, kind: verb })
+              this.send('sendMessage', {
+                chat_id: im.chat_id,
+                text: verb === 'edit' ? 'Send your edited reply:' : 'Send your cancel reason:',
+              }).catch(() => {})
+            }
+          }
+          break
+        case 'select':
+          if (verb) this.activeSessionByUser.set(senderId, [verb, ...rest].join(':'))
+          break
+        case 'team':
+          if (verb === 'add' && this.screenManager) {
+            this.screenManager.addTeammate(id).catch(() => {})
+          }
+          break
+        case 'autopilot':
+          if (this.autopilotRunner) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            ;(this.autopilotRunner as any).toggle(id, verb === 'on')
+          }
+          break
+        default:
+          process.stderr.write(`rubika: unknown inline button prefix "${prefix}"\n`)
+      }
+    } catch (err) {
+      process.stderr.write(`rubika: inline handler error for "${buttonId}": ${err}\n`)
+    }
   }
 
   private firstActiveSessionName(): string | null {

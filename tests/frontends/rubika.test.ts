@@ -1,6 +1,6 @@
 // tests/frontends/rubika.test.ts
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { RubikaFrontend, deriveWebhookSecret, type RubikaUpdateBody, parseCommand, formatSessionList, formatStatus, chunkText } from '../../src/frontends/rubika'
+import { RubikaFrontend, deriveWebhookSecret, type RubikaUpdateBody, type RubikaInlineMessageBody, parseCommand, formatSessionList, formatStatus, chunkText } from '../../src/frontends/rubika'
 import { SessionRegistry } from '../../src/session-registry'
 import type { SessionState } from '../../src/types'
 
@@ -22,6 +22,53 @@ class FakeSender {
     this.calls.push({ method, body })
     return this.reply
   }
+}
+
+class StubPermissionEngine {
+  responses: { rid: string; decision: string }[] = []
+  respond(rid: string, decision: string) { this.responses.push({ rid, decision }) }
+}
+class StubAutopilotRunner {
+  vetos: { id: string; decision: string; reason?: string }[] = []
+  veto(id: string, decision: string, reason?: string) { this.vetos.push({ id, decision, reason }) }
+  toggle(_n: string, _on: boolean) {}
+  async quickProbe(_n: string) { return { ok: true } as const }
+  async probe(_n: string, _t: number) { return { ok: true } as const }
+}
+class StubVetoController {
+  drafts = new Map<string, { sessionName: string; draft: string }>()
+}
+class StubScreenManager {
+  async addTeammate(_n: string) { return null }
+  async spawn(..._a: any[]) {}
+  async spawnTeam(..._a: any[]) {}
+  async gracefulKill(_n: string) {}
+  isManaged(_n: string) { return false }
+  forgetManaged(_n: string) {}
+  getManagedByPath(_p: string) { return null }
+}
+class StubVerificationRunner {
+  async run(_p: string) { return { status: 'pass' as const } }
+}
+
+function makeFrontend() {
+  const registry = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
+  const router = new StubRouter()
+  const sender = new FakeSender()
+  const permissions = new StubPermissionEngine()
+  const autopilotRunner = new StubAutopilotRunner()
+  const screenManager = new StubScreenManager()
+  const r = new RubikaFrontend({
+    token: 't',
+    allowFrom: ['u1'],
+    registry,
+    router: router as any,
+    sender: (m, b) => sender.send(m, b),
+    permissions: permissions as any,
+    autopilotRunner: autopilotRunner as any,
+    screenManager: screenManager as any,
+  })
+  return { r, registry, router, sender, permissions, autopilotRunner, screenManager }
 }
 
 describe('deriveWebhookSecret', () => {
@@ -320,5 +367,61 @@ describe('chunkText', () => {
     const out = chunkText('line1\nline2\nlineeeeee3', 8)
     expect(out.length).toBeGreaterThanOrEqual(2)
     expect(out.join('')).toBe('line1\nline2\nlineeeeee3')
+  })
+})
+
+describe('RubikaFrontend.handleInlineWebhook', () => {
+  function inline(senderId: string, buttonId: string): RubikaInlineMessageBody {
+    return {
+      inline_message: {
+        chat_id: `chat-${senderId}`,
+        sender_id: senderId,
+        message_id: 'm1',
+        aux_data: { button_id: buttonId },
+      },
+    }
+  }
+
+  test('rejects non-allowed senders', () => {
+    const { r, permissions } = makeFrontend()
+    r.handleInlineWebhook(inline('attacker', 'perm:allow:1'))
+    expect(permissions.responses).toEqual([])
+  })
+
+  test('routes perm:allow:<rid> to permissionEngine.respond(rid, "allow")', () => {
+    const { r, permissions } = makeFrontend()
+    r.handleInlineWebhook(inline('u1', 'perm:allow:42'))
+    expect(permissions.responses).toEqual([{ rid: '42', decision: 'allow' }])
+  })
+
+  test('routes perm:always:<rid> as "always-allow"', () => {
+    const { r, permissions } = makeFrontend()
+    r.handleInlineWebhook(inline('u1', 'perm:always:42'))
+    expect(permissions.responses).toEqual([{ rid: '42', decision: 'always-allow' }])
+  })
+
+  test('routes perm:deny:<rid> as "deny"', () => {
+    const { r, permissions } = makeFrontend()
+    r.handleInlineWebhook(inline('u1', 'perm:deny:42'))
+    expect(permissions.responses).toEqual([{ rid: '42', decision: 'deny' }])
+  })
+
+  test('routes select:<name> to per-user activeSession map', () => {
+    const { r, registry } = makeFrontend()
+    registry.register('/p/sap:0', { name: 'sap' })
+    r.handleInlineWebhook(inline('u1', 'select:sap'))
+    expect((r as any).activeSessionByUser.get('u1')).toBe('sap')
+  })
+
+  test('drops malformed payloads', () => {
+    const { r, permissions } = makeFrontend()
+    expect(() => r.handleInlineWebhook({} as any)).not.toThrow()
+    expect(() => r.handleInlineWebhook({ inline_message: null } as any)).not.toThrow()
+    expect(permissions.responses).toEqual([])
+  })
+
+  test('logs unknown prefix without throwing', () => {
+    const { r } = makeFrontend()
+    expect(() => r.handleInlineWebhook(inline('u1', 'unknown:prefix'))).not.toThrow()
   })
 })

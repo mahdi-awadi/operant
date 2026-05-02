@@ -425,7 +425,7 @@ export class WebFrontend {
               return new Response('unauthorized', { status: 401 })
             }
             return req.json().then((body: unknown) => {
-              r.handleInlineWebhook(body)
+              r.handleInlineWebhook(body as import('./rubika').RubikaInlineMessageBody)
               return new Response('ok')
             }).catch((err) => {
               process.stderr.write(`web: rubika inline webhook parse error: ${err}\n`)
