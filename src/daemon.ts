@@ -580,6 +580,13 @@ async function start(): Promise<void> {
         allowFrom,
         registry,
         router,
+        permissions,
+        screenManager,
+        socketServer,
+        taskMonitor,
+        verificationRunner,
+        vetoController,
+        autopilotRunner,
         apiBase: config.rubikaApiBase,
         webhookBase: config.rubikaWebhookBase,
       })
