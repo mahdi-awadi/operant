@@ -392,6 +392,14 @@ export class WebFrontend {
           }
         }
 
+        // POST /api/rubika/refresh — re-registers both webhook endpoints.
+        // Auth-required (uses the standard cookie/session guard above).
+        if (url.pathname === '/api/rubika/refresh' && req.method === 'POST') {
+          const r = self.rubika
+          if (!r) return new Response('not configured', { status: 503 })
+          return r.refreshEndpoints().then(() => new Response('ok'))
+        }
+
         // POST /api/rubika/webhook/:secret — Rubika delivers updates here.
         // The :secret segment is HMAC-derived from the bot token; mismatches
         // → 401 so an attacker who guesses the path can't forge updates.

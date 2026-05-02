@@ -221,6 +221,13 @@ export class RubikaFrontend {
     }
   }
 
+  async refreshEndpoints(): Promise<void> {
+    if (!this.deps.webhookBase) return
+    const base = this.deps.webhookBase.replace(/\/$/, '')
+    await this.registerEndpoint('ReceiveUpdate', `${base}${this.webhookPath}`)
+    await this.registerEndpoint('ReceiveInlineMessage', `${base}${this.inlineWebhookPath}`)
+  }
+
   async stop(): Promise<void> {
     this.started = false
     // No-op for webhook mode; Rubika keeps the registered endpoint until we

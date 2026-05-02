@@ -2,6 +2,7 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
 import { WebFrontend, signSession } from '../../src/frontends/web'
 import { SessionRegistry } from '../../src/session-registry'
+import { RubikaFrontend } from '../../src/frontends/rubika'
 
 const TOKEN = 'test-bot-token'
 const ALLOWED_USER = '123'
@@ -80,5 +81,93 @@ describe('WebFrontend', () => {
       body: JSON.stringify({ name: 'no-such-session', enabled: true }),
     })
     expect(res.status).toBe(404)
+  })
+
+  test('POST /api/rubika/webhook/:secret accepts Rubika updates without dashboard cookie', async () => {
+    const calls: unknown[] = []
+    const rubika = new RubikaFrontend({
+      token: 'rubika-token',
+      allowFrom: ['sender-1'],
+      registry,
+      router: { routeToSession: (...args: unknown[]) => { calls.push(args); return true } } as any,
+      sender: async () => ({ status: 'OK' }),
+    })
+    web.attachRubikaWebhook(rubika)
+
+    const res = await fetch(`http://localhost:${web.port}${rubika.webhookPath}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        update: {
+          type: 'NewMessage',
+          chat_id: 'chat-1',
+          new_message: {
+            message_id: 'm1',
+            text: 'hello from rubika',
+            time: '1700000000',
+            is_edited: false,
+            sender_type: 'User',
+            sender_id: 'sender-1',
+          },
+        },
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(calls[0]).toEqual(['frontend', 'hello from rubika', 'rubika', 'sender-1'])
+  })
+
+  test('POST /api/rubika/refresh with valid auth returns 200 and calls refreshEndpoints', async () => {
+    let refreshCalled = false
+    const rubika = new RubikaFrontend({
+      token: 'rubika-token',
+      allowFrom: ['sender-1'],
+      registry,
+      router: { routeToSession: () => true } as any,
+      sender: async () => ({ status: 'OK' }),
+    })
+    rubika.refreshEndpoints = async () => { refreshCalled = true }
+    web.attachRubikaWebhook(rubika)
+
+    const res = await fetch(`http://localhost:${web.port}/api/rubika/refresh`, {
+      method: 'POST',
+      headers: { Cookie: authCookie() },
+    })
+    expect(res.status).toBe(200)
+    expect(refreshCalled).toBe(true)
+  })
+
+  test('POST /api/rubika/refresh without auth returns 401', async () => {
+    const res = await fetch(`http://localhost:${web.port}/api/rubika/refresh`, {
+      method: 'POST',
+    })
+    expect(res.status).toBe(401)
+  })
+
+  test('POST /api/rubika/refresh without rubika attached returns 503', async () => {
+    const res = await fetch(`http://localhost:${web.port}/api/rubika/refresh`, {
+      method: 'POST',
+      headers: { Cookie: authCookie() },
+    })
+    expect(res.status).toBe(503)
+  })
+
+  test('POST /api/rubika/webhook/:secret rejects wrong secret', async () => {
+    const rubika = new RubikaFrontend({
+      token: 'rubika-token',
+      allowFrom: ['sender-1'],
+      registry,
+      router: { routeToSession: () => true } as any,
+      sender: async () => ({ status: 'OK' }),
+    })
+    web.attachRubikaWebhook(rubika)
+
+    const res = await fetch(`http://localhost:${web.port}/api/rubika/webhook/wrong-secret`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ update: null }),
+    })
+
+    expect(res.status).toBe(401)
   })
 })

@@ -398,6 +398,42 @@ describe('RubikaFrontend.start', () => {
   })
 })
 
+describe('RubikaFrontend.refreshEndpoints', () => {
+  test('calls updateBotEndpoints twice with correct URLs', async () => {
+    const registry = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
+    const router = new StubRouter()
+    const sender = new FakeSender()
+    const r = new RubikaFrontend({
+      token: 't',
+      allowFrom: ['u1'],
+      registry,
+      router: router as any,
+      webhookBase: 'https://hub.example',
+      sender: (m, b) => sender.send(m, b),
+    })
+    await r.refreshEndpoints()
+    expect(sender.calls).toEqual([
+      { method: 'updateBotEndpoints', body: { type: 'ReceiveUpdate', url: `https://hub.example${r.webhookPath}` } },
+      { method: 'updateBotEndpoints', body: { type: 'ReceiveInlineMessage', url: `https://hub.example${r.inlineWebhookPath}` } },
+    ])
+  })
+
+  test('is a no-op when webhookBase is not configured', async () => {
+    const registry = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
+    const router = new StubRouter()
+    const sender = new FakeSender()
+    const r = new RubikaFrontend({
+      token: 't',
+      allowFrom: ['u1'],
+      registry,
+      router: router as any,
+      sender: (m, b) => sender.send(m, b),
+    })
+    await r.refreshEndpoints()
+    expect(sender.calls.length).toBe(0)
+  })
+})
+
 describe('parseCommand', () => {
   test('returns null for non-slash text', () => {
     expect(parseCommand('hello')).toBeNull()
