@@ -288,6 +288,24 @@ export class RubikaFrontend {
         for (const update of updates) {
           const u = update as { type?: string; chat_id?: string; new_message?: unknown }
           if (u.type === 'NewMessage') {
+            // Rubika delivers inline-button clicks through getUpdates as a
+            // NewMessage with `aux_data.button_id` set. The webhook path uses
+            // separate ReceiveInlineMessage envelopes, but in polling mode we
+            // see them mixed in here. Detect and route to handleInlineWebhook
+            // so command/permission/veto/drift buttons all work.
+            const inner = u as { chat_id?: string; new_message?: { sender_id?: string; message_id?: string; aux_data?: { button_id?: string } } }
+            const buttonId = inner.new_message?.aux_data?.button_id
+            if (buttonId && /^(select:|perm:|ap-|drift:)/.test(buttonId)) {
+              this.handleInlineWebhook({
+                inline_message: {
+                  chat_id: inner.chat_id ?? '',
+                  sender_id: inner.new_message?.sender_id ?? '',
+                  message_id: inner.new_message?.message_id ?? '',
+                  aux_data: { button_id: buttonId },
+                },
+              })
+              continue
+            }
             const body: RubikaUpdateBody = { update: u as RubikaUpdateBody['update'] }
             this.handleWebhook(body)
           }
