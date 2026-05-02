@@ -414,6 +414,13 @@ export type RubikaInlineMessageBody = {
 }
 ```
 
+**Amended 2026-05-02** — earlier draft of this task invented `perm:always`,
+`vp:*`, `team:*`, and `autopilot:*` prefixes that don't exist on Telegram.
+Real Telegram callbacks (see `telegram.ts:718-818`) are: `select:`,
+`perm:allow:`, `perm:deny:`, `ap-send:`, `ap-cancel:`, `drift:ignore:`,
+`drift:remind:`. Task 3 mirrors those exactly and calls the real methods
+(`permissions.resolve`, `vetoController.cancel`, `socketServer.sendToSession`).
+
 - [ ] **Step 2: Write failing tests**
 
 Append:
@@ -434,41 +441,76 @@ describe('RubikaFrontend.handleInlineWebhook', () => {
   test('rejects non-allowed senders', () => {
     const { r, permissions } = makeFrontend()
     r.handleInlineWebhook(inline('attacker', 'perm:allow:1'))
-    expect(permissions.responses).toEqual([])
+    expect(permissions.resolveCalls).toEqual([])
   })
 
-  test('routes perm:allow:<rid> to permissionEngine.respond(rid, "allow")', () => {
-    const { r, permissions } = makeFrontend()
-    r.handleInlineWebhook(inline('u1', 'perm:allow:42'))
-    expect(permissions.responses).toEqual([{ rid: '42', decision: 'allow' }])
-  })
-
-  test('routes perm:always:<rid> as "always-allow"', () => {
-    const { r, permissions } = makeFrontend()
-    r.handleInlineWebhook(inline('u1', 'perm:always:42'))
-    expect(permissions.responses).toEqual([{ rid: '42', decision: 'always-allow' }])
-  })
-
-  test('routes perm:deny:<rid> as "deny"', () => {
-    const { r, permissions } = makeFrontend()
-    r.handleInlineWebhook(inline('u1', 'perm:deny:42'))
-    expect(permissions.responses).toEqual([{ rid: '42', decision: 'deny' }])
-  })
-
-  test('routes select:<name> to per-user activeSession map', () => {
+  test('select:<name> updates per-user active session map', () => {
     const { r, registry } = makeFrontend()
     registry.register('/p/sap:0', { name: 'sap' })
     r.handleInlineWebhook(inline('u1', 'select:sap'))
-    // Active is set; verified by next routeToSession call
-    r.handleWebhook({ update: { type: 'NewMessage', chat_id: 'c', new_message: { message_id: 'm', text: 'ping', time: '1', is_edited: false, sender_type: 'User', sender_id: 'u1' } } } as any)
-    // see existing StubRouter assertion semantics — the call lands on 'sap'
+    expect((r as any).activeSessionByUser.get('u1')).toBe('sap')
+  })
+
+  test('perm:allow:<rid> calls permissions.resolve and forwards via socketServer', () => {
+    const { r, permissions, socketServer } = makeFrontend()
+    permissions.nextResult = { response: { requestId: '42', behavior: 'allow' }, sessionPath: '/p:0' }
+    r.handleInlineWebhook(inline('u1', 'perm:allow:42'))
+    expect(permissions.resolveCalls).toEqual([{ rid: '42', behavior: 'allow' }])
+    expect(socketServer.sent[0]).toMatchObject({ path: '/p:0', message: { type: 'permission_response', requestId: '42', behavior: 'allow' } })
+  })
+
+  test('perm:deny:<rid> dispatches deny via permissions.resolve + socketServer', () => {
+    const { r, permissions, socketServer } = makeFrontend()
+    permissions.nextResult = { response: { requestId: '42', behavior: 'deny' }, sessionPath: '/p:0' }
+    r.handleInlineWebhook(inline('u1', 'perm:deny:42'))
+    expect(permissions.resolveCalls).toEqual([{ rid: '42', behavior: 'deny' }])
+    expect(socketServer.sent.length).toBe(1)
+  })
+
+  test('perm:allow:<rid> with no pending request makes no socket send', () => {
+    const { r, permissions, socketServer } = makeFrontend()
+    permissions.nextResult = null
+    r.handleInlineWebhook(inline('u1', 'perm:allow:42'))
+    expect(socketServer.sent).toEqual([])
+  })
+
+  test('ap-send:<sessionName> resolves the veto and sends the draft to the session', () => {
+    const { r, vetoController, socketServer, registry } = makeFrontend()
+    registry.register('/home/sap:0', { name: 'sap' })
+    vetoController.nextCancel = { path: '/home/sap:0', sessionName: 'sap', draft: 'hello there', expiresAt: 0, decisionId: 'd1' }
+    r.handleInlineWebhook(inline('u1', 'ap-send:sap'))
+    expect(vetoController.cancelCalls).toEqual(['/home/sap:0'])
+    expect(socketServer.sent[0]).toMatchObject({ path: '/home/sap:0', message: { type: 'channel_message', content: 'hello there' } })
+  })
+
+  test('ap-cancel:<sessionName> resolves the veto without sending', () => {
+    const { r, vetoController, socketServer, registry } = makeFrontend()
+    registry.register('/home/sap:0', { name: 'sap' })
+    vetoController.nextCancel = { path: '/home/sap:0', sessionName: 'sap', draft: 'hello', expiresAt: 0, decisionId: 'd1' }
+    r.handleInlineWebhook(inline('u1', 'ap-cancel:sap'))
+    expect(vetoController.cancelCalls).toEqual(['/home/sap:0'])
+    expect(socketServer.sent).toEqual([])
+  })
+
+  test('drift:remind:<sessionName> sends a rule-reminder channel_message', () => {
+    const { r, registry, socketServer } = makeFrontend()
+    registry.register('/home/sap:0', { name: 'sap' })
+    r.handleInlineWebhook(inline('u1', 'drift:remind:sap'))
+    expect(socketServer.sent[0]?.message.type).toBe('channel_message')
+    expect(socketServer.sent[0]?.message.content).toMatch(/Project rule/)
+  })
+
+  test('drift:ignore:<sessionName> is a no-op (no socket send)', () => {
+    const { r, socketServer } = makeFrontend()
+    r.handleInlineWebhook(inline('u1', 'drift:ignore:sap'))
+    expect(socketServer.sent).toEqual([])
   })
 
   test('drops malformed payloads', () => {
     const { r, permissions } = makeFrontend()
     expect(() => r.handleInlineWebhook({} as any)).not.toThrow()
     expect(() => r.handleInlineWebhook({ inline_message: null } as any)).not.toThrow()
-    expect(permissions.responses).toEqual([])
+    expect(permissions.resolveCalls).toEqual([])
   })
 
   test('logs unknown prefix without throwing', () => {
@@ -482,18 +524,33 @@ Add to fixtures section (top of test file):
 
 ```ts
 class StubPermissionEngine {
-  responses: { rid: string; decision: string }[] = []
-  respond(rid: string, decision: string) { this.responses.push({ rid, decision }) }
-}
-class StubAutopilotRunner {
-  vetos: { id: string; decision: string; reason?: string }[] = []
-  veto(id: string, decision: string, reason?: string) { this.vetos.push({ id, decision, reason }) }
-  toggle(_n: string, _on: boolean) {}
-  async quickProbe(_n: string) { return { ok: true } as const }
-  async probe(_n: string, _t: number) { return { ok: true } as const }
+  resolveCalls: { rid: string; behavior: 'allow' | 'deny' }[] = []
+  nextResult: { response: { requestId: string; behavior: 'allow' | 'deny' }; sessionPath: string } | null = null
+  resolve(rid: string, behavior: 'allow' | 'deny') {
+    this.resolveCalls.push({ rid, behavior })
+    return this.nextResult
+  }
 }
 class StubVetoController {
-  drafts = new Map<string, { sessionName: string; draft: string }>()
+  cancelCalls: string[] = []
+  nextCancel: { path: string; sessionName: string; draft: string; expiresAt: number; decisionId: string } | undefined
+  cancel(path: string) {
+    this.cancelCalls.push(path)
+    const r = this.nextCancel
+    this.nextCancel = undefined
+    return r
+  }
+}
+class StubSocketServer {
+  sent: { path: string; message: any }[] = []
+  sendToSession(path: string, message: any) { this.sent.push({ path, message }); return true }
+  disconnectSession(_p: string) {}
+}
+class StubAutopilotRunner {
+  toggleCalls: { name: string; on: boolean }[] = []
+  toggle(name: string, on: boolean) { this.toggleCalls.push({ name, on }) }
+  async quickProbe(_n: string) { return { ok: true } as const }
+  async probe(_n: string, _t: number) { return { ok: true } as const }
 }
 class StubScreenManager {
   async addTeammate(_n: string) { return null }
@@ -510,11 +567,11 @@ class StubVerificationRunner {
 ```
 
 Run: `bun test tests/frontends/rubika.test.ts -t "handleInlineWebhook"`
-Expected: FAIL — current `handleInlineWebhook` is a no-op.
+Expected: FAIL.
 
 - [ ] **Step 3: Implement `handleInlineWebhook`**
 
-Replace the no-op stub with:
+Mirror `telegram.ts:718-818` exactly. Replace the no-op stub with:
 
 ```ts
 handleInlineWebhook(body: RubikaInlineMessageBody): void {
@@ -528,70 +585,79 @@ handleInlineWebhook(body: RubikaInlineMessageBody): void {
   this.chatIdByUser.set(senderId, im.chat_id)
   const buttonId = im.aux_data.button_id
 
-  // Format: "<prefix>:<verb>:<id?>"
-  const [prefix, verb, ...rest] = buttonId.split(':')
-  const id = rest.join(':')
-
   try {
-    switch (prefix) {
-      case 'perm':
-        if (verb && this.permissions) {
-          const decision = verb === 'allow' ? 'allow' : verb === 'always' ? 'always-allow' : 'deny'
-          this.permissions.respond(id, decision)
-        }
-        break
-      case 'vp':
-        if (verb && this.autopilotRunner) {
-          // Edit/cancel collect a follow-up reason via vetoEditPending; send is immediate
-          if (verb === 'send') {
-            this.autopilotRunner.veto(id, 'send')
-          } else if (verb === 'edit' || verb === 'cancel') {
-            this.vetoEditPending.set(senderId, { id, kind: verb })
-            this.send('sendMessage', {
-              chat_id: im.chat_id,
-              text: verb === 'edit' ? 'Send your edited reply:' : 'Send your cancel reason:',
-            }).catch(() => {})
-          }
-        }
-        break
-      case 'select':
-        if (verb) this.activeSessionByUser.set(senderId, [verb, ...rest].join(':'))
-        break
-      case 'team':
-        if (verb === 'add' && this.screenManager) {
-          this.screenManager.addTeammate(id).catch(() => {})
-        }
-        break
-      case 'autopilot':
-        if (this.autopilotRunner) {
-          this.autopilotRunner.toggle(id, verb === 'on')
-        }
-        break
-      default:
-        process.stderr.write(`rubika: unknown inline button prefix "${prefix}"\n`)
+    if (buttonId.startsWith('select:')) {
+      const sessionName = buttonId.slice('select:'.length)
+      this.activeSessionByUser.set(senderId, sessionName)
+      return
     }
+    if (buttonId.startsWith('perm:allow:') || buttonId.startsWith('perm:deny:')) {
+      const isAllow = buttonId.startsWith('perm:allow:')
+      const requestId = buttonId.slice(isAllow ? 'perm:allow:'.length : 'perm:deny:'.length)
+      if (!this.permissions || !this.socketServer) return
+      const result = this.permissions.resolve(requestId, isAllow ? 'allow' : 'deny')
+      if (result) {
+        this.socketServer.sendToSession(result.sessionPath, {
+          type: 'permission_response',
+          requestId: result.response.requestId,
+          behavior: result.response.behavior,
+        })
+      }
+      return
+    }
+    const apMatch = buttonId.match(/^ap-(send|cancel):(.+)$/)
+    if (apMatch) {
+      const [, action, sessionName] = apMatch
+      const path = this.deps.registry.findByName(sessionName)
+      if (!path || !this.vetoController) return
+      const pending = this.vetoController.cancel(path)
+      if (!pending) return
+      if (action === 'send' && this.socketServer) {
+        this.socketServer.sendToSession(path, {
+          type: 'channel_message',
+          content: pending.draft,
+          meta: { source: 'autopilot', frontend: 'rubika' },
+        })
+      }
+      return
+    }
+    const driftMatch = buttonId.match(/^drift:(ignore|remind):(.+)$/)
+    if (driftMatch) {
+      const [, action, sessionName] = driftMatch
+      if (action === 'ignore') return
+      const path = this.deps.registry.findByName(sessionName)
+      if (!path || !this.socketServer) return
+      const profiles = loadProfilesForHub()
+      const rules = this.deps.registry.getEffectiveRules(path, profiles)
+      const reminder =
+        `⚠️ Project rule reminder: ${rules.slice(0, 2).join('; ')}. ` +
+        `Please re-do your last action without shortcuts, root-causing the issue instead.`
+      this.socketServer.sendToSession(path, {
+        type: 'channel_message',
+        content: reminder,
+        meta: { source: 'hub', frontend: 'rubika', user: 'drift-check', session: sessionName },
+      })
+      return
+    }
+    process.stderr.write(`rubika: unknown inline button id "${buttonId}"\n`)
   } catch (err) {
     process.stderr.write(`rubika: inline handler error for "${buttonId}": ${err}\n`)
   }
 }
 ```
 
-Add the new private state at the top of the class:
-
-```ts
-private vetoEditPending = new Map<string, { id: string; kind: 'edit' | 'cancel' }>()
-```
+(No `vetoEditPending` state — Telegram doesn't have an Edit flow.)
 
 - [ ] **Step 4: Run tests**
 
 Run: `bun test tests/frontends/rubika.test.ts -t "handleInlineWebhook"`
-Expected: 7 pass.
+Expected: 11 pass.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/frontends/rubika.ts tests/frontends/rubika.test.ts
-git commit -m "feat(rubika): inline webhook prefix dispatch (perm/vp/select/team/autopilot)"
+git commit -m "feat(rubika): inline webhook dispatch — select/perm/ap-send/ap-cancel/drift"
 ```
 
 ---
@@ -900,29 +966,30 @@ git commit -m "feat(rubika): /spawn, /kill, /remove, /rename"
 
 ---
 
-### Task 9: `/team` with `[Add teammate]` button
+### Task 9: `/team` (text-only)
 
 **Files:** `src/frontends/rubika.ts`, `tests/frontends/rubika.test.ts`
 **Telegram reference:** `telegram.ts:352-393`
 
+**Amended 2026-05-02** — Telegram's `/team` is text-only (no `[Add teammate]`
+inline button). Mirror that exactly.
+
 - [ ] **Step 1: Failing tests**
 
 ```ts
-test('/team with no args replies usage', async () => { /* ... */ })
+test('/team with no args replies usage', async () => { /* assert reply text matches "Usage: /team <name> [add]" */ })
 test('/team <unknown> replies "Session not found"', async () => { /* ... */ })
 test('/team <name> on solo session replies "is a solo session"', async () => { /* ... */ })
-test('/team <name> on team renders members + [Add teammate] button', async () => {
-  // assert inline_keypad row contains { id: `team:add:<name>`, button_text: 'Add teammate' }
+test('/team <name> on team renders members as text (no buttons)', async () => {
+  // assert reply has no inline_keypad
+  // assert reply text contains 👑 lead and ├ teammate lines
 })
-test('/team <name> add calls screenManager.addTeammate(name)', async () => {
+test('/team <name> add calls screenManager.addTeammate(name) and replies', async () => {
   /* StubScreenManager.addTeammate returns 'newName' → reply 'Added teammate: newName' */
-})
-test('inline button team:add:<name> calls screenManager.addTeammate(name)', async () => {
-  // already covered by handleInlineWebhook test — extend assertion
 })
 ```
 
-- [ ] **Step 2: Implement `cmdTeam`** — mirror `telegram.ts:352-393`, but for the team-status reply also append an inline button:
+- [ ] **Step 2: Implement `cmdTeam`** — straight mirror of `telegram.ts:352-393`:
 
 ```ts
 private async cmdTeam(chatId: string, args: string[]): Promise<void> {
@@ -956,16 +1023,16 @@ private async cmdTeam(chatId: string, args: string[]): Promise<void> {
     const role = i === 0 ? '👑 ' : '  ├ '
     return `${role}${s.name} ${icon}`
   })
-  await this.sendButtons(chatId, lines.join('\n'), [[{ id: `team:add:${teamName}`, label: 'Add teammate' }]])
+  await this.send('sendMessage', { chat_id: chatId, text: lines.join('\n') })
 }
 ```
 
-- [ ] **Step 3: Run tests** — expect 6 pass.
+- [ ] **Step 3: Run tests** — expect 5 pass.
 - [ ] **Step 4: Commit**
 
 ```bash
 git add src/frontends/rubika.ts tests/frontends/rubika.test.ts
-git commit -m "feat(rubika): /team with [Add teammate] inline button"
+git commit -m "feat(rubika): /team (text-only, mirroring telegram)"
 ```
 
 ---
@@ -1322,18 +1389,23 @@ git commit -m "feat(rubika): inbound file save to session uploadDir"
 
 ### Task 16: Permission prompt rendered with inline buttons
 
-**Files:** `src/frontends/rubika.ts`, `src/permission-engine.ts` (verify existing wiring), `tests/frontends/rubika.test.ts`
+**Files:** `src/frontends/rubika.ts`, `src/daemon.ts` (verify wiring), `tests/frontends/rubika.test.ts`
 
-> The `PermissionEngine` already calls `deliverToFrontends` with the prompt text. We need a **second** path: when the engine sets up a request for an `ask`-trust session, our frontend must include Rubika inline buttons. We check whether `permission-engine.ts` already passes a structured payload or just text; if just text, we add a parallel `deliverPermissionPrompt(name, request)` callback.
+**Amended 2026-05-02** — Telegram has 2 buttons (Allow / Deny), not 3.
+"Always Allow" was an aspirational design but no Telegram callback exists for
+it; trust upgrades happen via `/trust <session> auto`. Rubika matches.
 
-- [ ] **Step 0: Read `src/permission-engine.ts` and `src/daemon.ts:188+` to confirm the prompt wiring**
+- [ ] **Step 0: Confirm wiring**
 
-If `daemon.ts` calls `telegramFrontend.deliverPermissionPrompt(name, request)`, mirror that on Rubika. If it calls `deliverToUser(name, text)` only, extract a small `PermissionPromptHandler` interface and add `deliverPermissionPrompt` to both Telegram and Rubika frontends. Pick the option that exists today.
+Read `src/daemon.ts` around line 188 to confirm how Telegram receives the
+prompt. Mirror whatever method it uses on Rubika. If Telegram is invoked
+through `deliverToUser` plus the engine, add a new `deliverPermissionPrompt`
+to BOTH frontends so the daemon can dispatch consistently.
 
-- [ ] **Step 1: Failing tests**
+- [ ] **Step 1: Failing test**
 
 ```ts
-test('deliverPermissionPrompt sends sendMessage with inline_keypad of three buttons', async () => {
+test('deliverPermissionPrompt sends sendMessage with inline_keypad of two buttons', async () => {
   const { r, sender } = makeFrontend()
   // Establish chat_id by sending an inbound message first
   r.handleWebhook(update('u1', 'hi'))
@@ -1341,7 +1413,7 @@ test('deliverPermissionPrompt sends sendMessage with inline_keypad of three butt
   await r.deliverPermissionPrompt('sap', { id: '42', tool_name: 'Bash', input_preview: 'ls', description: '' } as any)
   const m = sender.calls.find(c => c.method === 'sendMessage' && (c.body as any).inline_keypad)!
   expect((m.body as any).inline_keypad.rows[0].buttons.map((b: any) => b.id)).toEqual([
-    'perm:allow:42', 'perm:always:42', 'perm:deny:42',
+    'perm:allow:42', 'perm:deny:42',
   ])
 })
 ```
@@ -1357,7 +1429,6 @@ async deliverPermissionPrompt(sessionName: string, req: PermissionRequest): Prom
     if (!chatId) continue
     await this.sendButtons(chatId, text, [[
       { id: `perm:allow:${req.id}`, label: 'Allow' },
-      { id: `perm:always:${req.id}`, label: 'Always Allow' },
       { id: `perm:deny:${req.id}`, label: 'Deny' },
     ]])
   }
@@ -1366,73 +1437,69 @@ async deliverPermissionPrompt(sessionName: string, req: PermissionRequest): Prom
 
 Wire it in `daemon.ts` next to where the Telegram permission prompt is dispatched.
 
-- [ ] **Step 3: Run tests** — expect 1 pass + integration with the existing handleInlineWebhook test.
+- [ ] **Step 3: Run tests** — expect pass.
 - [ ] **Step 4: Commit**
 
 ```bash
 git add src/frontends/rubika.ts src/daemon.ts tests/frontends/rubika.test.ts
-git commit -m "feat(rubika): permission prompts with Allow/Always/Deny buttons"
+git commit -m "feat(rubika): permission prompts with Allow/Deny buttons"
 ```
 
 ---
 
 ## Phase 5 — Autopilot veto
 
-### Task 17: Autopilot veto prompt + edit/cancel reason capture
+### Task 17: Autopilot veto prompt (Send / Cancel)
 
 **Files:** `src/frontends/rubika.ts`, `src/daemon.ts` (wire), `tests/frontends/rubika.test.ts`
+
+**Amended 2026-05-02** — Telegram has 2 buttons (Send / Cancel) keyed by
+session name, not 3 buttons keyed by veto id, and there's no Edit-with-reason
+capture flow. Rubika mirrors. Button ids: `ap-send:<sessionName>` and
+`ap-cancel:<sessionName>`. Click handling already lives in Task 3.
 
 - [ ] **Step 1: Failing tests**
 
 ```ts
-test('deliverVetoPrompt sends 3-button keypad', async () => { /* assert vp:send/edit/cancel ids */ })
-test('vp:edit:<id> click prompts for new text and stores pending state', async () => { /* ... */ })
-test('plain text after vp:edit click is forwarded as veto reason', async () => {
-  // r.handleInlineWebhook(...vp:edit:99...) then r.handleWebhook('reason text')
-  // assert autopilotRunner.veto called with ('99', 'edit', 'reason text')
+test('deliverVetoPrompt sends 2-button keypad with ap-send / ap-cancel', async () => {
+  const { r, sender } = makeFrontend()
+  r.handleWebhook(update('u1', 'hi'))
+  await new Promise(rs => setTimeout(rs, 5))
+  await r.deliverVetoPrompt('sap', 'draft text')
+  const m = sender.calls.find(c => c.method === 'sendMessage' && (c.body as any).inline_keypad)!
+  expect((m.body as any).inline_keypad.rows[0].buttons.map((b: any) => b.id)).toEqual([
+    'ap-send:sap', 'ap-cancel:sap',
+  ])
+  expect((m.body as any).text).toContain('draft text')
 })
-test('vp:cancel:<id> click prompts and accepts a reason', async () => { /* ... */ })
-test('vp:send:<id> click immediately fires veto(send, undefined)', async () => { /* ... */ })
 ```
 
 - [ ] **Step 2: Implement**
 
 ```ts
-async deliverVetoPrompt(sessionName: string, vetoId: string, draft: string): Promise<void> {
+async deliverVetoPrompt(sessionName: string, draft: string): Promise<void> {
   if (this.deps.allowFrom.length === 0) return
   const text = `📝 ${sessionName} draft:\n\n${draft}`
   for (const senderId of this.deps.allowFrom) {
     const chatId = this.chatIdByUser.get(senderId)
     if (!chatId) continue
     await this.sendButtons(chatId, text, [[
-      { id: `vp:send:${vetoId}`, label: '✅ Send' },
-      { id: `vp:edit:${vetoId}`, label: '✏️ Edit' },
-      { id: `vp:cancel:${vetoId}`, label: '❌ Cancel' },
+      { id: `ap-send:${sessionName}`, label: '✅ Send' },
+      { id: `ap-cancel:${sessionName}`, label: '❌ Cancel' },
     ]])
   }
 }
 ```
 
-Extend `handleWebhook` text path: before parsing slash commands, check `vetoEditPending`:
+Wire `daemon.ts` to call `rubikaFrontend?.deliverVetoPrompt(...)` everywhere
+`vetoController` exposes a draft (alongside the existing Telegram call).
 
-```ts
-const pending = this.vetoEditPending.get(senderId)
-if (pending) {
-  this.vetoEditPending.delete(senderId)
-  this.autopilotRunner?.veto(pending.id, pending.kind, text)
-  await this.send('sendMessage', { chat_id: inner.chat_id, text: `Recorded: ${pending.kind}` }).catch(() => {})
-  return
-}
-```
-
-Wire `daemon.ts` to call `rubikaFrontend?.deliverVetoPrompt(...)` everywhere `vetoController` exposes a draft (search for the equivalent Telegram call).
-
-- [ ] **Step 3: Run tests** — expect 5 pass.
+- [ ] **Step 3: Run tests** — expect pass.
 - [ ] **Step 4: Commit**
 
 ```bash
 git add src/frontends/rubika.ts src/daemon.ts tests/frontends/rubika.test.ts
-git commit -m "feat(rubika): autopilot veto prompt with Send/Edit/Cancel"
+git commit -m "feat(rubika): autopilot veto prompt with Send/Cancel"
 ```
 
 ---

@@ -30,8 +30,9 @@ In:
    bot replies with a one-line help message.
 6. Permission prompts (Allow / Always Allow / Deny) and autopilot veto prompts
    (Send / Edit / Cancel), wired to the existing engines.
-7. Per-user state: `chatIdByUser`, `activeSessionByUser`, `vetoEditPending`,
-   `cmdAddPending` — all in-memory, no persistence beyond MVP.
+7. Per-user state: `chatIdByUser`, `activeSessionByUser` — all in-memory,
+   no persistence beyond MVP. (Earlier draft listed `vetoEditPending` and
+   `cmdAddPending`; removed because the Telegram frontend has neither.)
 
 Out:
 
@@ -82,10 +83,9 @@ class RubikaFrontend
 │     cmdProfiles, cmdProfile, cmdRules, cmdFact, cmdFacts, cmdChannel,
 │     cmdStart
 ├── callback prefix handlers
-│     onPermission, onAutopilotVeto, onListSelect, onTeamConfirm,
-│     onAutopilotToggle
+│     onPermission, onAutopilotVeto, onListSelect, onDrift
 ├── per-user state maps
-│     chatIdByUser, activeSessionByUser, vetoEditPending, cmdAddPending
+│     chatIdByUser, activeSessionByUser
 └── helpers
 │     parseArgs, sendButtons, sendFile, downloadFile, uploadFile, formatErr
 ```
@@ -136,11 +136,15 @@ User taps button
     ├─ guard: senderId in allowFrom
     ├─ parse aux_data.button_id  (e.g. "perm:allow:42")
     ├─ dispatch by prefix:
-    │     "perm:*"      → permissionEngine.respond(rid, decision)
-    │     "vp:*"        → autopilotRunner.veto(id, decision, reason?)
-    │     "select:*"    → activeSessionByUser.set(senderId, name)
-    │     "team:*"      → screenManager.respawn(team)
-    │     "autopilot:*" → autopilotRunner.toggle(name, on/off)
+    │     "select:<name>"          → activeSessionByUser.set(senderId, name)
+    │     "perm:allow|deny:<rid>"  → permissions.resolve(rid, behavior) then
+    │                                 socketServer.sendToSession(path, response)
+    │     "ap-send:<sessionName>"  → vetoController.cancel(path) then
+    │                                 socketServer.sendToSession(path, draft)
+    │     "ap-cancel:<sessionName>"→ vetoController.cancel(path)
+    │     "drift:remind:<name>"    → socketServer.sendToSession(path,
+    │                                 channel_message with rule reminder)
+    │     "drift:ignore:<name>"    → no-op (clear prompt only)
     └─ optional: editMessageInlineKeypad to clear buttons after click
 ```
 
@@ -192,8 +196,23 @@ usage hints, same error replies, same outputs.
 | `inline_keyboard: [[{text, callback_data}]]` | `inline_keypad: { rows: [{ buttons: [{ id, type:'Simple', button_text }] }] }` |
 | `callback_query.data` | `inline_message.aux_data.button_id` |
 
-`callback_data` strings (`perm:allow:42`, `select:sap`, `vp:cancel:99`, etc.)
-become Rubika `id` strings unchanged — the routing prefix scheme is identical.
+`callback_data` strings (`perm:allow:42`, `select:sap`, `ap-cancel:my-session`,
+etc.) become Rubika `id` strings unchanged — the routing prefix scheme is
+identical to Telegram. The complete set is:
+
+| Prefix | Producer | Consumer |
+|---|---|---|
+| `select:<sessionName>` | `/list` | sets `activeSessionByUser` |
+| `perm:allow:<rid>` | permission prompt | `permissions.resolve(rid, 'allow')` then `socketServer.sendToSession` |
+| `perm:deny:<rid>` | permission prompt | `permissions.resolve(rid, 'deny')` then `socketServer.sendToSession` |
+| `ap-send:<sessionName>` | autopilot veto prompt | `vetoController.cancel(path)` then `socketServer.sendToSession` with the draft |
+| `ap-cancel:<sessionName>` | autopilot veto prompt | `vetoController.cancel(path)` (cancellation message only — no session send) |
+| `drift:ignore:<sessionName>` | drift detector | clears the prompt's reply markup |
+| `drift:remind:<sessionName>` | drift detector | sends a rule-reminder `channel_message` to the session |
+
+Amended 2026-05-02: previous spec invented `perm:always`, `vp:*`, `team:add:*`,
+and `autopilot:on/off:*` callbacks. Those are not present in `telegram.ts`.
+Removing them keeps Rubika at true parity with the Telegram frontend.
 
 ### 6.3 Permission prompt rendering
 
@@ -203,17 +222,19 @@ When an `ask`-trust session asks for tool permission, Rubika receives:
 🔒 <session> wants to use **<tool>**
 <input_preview>
 
-[ Allow ]   [ Always Allow ]   [ Deny ]
+[ Allow ]   [ Deny ]
 ```
 
-Button IDs: `perm:allow:<rid>`, `perm:always:<rid>`, `perm:deny:<rid>`.
+Button IDs: `perm:allow:<rid>`, `perm:deny:<rid>`. (No "Always Allow" — the
+trust upgrade flow is handled by `/trust <session> auto`, exactly like
+Telegram.)
 
 ### 6.4 Autopilot veto
 
-Three buttons mirroring Telegram: `[ ✅ Send ] [ ✏️ Edit ] [ ❌ Cancel ]` with
-IDs `vp:send:<id>`, `vp:edit:<id>`, `vp:cancel:<id>`. Edit and Cancel collect
-a follow-up text reason via `vetoEditPending` per-user state, the same way
-Telegram does.
+Two buttons mirroring Telegram: `[ ✅ Send ] [ ❌ Cancel ]` with IDs
+`ap-send:<sessionName>` and `ap-cancel:<sessionName>`. The user does not
+edit drafts inline — to edit, they cancel and answer the session themselves
+(matching Telegram's flow).
 
 ### 6.5 Files
 
