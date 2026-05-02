@@ -1153,7 +1153,7 @@ describe('uploadFile', () => {
         ok: true,
         json: async () => ({ file_id: fakeFileId }),
       } as unknown as Response
-    }) as typeof fetch
+    }) as unknown as typeof fetch
 
     try {
       // Write a tiny temp file to upload
@@ -1189,7 +1189,7 @@ describe('uploadFile', () => {
         json: async () => ({ status: 'OK', data: {} }),
         text: async () => '',
       } as unknown as Response
-    }) as typeof fetch
+    }) as unknown as typeof fetch
 
     try {
       // Build a frontend without a custom sender so realSend is exercised
@@ -1241,7 +1241,7 @@ describe('deliverToUser with files', () => {
         ok: true,
         json: async () => ({ file_id: fakeFileId }),
       } as unknown as Response
-    }) as typeof fetch
+    }) as unknown as typeof fetch
 
     try {
       const r = new RubikaFrontend({
@@ -1299,7 +1299,7 @@ describe('deliverToUser with files', () => {
         ok: true,
         json: async () => ({ file_id: fileId }),
       } as unknown as Response
-    }) as typeof fetch
+    }) as unknown as typeof fetch
 
     try {
       const r = new RubikaFrontend({
@@ -1348,7 +1348,7 @@ describe('deliverToUser with files', () => {
         status: 413,
         json: async () => ({}),
       } as unknown as Response
-    }) as typeof fetch
+    }) as unknown as typeof fetch
 
     try {
       const r = new RubikaFrontend({
@@ -1422,7 +1422,7 @@ describe('inbound file save (Task 15)', () => {
           ok: true,
           arrayBuffer: async () => fileContent.buffer,
         } as unknown as Response
-      }) as typeof fetch
+      }) as unknown as typeof fetch
 
       // getFile returns a download_url
       sender.reply = { download_url: 'https://cdn.rubika.ir/file123' }
@@ -1461,7 +1461,7 @@ describe('inbound file save (Task 15)', () => {
     globalThis.fetch = (async () => {
       fetchCalled = true
       return { ok: true, arrayBuffer: async () => new ArrayBuffer(0) } as unknown as Response
-    }) as typeof fetch
+    }) as unknown as typeof fetch
 
     try {
       r.handleWebhook(fileUpdate('u1', 'file123', 'doc.txt'))
@@ -1494,7 +1494,7 @@ describe('inbound file save (Task 15)', () => {
     globalThis.fetch = (async () => {
       fetchCalled = true
       return { ok: true, arrayBuffer: async () => new ArrayBuffer(0) } as unknown as Response
-    }) as typeof fetch
+    }) as unknown as typeof fetch
 
     try {
       r.handleWebhook(fileUpdate('u1', 'file123', 'doc.txt'))
@@ -1523,7 +1523,7 @@ describe('inbound file save (Task 15)', () => {
           status: 503,
           arrayBuffer: async () => new ArrayBuffer(0),
         } as unknown as Response
-      }) as typeof fetch
+      }) as unknown as typeof fetch
 
       try {
         r.handleWebhook(fileUpdate('u1', 'file123', 'bad.txt'))
