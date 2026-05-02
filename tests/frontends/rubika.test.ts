@@ -11,11 +11,15 @@ import type { SessionState, Profile } from '../../src/types'
 // In-memory router stub — captures calls so we can assert routing.
 class StubRouter {
   calls: { sessionName: string; text: string; frontend: string; user: string }[] = []
+  broadcastCalls: { message: string; frontend: string; user: string }[] = []
   routeToSession(sessionName: string, text: string, frontend: string, user: string): boolean {
     this.calls.push({ sessionName, text, frontend, user })
     return true
   }
   routeFromSession(): void {}
+  broadcast(message: string, frontend: string, user: string): void {
+    this.broadcastCalls.push({ message, frontend, user })
+  }
 }
 
 // Mock sender — captures requests instead of hitting the real API.
@@ -865,5 +869,50 @@ describe('cmdTeam', () => {
     expect(screenManager.addTeammateCalls).toEqual(['lead'])
     const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
     expect(body.text).toContain('Added teammate: lead-1')
+  })
+})
+
+describe('cmdTrust / cmdPrefix / cmdAll', () => {
+  test('/trust foo bogus replies invalid level message', async () => {
+    const { r, sender } = makeFrontend()
+    r.handleWebhook(update('u1', '/trust foo bogus'))
+    await new Promise(rs => setTimeout(rs, 5))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toBe('Invalid trust level. Must be one of: strict, ask, auto, yolo')
+  })
+
+  test('/trust foo auto sets registry trust and replies confirmation', async () => {
+    const { r, sender, registry } = makeFrontend()
+    registry.register('/p/foo:0', { name: 'foo' })
+    r.handleWebhook(update('u1', '/trust foo auto'))
+    await new Promise(rs => setTimeout(rs, 5))
+    expect(registry.get('/p/foo:0')?.trust).toBe('auto')
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toContain('Set foo trust to auto')
+  })
+
+  test('/prefix foo (no space) replies usage', async () => {
+    const { r, sender } = makeFrontend()
+    r.handleWebhook(update('u1', '/prefix foo'))
+    await new Promise(rs => setTimeout(rs, 5))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toBe('Usage: /prefix <name> <text>')
+  })
+
+  test('/prefix foo hello world sets prefix to "hello world"', async () => {
+    const { r, sender, registry } = makeFrontend()
+    registry.register('/p/foo:0', { name: 'foo' })
+    r.handleWebhook(update('u1', '/prefix foo hello world'))
+    await new Promise(rs => setTimeout(rs, 5))
+    expect(registry.get('/p/foo:0')?.prefix).toBe('hello world')
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toContain('hello world')
+  })
+
+  test('/all hello world broadcasts via router with senderId', async () => {
+    const { r, router } = makeFrontend()
+    r.handleWebhook(update('u1', '/all hello world'))
+    await new Promise(rs => setTimeout(rs, 5))
+    expect(router.broadcastCalls).toEqual([{ message: 'hello world', frontend: 'rubika', user: 'u1' }])
   })
 })

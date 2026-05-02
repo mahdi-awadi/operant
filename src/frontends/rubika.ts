@@ -622,15 +622,62 @@ export class RubikaFrontend {
     this.deps.registry.rename(path, newName)
     await this.replyTo('', chatId, `Renamed ${oldName} → ${newName}`)
   }
-  private async cmdTrust(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: trust') }
+  private async cmdTrust(chatId: string, args: string[]): Promise<void> {
+    if (args.length < 2) {
+      await this.replyTo('', chatId, 'Usage: /trust <session-name> <strict|ask|auto|yolo>')
+      return
+    }
+    const [sessionName, level] = args
+    const validLevels = ['strict', 'ask', 'auto', 'yolo']
+    if (!validLevels.includes(level)) {
+      await this.replyTo('', chatId, `Invalid trust level. Must be one of: ${validLevels.join(', ')}`)
+      return
+    }
+    const path = this.deps.registry.findByName(sessionName)
+    if (!path) {
+      await this.replyTo('', chatId, `Session "${sessionName}" not found`)
+      return
+    }
+    this.deps.registry.setTrust(path, level as TrustLevel)
+    await this.replyTo('', chatId, `Set ${sessionName} trust to ${level}`)
+  }
+
+  private async cmdPrefix(chatId: string, args: string[]): Promise<void> {
+    // args is already split on whitespace; rejoin to reconstruct the raw match,
+    // then re-split on the first space so the prefix text may contain spaces.
+    const match = args.join(' ')
+    const spaceIdx = match.indexOf(' ')
+    if (spaceIdx === -1) {
+      await this.replyTo('', chatId, 'Usage: /prefix <name> <text>')
+      return
+    }
+    const name = match.slice(0, spaceIdx)
+    const prefixText = match.slice(spaceIdx + 1)
+    const path = this.deps.registry.findByName(name)
+    if (!path) {
+      await this.replyTo('', chatId, `Session not found: ${name}`)
+      return
+    }
+    this.deps.registry.setPrefix(path, prefixText)
+    await this.replyTo('', chatId, `Prefix for ${name} set to: ${prefixText}`)
+  }
+
+  private async cmdAll(senderId: string, chatId: string, args: string[]): Promise<void> {
+    const message = args.join(' ').trim()
+    if (!message) {
+      await this.replyTo('', chatId, 'Usage: /all <message>')
+      return
+    }
+    this.deps.router.broadcast(message, 'rubika', senderId)
+    await this.replyTo('', chatId, 'Broadcast sent to all active sessions.')
+  }
+
   private async cmdAutopilot(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: autopilot') }
   private async cmdRules(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: rules') }
   private async cmdFact(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: fact') }
   private async cmdFacts(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: facts') }
   private async cmdChannel(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: channel') }
   private async cmdVerify(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: verify') }
-  private async cmdPrefix(c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: prefix') }
-  private async cmdAll(_s: string, c: string, _a: string[]): Promise<void> { await this.replyTo('', c, 'todo: all') }
 
   private firstActiveSessionName(): string | null {
     const list = this.deps.registry.list()
