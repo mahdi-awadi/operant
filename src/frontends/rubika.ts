@@ -385,11 +385,10 @@ export class RubikaFrontend {
     this.chatIdByUser.set(senderId, inner.chat_id)
 
     // ── Inbound file (photo / document) ─────────────────────────────────────
-    // TODO: field name `file_inline` is unverified against live Rubika traffic;
-    // no file messages were in the queue at implementation time. The name matches
-    // the outbound field Rubika uses for sendMessage. Update if Rubika uses a
-    // different key in inbound updates.
-    const inboundFile = (m as any).file_inline as { file_id: string; file_name: string } | undefined
+    // Rubika uses `file` for inbound (verified 2026-05-02 via real photo); the
+    // outbound shape is `file_inline`. Accept both — the old guess is harmless.
+    const inboundFile =
+      ((m as any).file ?? (m as any).file_inline) as { file_id: string; file_name: string } | undefined
     if (inboundFile) {
       const target = this.activeSessionByUser.get(senderId) ?? this.firstActiveSessionName()
       if (!target) {
