@@ -122,6 +122,82 @@ describe('BrowserController', () => {
     }
   })
 
+  test('crash triggers restart after 1s backoff', async () => {
+    const procs: FakeProc[] = []
+    const originalSpawn = Bun.spawn
+    ;(Bun as any).spawn = (_cmd: any, opts: any) => {
+      const p = new FakeProc()
+      p.onExit = opts.onExit
+      procs.push(p)
+      return p as any
+    }
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = makeFetchStub(new Map([
+      ['http://127.0.0.1:9999/json/version', () => new Response('{}', { status: 200 })],
+    ]))
+
+    try {
+      const c = new BrowserController({ port: 9999, profileDir: '/tmp/p', executablePath: '/bin/true' })
+      await c.start()
+      expect(procs.length).toBe(1)
+
+      // Simulate crash
+      procs[0]!.fireExit(137, 'SIGKILL')
+
+      // After ~1s the controller should respawn
+      await new Promise(r => setTimeout(r, 1_200))
+      expect(procs.length).toBe(2)
+      expect(c.isUp()).toBe(true)
+
+      // Fire exit on the restarted proc so stop() can resolve
+      procs[1]!.fireExit(0, null)
+      await c.stop()
+    } finally {
+      ;(Bun as any).spawn = originalSpawn
+      globalThis.fetch = originalFetch
+    }
+  }, 6_000)
+
+  test('escalates after 5 crashes within 60s', async () => {
+    const procs: FakeProc[] = []
+    const originalSpawn = Bun.spawn
+    ;(Bun as any).spawn = (_cmd: any, opts: any) => {
+      const p = new FakeProc()
+      p.onExit = opts.onExit
+      procs.push(p)
+      return p as any
+    }
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = makeFetchStub(new Map([
+      ['http://127.0.0.1:9999/json/version', () => new Response('{}', { status: 200 })],
+    ]))
+
+    let escalated = false
+    try {
+      const c = new BrowserController({ port: 9999, profileDir: '/tmp/p', executablePath: '/bin/true' })
+      c.on('chrome:escalated', () => { escalated = true })
+      await c.start()
+
+      // Crash 6 times in succession — crashCount exceeds 5 on the 6th crash,
+      // triggering escalation. Backoffs: 1s, 2s, 4s, 8s, 16s before the 6th crash.
+      for (let i = 0; i < 6; i++) {
+        procs[procs.length - 1]!.fireExit(1, null)
+        if (i < 5) {
+          // wait long enough for the backoff to fire and the next proc to start
+          await new Promise(r => setTimeout(r, (1 << i) * 1000 + 300))
+        }
+      }
+      // Give the event loop a tick for the escalated emit
+      await new Promise(r => setTimeout(r, 50))
+      expect(escalated).toBe(true)
+
+      await c.stop()
+    } finally {
+      ;(Bun as any).spawn = originalSpawn
+      globalThis.fetch = originalFetch
+    }
+  }, 70_000)
+
   test('stop() sends SIGTERM, then SIGKILL after 5s if still alive', async () => {
     const fakeProc = new FakeProc()
     const originalSpawn = Bun.spawn

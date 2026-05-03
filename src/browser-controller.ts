@@ -99,8 +99,27 @@ export class BrowserController extends EventEmitter {
     throw new Error(`chrome /json/version not reachable on port ${this.deps.port} within ${timeoutMs}ms`)
   }
 
-  private handleExit(_code: number | null, _signal: number | null): void {
-    // Implemented in Task 4 (crash backoff). For now we just clear proc.
+  private handleExit(code: number | null, signalCode: number | null): void {
     this.proc = null
+    if (this.shutdown) return
+
+    // Reset crash count if Chrome was stable for ≥60s before exiting
+    if (Date.now() - this.startedAt > 60_000) this.crashCount = 0
+
+    this.crashCount++
+    process.stderr.write(`hub: chrome exited (code=${code} signal=${signalCode}) — crash ${this.crashCount}\n`)
+
+    if (this.crashCount > 5) {
+      process.stderr.write('hub: chrome escalated after 5 crashes\n')
+      this.emit('chrome:escalated')
+      return
+    }
+
+    const delay = Math.min(2 ** (this.crashCount - 1), 30) * 1000
+    process.stderr.write(`hub: chrome restarting in ${delay / 1000}s\n`)
+    this.restartTimer = setTimeout(() => {
+      this.restartTimer = null
+      this.start().catch(err => process.stderr.write(`hub: chrome restart failed: ${err}\n`))
+    }, delay)
   }
 }
