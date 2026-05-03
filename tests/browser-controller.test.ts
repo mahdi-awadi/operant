@@ -76,6 +76,7 @@ describe('BrowserController', () => {
       expect(argv).toContain('--no-default-browser-check')
       expect(argv).toContain('--disable-gpu')
       expect(argv).toContain('--disable-dev-shm-usage')
+      expect(argv).toContain('--no-sandbox')
       expect(c.isUp()).toBe(true)
     } finally {
       ;(Bun as any).spawn = originalSpawn

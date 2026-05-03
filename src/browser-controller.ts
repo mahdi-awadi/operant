@@ -50,6 +50,11 @@ export class BrowserController extends EventEmitter {
       '--no-default-browser-check',
       '--disable-gpu',
       '--disable-dev-shm-usage',
+      // Headless servers commonly run the daemon as root; chromium refuses
+      // to start as root without this flag. The CDP endpoint is already
+      // bound to 127.0.0.1 only, so the loss of the sandbox layer is an
+      // acceptable trade-off for our threat model.
+      '--no-sandbox',
       ...(this.deps.args ?? []),
     ]
     this.shutdown = false
