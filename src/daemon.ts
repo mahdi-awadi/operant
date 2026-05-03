@@ -24,8 +24,19 @@ import { Personalities } from './personalities'
 import { Decisions } from './decisions'
 import { Messages } from './messages'
 import { RubikaFrontend } from './frontends/rubika'
+import { BrowserController } from './browser-controller'
 
 const DRIFT_RATE_LIMIT_MS = 2 * 60 * 1000 // 2 minutes between alerts per session
+
+async function findChromiumPath(override?: string): Promise<string | null> {
+  if (override) return override
+  try {
+    const { chromium } = await import('playwright')
+    const p = chromium.executablePath()
+    if (p) return p
+  } catch { /* playwright not installed or chromium not downloaded */ }
+  return null
+}
 const lastDriftNotif = new Map<string, number>()
 
 // Auto-fetch file contents when Claude emits a bare save/write path in a reply.
@@ -150,6 +161,22 @@ taskMonitor.on('tasks:updated', () => {
   const grouped = taskMonitor.readAllGrouped()
   webFrontend?.deliverTaskUpdate(grouped)
 })
+
+// Headless Chrome — daemon-managed, attached by chrome-devtools-mcp.
+let browserController: BrowserController | null = null
+if (config.chromeEnabled !== false) {
+  const exec = await findChromiumPath(config.chromeExecutablePath)
+  if (!exec) {
+    process.stderr.write('hub: chrome disabled — chromium binary not found (run "bunx playwright install chromium")\n')
+  } else {
+    browserController = new BrowserController({
+      port: config.chromePort ?? 9222,
+      profileDir: join(HUB_DIR, 'chrome-profile'),
+      executablePath: exec,
+    })
+    browserController.start().catch(err => process.stderr.write(`hub: chrome failed to start: ${err}\n`))
+  }
+}
 
 // Socket server
 const socketServer = new SocketServer(registry, SOCKET_PATH)
@@ -619,6 +646,9 @@ async function shutdown(): Promise<void> {
   await socketServer.stop()
   await webFrontend?.stop()
   await telegramFrontend?.stop()
+  if (browserController) {
+    await browserController.stop().catch(err => process.stderr.write(`hub: chrome stop error: ${err}\n`))
+  }
   process.exit(0)
 }
 
