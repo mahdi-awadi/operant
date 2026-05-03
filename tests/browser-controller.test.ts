@@ -198,6 +198,37 @@ describe('BrowserController', () => {
     }
   }, 70_000)
 
+  test('start() removes a stale SingletonLock before spawning', async () => {
+    const fs = await import('node:fs/promises')
+    const path = await import('node:path')
+    const tmp = await fs.mkdtemp('/tmp/cc-bc-')
+    const lock = path.join(tmp, 'SingletonLock')
+    await fs.writeFile(lock, '')
+
+    const fakeProc = new FakeProc()
+    const originalSpawn = Bun.spawn
+    ;(Bun as any).spawn = (_cmd: any, opts: any) => { fakeProc.onExit = opts.onExit; return fakeProc as any }
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = makeFetchStub(new Map([
+      ['http://127.0.0.1:9999/json/version', () => new Response('{}', { status: 200 })],
+    ]))
+
+    try {
+      const c = new BrowserController({ port: 9999, profileDir: tmp, executablePath: '/bin/true' })
+      await c.start()
+      // SingletonLock should be gone
+      let exists = true
+      try { await fs.access(lock) } catch { exists = false }
+      expect(exists).toBe(false)
+      fakeProc.fireExit(0, null)
+      await c.stop()
+    } finally {
+      ;(Bun as any).spawn = originalSpawn
+      globalThis.fetch = originalFetch
+      await fs.rm(tmp, { recursive: true, force: true })
+    }
+  })
+
   test('stop() sends SIGTERM, then SIGKILL after 5s if still alive', async () => {
     const fakeProc = new FakeProc()
     const originalSpawn = Bun.spawn

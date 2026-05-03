@@ -34,6 +34,12 @@ export class BrowserController extends EventEmitter {
 
   async start(): Promise<void> {
     if (this.isUp()) return
+    // Clear stale SingletonLock from an unclean prior shutdown.
+    try {
+      const fs = await import('node:fs/promises')
+      const path = await import('node:path')
+      await fs.unlink(path.join(this.deps.profileDir, 'SingletonLock'))
+    } catch { /* not present, fine */ }
     const args = [
       this.deps.executablePath,
       '--headless=new',
