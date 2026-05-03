@@ -6,9 +6,9 @@ class FakeProc {
   killed = false
   exitCode: number | null = null
   signal: string | null = null
-  private exitListeners: Array<(code: number | null, signal: string | null) => void> = []
+  onExit?: (subprocess: any, exitCode: number | null, signalCode: string | null) => void
   on(event: 'exit', cb: (code: number | null, signal: string | null) => void) {
-    if (event === 'exit') this.exitListeners.push(cb)
+    if (event === 'exit') this.onExit = (_p: any, c: number | null, s: string | null) => cb(c, s)
     return this
   }
   kill(sig?: string) {
@@ -18,7 +18,7 @@ class FakeProc {
   fireExit(code: number | null, signal: string | null) {
     this.exitCode = code
     this.signal = signal
-    for (const cb of this.exitListeners) cb(code, signal)
+    if (this.onExit) this.onExit(this, code, signal)
   }
 }
 
@@ -41,5 +41,42 @@ describe('BrowserController', () => {
     expect(typeof c.isUp).toBe('function')
     expect(typeof c.waitUntilUp).toBe('function')
     expect(c.isUp()).toBe(false)
+  })
+
+  test('start() spawns chromium with the expected args', async () => {
+    const calls: { cmd: (string | URL)[]; opts: any }[] = []
+    const fakeProc = new FakeProc()
+    const originalSpawn = Bun.spawn
+    ;(Bun as any).spawn = (cmd: any, opts: any) => {
+      fakeProc.onExit = opts.onExit
+      calls.push({ cmd, opts })
+      return fakeProc as any
+    }
+
+    // /json/version becomes reachable immediately
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = makeFetchStub(new Map([
+      ['http://127.0.0.1:9999/json/version', () => new Response(JSON.stringify({ Browser: 'HeadlessChrome/130' }), { status: 200 })],
+    ]))
+
+    try {
+      const c = new BrowserController({ port: 9999, profileDir: '/tmp/p', executablePath: '/usr/bin/chromium' })
+      await c.start()
+      expect(calls.length).toBe(1)
+      const argv = calls[0]!.cmd as string[]
+      expect(argv[0]).toBe('/usr/bin/chromium')
+      expect(argv).toContain('--headless=new')
+      expect(argv).toContain('--remote-debugging-port=9999')
+      expect(argv).toContain('--remote-debugging-address=127.0.0.1')
+      expect(argv).toContain('--user-data-dir=/tmp/p')
+      expect(argv).toContain('--no-first-run')
+      expect(argv).toContain('--no-default-browser-check')
+      expect(argv).toContain('--disable-gpu')
+      expect(argv).toContain('--disable-dev-shm-usage')
+      expect(c.isUp()).toBe(true)
+    } finally {
+      ;(Bun as any).spawn = originalSpawn
+      globalThis.fetch = originalFetch
+    }
   })
 })

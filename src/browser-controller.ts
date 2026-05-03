@@ -33,7 +33,31 @@ export class BrowserController extends EventEmitter {
   }
 
   async start(): Promise<void> {
-    throw new Error('not implemented yet')
+    if (this.isUp()) return
+    const args = [
+      this.deps.executablePath,
+      '--headless=new',
+      `--remote-debugging-port=${this.deps.port}`,
+      '--remote-debugging-address=127.0.0.1',
+      `--user-data-dir=${this.deps.profileDir}`,
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--disable-gpu',
+      '--disable-dev-shm-usage',
+      ...(this.deps.args ?? []),
+    ]
+    this.shutdown = false
+    this.proc = Bun.spawn(args, {
+      stdout: 'ignore',
+      stderr: 'ignore',
+      onExit: (_subprocess, exitCode, signalCode) => {
+        this.handleExit(exitCode, signalCode ?? null)
+      },
+    })
+    this.startedAt = Date.now()
+    await this.waitUntilUp(10_000)
+    this.emit('started')
+    process.stderr.write(`hub: chrome started (pid=${this.proc.pid}, port=${this.deps.port})\n`)
   }
 
   async stop(): Promise<void> {
@@ -45,7 +69,21 @@ export class BrowserController extends EventEmitter {
     await this.start()
   }
 
-  async waitUntilUp(_timeoutMs: number): Promise<void> {
-    throw new Error('not implemented yet')
+  async waitUntilUp(timeoutMs: number): Promise<void> {
+    const url = `http://127.0.0.1:${this.deps.port}/json/version`
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      try {
+        const res = await fetch(url)
+        if (res.ok) return
+      } catch { /* not up yet */ }
+      await new Promise(r => setTimeout(r, 200))
+    }
+    throw new Error(`chrome /json/version not reachable on port ${this.deps.port} within ${timeoutMs}ms`)
+  }
+
+  private handleExit(_code: number | null, _signal: number | null): void {
+    // Implemented in Task 4 (crash backoff). For now we just clear proc.
+    this.proc = null
   }
 }
