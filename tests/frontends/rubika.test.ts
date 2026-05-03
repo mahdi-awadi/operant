@@ -325,7 +325,7 @@ describe('RubikaFrontend.dispatchCommand', () => {
     expect((sender.calls[0]!.body as any).inline_keypad).toBeUndefined()
   })
 
-  test('/list renders sessions with select:<name> inline buttons', async () => {
+  test('/list renders sessions as chat_keypad with select:<name> button ids', async () => {
     const { r, sender, registry } = makeFrontend()
     registry.register('/p/sap:0', { name: 'sap' })
     registry.register('/p/gold:0', { name: 'gold' })
@@ -334,8 +334,12 @@ describe('RubikaFrontend.dispatchCommand', () => {
     const body = sender.calls[0]!.body as any
     expect(body.text).toContain('sap')
     expect(body.text).toContain('gold')
-    expect(body.inline_keypad.rows).toHaveLength(2)
-    expect(body.inline_keypad.rows[0].buttons[0].id).toBe('select:sap')
+    // chat_keypad is used (not inline_keypad) because Rubika strips
+    // aux_data.button_id from inline_keypad taps in polling mode.
+    expect(body.chat_keypad_type).toBe('New')
+    expect(body.chat_keypad.rows).toHaveLength(2)
+    expect(body.chat_keypad.rows[0].buttons[0].id).toBe('select:sap')
+    expect(body.chat_keypad.rows[0].buttons[0].button_text).toBe('sap')
   })
 })
 

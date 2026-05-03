@@ -304,7 +304,7 @@ export class RubikaFrontend {
             // separate ReceiveInlineMessage envelopes, but in polling mode we
             // see them mixed in here. Detect and route to handleInlineWebhook
             // so command/permission/veto/drift buttons all work.
-            const inner = u as { chat_id?: string; new_message?: { sender_id?: string; message_id?: string; aux_data?: { button_id?: string } } }
+            const inner = u as { chat_id?: string; new_message?: { text?: string; sender_id?: string; message_id?: string; aux_data?: { button_id?: string } } }
             const buttonId = inner.new_message?.aux_data?.button_id
             if (buttonId && /^(select:|perm:|ap-|drift:)/.test(buttonId)) {
               this.handleInlineWebhook({
@@ -460,6 +460,12 @@ export class RubikaFrontend {
       if (buttonId.startsWith('select:')) {
         const sessionName = buttonId.slice('select:'.length)
         this.activeSessionByUser.set(senderId, sessionName)
+        // ack and clear the persistent picker keypad
+        this.send('sendMessage', {
+          chat_id: im.chat_id,
+          text: `✅ Active session: ${sessionName}`,
+          chat_keypad_type: 'Remove',
+        }).catch(() => {})
         return
       }
       if (buttonId.startsWith('perm:allow:') || buttonId.startsWith('perm:deny:')) {
@@ -580,13 +586,24 @@ export class RubikaFrontend {
       await this.replyTo(senderId, chatId, text)
       return
     }
-    // Render inline-keypad buttons (used when Rubika delivers taps with
-    // aux_data.button_id) AND a text hint with `/select <name>` since on
-    // Rubika polling-mode taps strip the button_id, so explicit /select is
-    // the reliable fallback.
-    const hint = '\n\nTap a name to switch — or type:\n' +
-      sessions.map(s => `/select ${s.name}`).join('\n')
-    await this.sendButtons(chatId, text + hint, sessions.map(s => [{ id: `select:${s.name}`, label: s.name }]))
+    // Use chat_keypad (persistent reply keyboard). On Rubika, taps on
+    // chat_keypad buttons deliver `aux_data.button_id` via getUpdates;
+    // taps on inline_keypad do NOT. We clear this keypad when the user
+    // selects (in handleInlineWebhook).
+    try {
+      await this.send('sendMessage', {
+        chat_id: chatId,
+        text,
+        chat_keypad_type: 'New',
+        chat_keypad: {
+          rows: sessions.map(s => ({
+            buttons: [{ id: `select:${s.name}`, type: 'Simple', button_text: s.name }],
+          })),
+        },
+      })
+    } catch (err) {
+      process.stderr.write(`rubika: cmdList sendMessage failed: ${err}\n`)
+    }
   }
 
   private async cmdSelect(senderId: string, chatId: string, args: string[]): Promise<void> {
