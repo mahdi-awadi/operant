@@ -35,7 +35,7 @@ describe('config', () => {
     }
     saveHubConfig(config, TEST_DIR)
     const loaded = loadHubConfig(TEST_DIR)
-    expect(loaded).toEqual(config)
+    expect(loaded).toMatchObject(config)
   })
 
   test('browseRoot roundtrips through save/load', () => {
@@ -100,6 +100,32 @@ test('loadHubConfig reads autopilot section', () => {
     const cfg = loadHubConfig(dir)
     expect(cfg.autopilot?.vetoWindowMs).toBe(5000)
     expect(cfg.autopilot?.maxDurationMinutes).toBe(120)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('loadHubConfig reads rubika section', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cfg-rubika-'))
+  try {
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({
+      webPort: 3000,
+      defaultTrust: 'ask',
+      defaultUploadDir: '.',
+      telegramToken: '',
+      telegramAllowFrom: [],
+      rubikaToken: 'rubika-token',
+      rubikaBotUsername: 'channelhub_bot',
+      rubikaAllowFrom: ['sender-1'],
+      rubikaApiBase: 'https://rubika.example/api',
+      rubikaWebhookBase: 'https://hub.example',
+    }))
+    const cfg = loadHubConfig(dir)
+    expect(cfg.rubikaToken).toBe('rubika-token')
+    expect(cfg.rubikaBotUsername).toBe('channelhub_bot')
+    expect(cfg.rubikaAllowFrom).toEqual(['sender-1'])
+    expect(cfg.rubikaApiBase).toBe('https://rubika.example/api')
+    expect(cfg.rubikaWebhookBase).toBe('https://hub.example')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

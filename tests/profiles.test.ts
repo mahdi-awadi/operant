@@ -197,5 +197,13 @@ describe('profiles', () => {
       expect(result).toContain('Custom telegram instructions')
       expect(result).not.toContain('You are replying on Telegram mobile')
     })
+
+    test('prepends channel instructions for rubika', () => {
+      const effective = resolveSession({}, [])
+      const result = injectContext('fix the bug', 'rubika', effective)
+      expect(result).toContain('[Channel:')
+      expect(result).toContain('Rubika')
+      expect(result).toContain('fix the bug')
+    })
   })
 })

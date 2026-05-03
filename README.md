@@ -2,16 +2,17 @@
 
 > ⚠️ **Beta Software** — ChannelHub is in active development. Expect bugs, breaking changes, and rough edges. Bug reports and contributions are welcome. Do not rely on it for critical workflows yet.
 
-A multi-session channel plugin for [Claude Code](https://claude.ai/code) that lets you manage all your Claude sessions from one place — Telegram, web dashboard, or CLI.
+A multi-session channel plugin for [Claude Code](https://claude.ai/code) that lets you manage all your Claude sessions from one place — Telegram, Rubika, web dashboard, or CLI.
 
 **The problem:** Claude Code channels are 1:1 — one bot per session. If you run multiple projects, you need multiple bots or keep switching.
 
-**The solution:** ChannelHub runs a single daemon that accepts connections from all your Claude sessions. Send messages, approve permissions, upload files, and spawn agent teams — all from one Telegram bot or web dashboard.
+**The solution:** ChannelHub runs a single daemon that accepts connections from all your Claude sessions. Send messages, approve permissions, upload files, and spawn agent teams — from one Telegram bot, Rubika bot, or web dashboard.
 
 ## Features
 
 - **Multi-session management** — all Claude sessions visible in one dashboard
 - **Telegram bot** — send messages, approve permissions, upload photos/documents from your phone
+- **Rubika bot** — text-message routing through a webhook-based MVP frontend
 - **Web dashboard** — real-time chat, permission prompts, session status, file upload
 - **Permission relay** — approve/deny tool use from Telegram or web (native MCP channel protocol)
 - **Agent teams** — spawn teams of Claude instances with shared task coordination
@@ -22,7 +23,7 @@ A multi-session channel plugin for [Claude Code](https://claude.ai/code) that le
 ## How It Works
 
 ```
-You (Telegram / Web / CLI)
+You (Telegram / Rubika / Web / CLI)
        ↓
 Hub Daemon (manages everything)
   ├── Socket Server (Unix socket)
@@ -30,6 +31,7 @@ Hub Daemon (manages everything)
   │     ↕ shim ↔ Claude session B
   │     ↕ shim ↔ Claude session C
   ├── Telegram Bot
+  ├── Rubika Bot
   ├── Web Dashboard
   └── Permission Engine
 ```
@@ -49,6 +51,7 @@ Before installing, make sure you have:
 - **git** — to clone the repository
 - **jq** (recommended) — for automatic config updates
 - **A Telegram bot token** (optional) — create one with [@BotFather](https://t.me/BotFather) if you want the Telegram frontend
+- **A Rubika bot token** (optional) — set `rubikaToken`, `rubikaAllowFrom`, and `rubikaWebhookBase` if you want the Rubika frontend
 
 ## Quick Install
 
@@ -75,6 +78,9 @@ Edit `~/.claude/channels/hub/config.json` and add your Telegram token and user I
   "webPort": 3000,
   "telegramToken": "<bot-token-from-botfather>",
   "telegramAllowFrom": ["<your-telegram-user-id>"],
+  "rubikaToken": "",
+  "rubikaAllowFrom": [],
+  "rubikaWebhookBase": "",
   "defaultTrust": "ask",
   "defaultUploadDir": "."
 }
@@ -158,6 +164,19 @@ tmux new-session -d -s hub-daemon "bun run ~/.channelhub/src/daemon.ts"
 - `/<session-name> message` targets a specific session
 - Send a photo or document to upload it to the active session's project folder
 
+## Rubika Bot
+
+Rubika support is currently a text-only webhook MVP.
+
+- Configure `rubikaToken` with your Rubika bot token.
+- Set `rubikaAllowFrom` to the Rubika `sender_id` values allowed to use the bot. Empty means deny all.
+- Set `rubikaWebhookBase` to the public HTTPS origin that can reach the web frontend, for example `https://hub.example.com`.
+- The daemon registers `receiveUpdate` with Rubika at `/api/rubika/webhook/<secret>`.
+- Inbound text from an allowed sender routes to that sender's active session, defaulting to the first active session.
+- Claude replies are sent with a `[session]` prefix after an allowed sender has messaged the bot once, which lets ChannelHub learn Rubika's `chat_id`.
+
+Rubika does not yet support ChannelHub commands, permission buttons, autopilot draft buttons, file uploads, or session switching UI.
+
 ### Verification
 
 Running `/verify <session>` executes the session's profile-defined verification commands against the session's project directory. If the applied profile has no commands, the runner auto-detects them from the project's `package.json` scripts (`test`, `typecheck`, `lint`).
@@ -209,6 +228,10 @@ The hub monitors `~/.claude/tasks/` for agent team task files and displays progr
 | `webPort` | number | 3000 | Web dashboard and API port |
 | `telegramToken` | string | `""` | Bot token from [@BotFather](https://t.me/BotFather) |
 | `telegramAllowFrom` | string[] | `[]` | Telegram user IDs allowed. **Empty = deny all.** The Telegram frontend refuses to start and web auth rejects every login when this list is empty. |
+| `rubikaToken` | string | `""` | Rubika bot token. Empty disables the Rubika frontend. |
+| `rubikaAllowFrom` | string[] | `[]` | Rubika sender IDs allowed. **Empty = deny all.** The Rubika frontend refuses to start when a token is configured without allowed senders. |
+| `rubikaWebhookBase` | string | `""` | Public HTTPS origin where Rubika can POST webhook updates. |
+| `rubikaApiBase` | string | `https://botapi.rubika.ir/v3` | Optional Rubika Bot API base override. |
 | `defaultTrust` | `"ask"` \| `"auto-approve"` | `"ask"` | Default permission mode for new sessions |
 | `defaultUploadDir` | string | `"."` | Upload directory relative to project root |
 | `browseRoot` | string | `$HOME` | Scope for the spawn dialog's directory picker. Set to `"/home"` when the daemon runs as `root` with projects under `/home/*`. |
@@ -263,6 +286,7 @@ Configure your bot's domain in @BotFather (`/setdomain`) so the Telegram Login W
 - [tmux](https://github.com/tmux/tmux) (for daemon and session management)
 - [Claude Code](https://claude.ai/code) with claude.ai login
 - A Telegram bot token (optional, for Telegram frontend)
+- A Rubika bot token (optional, for Rubika frontend)
 
 ## Autopilot Mode
 
