@@ -7,6 +7,8 @@ class FakeProc {
   exitCode: number | null = null
   signal: string | null = null
   onExit?: (subprocess: any, exitCode: number | null, signalCode: string | null) => void
+  private exitedResolve!: () => void
+  exited: Promise<void> = new Promise(r => { this.exitedResolve = r })
   on(event: 'exit', cb: (code: number | null, signal: string | null) => void) {
     if (event === 'exit') this.onExit = (_p: any, c: number | null, s: string | null) => cb(c, s)
     return this
@@ -19,6 +21,7 @@ class FakeProc {
     this.exitCode = code
     this.signal = signal
     if (this.onExit) this.onExit(this, code, signal)
+    this.exitedResolve()
   }
 }
 
@@ -118,4 +121,38 @@ describe('BrowserController', () => {
       globalThis.fetch = originalFetch
     }
   })
+
+  test('stop() sends SIGTERM, then SIGKILL after 5s if still alive', async () => {
+    const fakeProc = new FakeProc()
+    const originalSpawn = Bun.spawn
+    ;(Bun as any).spawn = (_cmd: any, opts: any) => { fakeProc.onExit = opts.onExit; return fakeProc as any }
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = makeFetchStub(new Map([
+      ['http://127.0.0.1:9999/json/version', () => new Response('{}', { status: 200 })],
+    ]))
+
+    try {
+      const c = new BrowserController({ port: 9999, profileDir: '/tmp/p', executablePath: '/bin/true' })
+      await c.start()
+
+      // Don't fire exit — simulate Chrome ignoring SIGTERM
+      const stopPromise = c.stop()
+
+      // Should have sent SIGTERM
+      await new Promise(r => setTimeout(r, 50))
+      expect(fakeProc.signal).toBe('SIGTERM')
+
+      // After ~5s, expect SIGKILL
+      await new Promise(r => setTimeout(r, 5_100))
+      expect(fakeProc.signal).toBe('SIGKILL')
+
+      // Resolve the stop by firing exit
+      fakeProc.fireExit(0, 'SIGKILL')
+      await stopPromise
+      expect(c.isUp()).toBe(false)
+    } finally {
+      ;(Bun as any).spawn = originalSpawn
+      globalThis.fetch = originalFetch
+    }
+  }, 8_000)
 })

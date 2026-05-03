@@ -61,7 +61,24 @@ export class BrowserController extends EventEmitter {
   }
 
   async stop(): Promise<void> {
-    throw new Error('not implemented yet')
+    this.shutdown = true
+    if (this.restartTimer !== null) {
+      clearTimeout(this.restartTimer)
+      this.restartTimer = null
+    }
+    const proc = this.proc
+    if (!proc) return
+    this.proc = null
+
+    proc.kill('SIGTERM')
+    const killTimer = setTimeout(() => {
+      try { proc.kill('SIGKILL') } catch { /* already gone */ }
+    }, 5_000)
+
+    await (proc as any).exited.catch(() => {})
+    clearTimeout(killTimer)
+    this.emit('stopped')
+    process.stderr.write('hub: chrome stopped\n')
   }
 
   async restart(): Promise<void> {
