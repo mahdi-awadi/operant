@@ -79,4 +79,43 @@ describe('BrowserController', () => {
       globalThis.fetch = originalFetch
     }
   })
+
+  test('start() rejects when /json/version never returns 200', async () => {
+    const fakeProc = new FakeProc()
+    const originalSpawn = Bun.spawn
+    ;(Bun as any).spawn = (_cmd: any, opts: any) => { fakeProc.onExit = opts.onExit; return fakeProc as any }
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = makeFetchStub(new Map([
+      ['http://127.0.0.1:9999/json/version', () => { throw new Error('connection refused') }],
+    ]))
+
+    try {
+      const c = new BrowserController({ port: 9999, profileDir: '/tmp/p', executablePath: '/bin/true' })
+      await expect(c.start()).rejects.toThrow(/not reachable/)
+    } finally {
+      ;(Bun as any).spawn = originalSpawn
+      globalThis.fetch = originalFetch
+    }
+  }, 12_000)
+
+  test('start() is idempotent — second call while up is a no-op', async () => {
+    let spawnCalls = 0
+    const fakeProc = new FakeProc()
+    const originalSpawn = Bun.spawn
+    ;(Bun as any).spawn = (_cmd: any, opts: any) => { fakeProc.onExit = opts.onExit; spawnCalls++; return fakeProc as any }
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = makeFetchStub(new Map([
+      ['http://127.0.0.1:9999/json/version', () => new Response('{}', { status: 200 })],
+    ]))
+
+    try {
+      const c = new BrowserController({ port: 9999, profileDir: '/tmp/p', executablePath: '/bin/true' })
+      await c.start()
+      await c.start()
+      expect(spawnCalls).toBe(1)
+    } finally {
+      ;(Bun as any).spawn = originalSpawn
+      globalThis.fetch = originalFetch
+    }
+  })
 })
