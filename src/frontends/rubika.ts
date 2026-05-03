@@ -561,6 +561,7 @@ export class RubikaFrontend {
       case 'verify':   return this.cmdVerify(chatId, args)
       case 'prefix':   return this.cmdPrefix(chatId, args)
       case 'all':      return this.cmdAll(senderId, chatId, args)
+      case 'select':   return this.cmdSelect(senderId, chatId, args)
       default:
         return this.replyTo(senderId, chatId, `Unknown command "/${command}". Try /list or /status.`)
     }
@@ -579,7 +580,28 @@ export class RubikaFrontend {
       await this.replyTo(senderId, chatId, text)
       return
     }
-    await this.sendButtons(chatId, text, sessions.map(s => [{ id: `select:${s.name}`, label: s.name }]))
+    // Render inline-keypad buttons (used when Rubika delivers taps with
+    // aux_data.button_id) AND a text hint with `/select <name>` since on
+    // Rubika polling-mode taps strip the button_id, so explicit /select is
+    // the reliable fallback.
+    const hint = '\n\nTap a name to switch — or type:\n' +
+      sessions.map(s => `/select ${s.name}`).join('\n')
+    await this.sendButtons(chatId, text + hint, sessions.map(s => [{ id: `select:${s.name}`, label: s.name }]))
+  }
+
+  private async cmdSelect(senderId: string, chatId: string, args: string[]): Promise<void> {
+    const name = args[0]
+    if (!name) {
+      await this.replyTo(senderId, chatId, 'Usage: /select <session-name>')
+      return
+    }
+    const path = this.deps.registry.findByName(name)
+    if (!path) {
+      await this.replyTo(senderId, chatId, `Session "${name}" not found`)
+      return
+    }
+    this.activeSessionByUser.set(senderId, name)
+    await this.replyTo(senderId, chatId, `✅ Active session: ${name}`)
   }
   private async cmdStatus(chatId: string): Promise<void> {
     const sessions = this.deps.registry.list()
