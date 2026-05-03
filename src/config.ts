@@ -57,6 +57,9 @@ export function loadHubConfig(dir: string = HUB_DIR): HubConfig {
     defaultTrust: raw.defaultTrust ?? 'ask',
     defaultUploadDir: raw.defaultUploadDir ?? '.',
     autopilot: raw.autopilot,   // pass through as-is
+    chromeEnabled: raw.chromeEnabled,
+    chromePort: raw.chromePort,
+    chromeExecutablePath: raw.chromeExecutablePath,
   }
 }
 

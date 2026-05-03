@@ -100,6 +100,9 @@ export type HubConfig = {
   defaultTrust: TrustLevel
   defaultUploadDir: string
   autopilot?: Partial<AutopilotDefaults>   // optional overrides of DEFAULT_AUTOPILOT_DEFAULTS
+  chromeEnabled?: boolean                  // default: true at daemon level (omit to enable)
+  chromePort?: number                      // default: 9222 at daemon level
+  chromeExecutablePath?: string            // default: auto-discovered via playwright chromium.executablePath()
 }
 
 export type InboundMessage = {

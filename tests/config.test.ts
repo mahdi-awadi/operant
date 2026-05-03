@@ -145,6 +145,41 @@ test('loadHubConfig without autopilot key returns undefined for autopilot', () =
   }
 })
 
+test('loadHubConfig honors chromeEnabled, chromePort, chromeExecutablePath defaults', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cfg-chrome-absent-'))
+  try {
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({
+      webPort: 3000, defaultTrust: 'ask', defaultUploadDir: '.',
+      telegramToken: '', telegramAllowFrom: [],
+    }))
+    const cfg = loadHubConfig(dir)
+    expect(cfg.chromeEnabled).toBeUndefined()      // default applied at daemon level
+    expect(cfg.chromePort).toBeUndefined()
+    expect(cfg.chromeExecutablePath).toBeUndefined()
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('loadHubConfig passes through chrome config when present', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cfg-chrome-present-'))
+  try {
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({
+      webPort: 3000, defaultTrust: 'ask', defaultUploadDir: '.',
+      telegramToken: '', telegramAllowFrom: [],
+      chromeEnabled: false,
+      chromePort: 9300,
+      chromeExecutablePath: '/usr/bin/chromium',
+    }))
+    const cfg = loadHubConfig(dir)
+    expect(cfg.chromeEnabled).toBe(false)
+    expect(cfg.chromePort).toBe(9300)
+    expect(cfg.chromeExecutablePath).toBe('/usr/bin/chromium')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('resolveAutopilotDefaults merges user overrides with built-in defaults', () => {
   const cfg: HubConfig = {
     webPort: 3000, defaultTrust: 'ask', defaultUploadDir: '.',
