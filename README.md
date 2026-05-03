@@ -199,6 +199,43 @@ Access at `http://localhost:<webPort>` (or via reverse proxy).
 - **Prompt tags** — toggleable pills (Superpowers, TDD, Concise, etc.)
 - **Spawn dialog** — directory browser, team checkbox
 
+## Browser (headless Chrome)
+
+ChannelHub auto-spawns a headless Chrome on `127.0.0.1:9222` so Claude
+sessions can drive a browser via Google's
+[`chrome-devtools-mcp`](https://github.com/ChromeDevTools/chrome-devtools-mcp).
+
+**One-time setup:**
+
+```bash
+# In the channelhub repo:
+bunx playwright install chromium
+
+# Add chrome-devtools-mcp to your ~/.claude.json mcpServers:
+{
+  "mcpServers": {
+    "hub": { "command": "bun", "args": ["run", "/path/to/channelhub/src/shim.ts"] },
+    "chrome": {
+      "command": "npx",
+      "args": ["-y", "chrome-devtools-mcp", "--browserURL", "http://127.0.0.1:9222"]
+    }
+  }
+}
+```
+
+When the daemon starts, you'll see:
+
+```
+hub: chrome started (pid=…, port=9222)
+```
+
+**Disable it** by setting `chromeEnabled: false` in
+`~/.claude/channels/hub/config.json`. **Override the port** with
+`chromePort` or the binary path with `chromeExecutablePath`. The
+persistent profile lives at `~/.claude/channels/hub/chrome-profile/`
+(cookies and logins survive restarts; share carefully across
+sessions).
+
 ## Permission Relay
 
 When Claude wants to run a tool (Bash, Write, etc.), the permission prompt appears in both the terminal AND your Telegram/web dashboard. You can approve from either place — first response wins.
