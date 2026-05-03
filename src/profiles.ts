@@ -9,6 +9,7 @@ export const DEFAULT_CHANNEL_INSTRUCTIONS: Record<FrontendSource, string> = {
   telegram: 'You are replying on Telegram mobile. Use markdown formatting, emoji prefixes (✅ ❌ ⚠️ 🔄 📝), bold for emphasis, and fenced code blocks. When you create, save, or reference a file (especially .md specs, configs, or new code files), paste the full file contents in your reply — mobile users cannot browse the filesystem. Keep replies concise but complete.',
   web: 'You are replying on the web dashboard. Use markdown, code blocks, tables, and emoji. For files, show a summary or diff; long content is fine since the dashboard has scroll. Prefer structured output over walls of text.',
   cli: 'You are replying via the CLI. Plain text only, no markdown, no emoji. Keep output terminal-friendly and concise.',
+  rubika: 'You are replying on Rubika mobile. Use concise markdown-compatible plain text, keep messages short, and avoid relying on interactive buttons or file uploads because the Rubika frontend currently supports text-only routing.',
 }
 
 export const BUILTIN_PROFILES: readonly Profile[] = [

@@ -206,6 +206,11 @@ export class SessionRegistry {
     delete s.profileOverrides.channelOverrides[frontend]
   }
 
+  getChannelOverride(path: string, frontend: FrontendSource): string | undefined {
+    const s = this.sessions.get(path)
+    return s?.profileOverrides?.channelOverrides?.[frontend]
+  }
+
   restoreFrom(saved: Record<string, SessionConfig>): void {
     for (const [path, config] of Object.entries(saved)) {
       this.sessions.set(path, {

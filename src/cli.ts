@@ -32,6 +32,7 @@ Commands:
   rename <oldName> <newName>   Rename a session
   upload <name> <file>         Upload a file to a session
   autopilot <name> on|off      Enable or disable autopilot for a session
+  refresh-rubika               Re-register Rubika webhook endpoints
   start                        Start the daemon in background
   help                         Show this help text
 `.trim()
@@ -271,6 +272,21 @@ async function main() {
         process.exit(1)
       }
       console.log(`autopilot ${mode} for ${name}`)
+    } catch (err) {
+      console.error('Failed:', err)
+      process.exit(1)
+    }
+    return
+  }
+
+  if (command === 'refresh-rubika') {
+    try {
+      const res = await fetch(`${HUB_URL}/api/rubika/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+      if (!res.ok) throw new Error(`refresh-rubika failed: HTTP ${res.status}`)
+      console.log('rubika endpoints re-registered')
     } catch (err) {
       console.error('Failed:', err)
       process.exit(1)

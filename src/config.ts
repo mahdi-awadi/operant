@@ -48,6 +48,12 @@ export function loadHubConfig(dir: string = HUB_DIR): HubConfig {
     telegramToken: raw.telegramToken ?? '',
     telegramBotUsername: raw.telegramBotUsername,
     telegramAllowFrom: raw.telegramAllowFrom ?? [],
+    rubikaToken: raw.rubikaToken,                     // empty / unset = bot disabled
+    rubikaBotUsername: raw.rubikaBotUsername,         // cosmetic — logs + future @-prefix command parsing
+    rubikaAllowFrom: raw.rubikaAllowFrom ?? [],       // empty = deny-all (matches Telegram)
+    rubikaApiBase: raw.rubikaApiBase,                 // override; defaults to botapi.rubika.ir/v3
+    rubikaWebhookBase: raw.rubikaWebhookBase,         // public origin where the daemon is reachable, e.g. "https://hub.tech-gate.online"
+    rubikaPollingMs: raw.rubikaPollingMs,             // getUpdates polling interval; undefined = default 2000
     defaultTrust: raw.defaultTrust ?? 'ask',
     defaultUploadDir: raw.defaultUploadDir ?? '.',
     autopilot: raw.autopilot,   // pass through as-is
