@@ -59,6 +59,110 @@ describe('WebFrontend', () => {
     expect(text).toContain('<!DOCTYPE html>')
   })
 
+  test('GET /api/peek/:name requires auth', async () => {
+    const res = await fetch(`http://localhost:${web.port}/api/peek/frontend`)
+    expect(res.status).toBe(401)
+  })
+
+  test('GET /api/peek/:name returns 503 when no screen manager', async () => {
+    const res = await fetch(`http://localhost:${web.port}/api/peek/frontend`, {
+      headers: { Cookie: authCookie() },
+    })
+    expect(res.status).toBe(503)
+    const data = await res.json() as any
+    expect(data.error).toContain('screen manager')
+  })
+
+  test('GET /api/peek/:name returns captured pane when screen manager present', async () => {
+    // Re-build the frontend with a stub screen manager that returns canned output.
+    await web.stop()
+    const stubScreen = {
+      capturePaneWithScrollback: async (n: string, lines: number) => `pane for ${n} (${lines} lines)`,
+      getManagedByPath: () => undefined,
+      isManaged: () => false,
+    }
+    web = new WebFrontend({
+      port: 0,
+      registry,
+      router: null as any,
+      permissions: null as any,
+      socketServer: null as any,
+      screenManager: stubScreen as any,
+      telegramToken: TOKEN,
+      telegramBotUsername: '',
+      telegramAllowFrom: [ALLOWED_USER],
+      taskMonitor: null,
+    })
+    await web.start()
+
+    const res = await fetch(`http://localhost:${web.port}/api/peek/frontend?lines=120`, {
+      headers: { Cookie: authCookie() },
+    })
+    expect(res.status).toBe(200)
+    const data = await res.json() as any
+    expect(data.name).toBe('frontend')
+    expect(data.lines).toBe(120)
+    expect(data.pane).toContain('pane for hub-frontend')
+    expect(data.pane).toContain('120 lines')
+  })
+
+  test('GET /api/peek/:name returns 404 when tmux session is missing', async () => {
+    await web.stop()
+    const stubScreen = {
+      capturePaneWithScrollback: async () => { throw new Error('No tmux session "hub-frontend"') },
+      getManagedByPath: () => undefined,
+      isManaged: () => false,
+    }
+    web = new WebFrontend({
+      port: 0,
+      registry,
+      router: null as any,
+      permissions: null as any,
+      socketServer: null as any,
+      screenManager: stubScreen as any,
+      telegramToken: TOKEN,
+      telegramBotUsername: '',
+      telegramAllowFrom: [ALLOWED_USER],
+      taskMonitor: null,
+    })
+    await web.start()
+
+    const res = await fetch(`http://localhost:${web.port}/api/peek/frontend`, {
+      headers: { Cookie: authCookie() },
+    })
+    expect(res.status).toBe(404)
+    const data = await res.json() as any
+    expect(data.error).toContain('No tmux session')
+  })
+
+  test('GET /api/peek/:name clamps absurd lines values', async () => {
+    await web.stop()
+    let receivedLines = 0
+    const stubScreen = {
+      capturePaneWithScrollback: async (_n: string, lines: number) => { receivedLines = lines; return 'ok' },
+      getManagedByPath: () => undefined,
+      isManaged: () => false,
+    }
+    web = new WebFrontend({
+      port: 0,
+      registry,
+      router: null as any,
+      permissions: null as any,
+      socketServer: null as any,
+      screenManager: stubScreen as any,
+      telegramToken: TOKEN,
+      telegramBotUsername: '',
+      telegramAllowFrom: [ALLOWED_USER],
+      taskMonitor: null,
+    })
+    await web.start()
+
+    await fetch(`http://localhost:${web.port}/api/peek/frontend?lines=999999`, {
+      headers: { Cookie: authCookie() },
+    })
+    expect(receivedLines).toBe(500)
+  })
+
   test('POST /api/autopilot sets autopilot enabled via registry', async () => {
     const path = registry.findByName('frontend')!
     expect(registry.getAutopilot(path)).toBeUndefined()

@@ -71,6 +71,8 @@ class StubScreenManager {
   addTeammateCalls: string[] = []
   nextAddTeammate: string | null = null
   managedNames: Set<string> = new Set()
+  capturePaneCalls: { name: string; lines: number }[] = []
+  nextCapturePane: string | { error: string } = ''
   async addTeammate(n: string) { this.addTeammateCalls.push(n); return this.nextAddTeammate }
   async spawn(...a: any[]) { this.spawnCalls.push(a) }
   async spawnTeam(...a: any[]) { this.spawnTeamCalls.push(a) }
@@ -78,6 +80,13 @@ class StubScreenManager {
   isManaged(n: string) { return this.managedNames.has(n) }
   forgetManaged(_n: string) {}
   getManagedByPath(_p: string) { return null }
+  async capturePaneWithScrollback(name: string, lines: number): Promise<string> {
+    this.capturePaneCalls.push({ name, lines })
+    if (typeof this.nextCapturePane === 'object' && 'error' in this.nextCapturePane) {
+      throw new Error(this.nextCapturePane.error)
+    }
+    return this.nextCapturePane
+  }
 }
 class StubVerificationRunner {
   nextResult: import('../../src/verification').VerificationResult = { status: 'pass' }
@@ -403,6 +412,75 @@ describe('RubikaFrontend.start', () => {
     await r.start()
     expect(sender.calls.length).toBe(0)
   })
+
+  test('bootstrap captures backlog and sends Drain/Keep prompt instead of dropping', async () => {
+    const registry = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
+    const router = new StubRouter()
+    const sender = new FakeSender()
+    // Stub sender: getUpdates returns 2 messages from u1, then empty.
+    let getUpdatesCalls = 0
+    const stubSender = async (method: string, body: unknown): Promise<unknown> => {
+      sender.calls.push({ method, body })
+      if (method === 'getUpdates') {
+        getUpdatesCalls++
+        if (getUpdatesCalls === 1) {
+          return {
+            updates: [
+              { type: 'NewMessage', chat_id: 'chat-u1', new_message: { message_id: 'm1', text: '/list', time: '1', is_edited: false, sender_type: 'User', sender_id: 'u1' } },
+              { type: 'NewMessage', chat_id: 'chat-u1', new_message: { message_id: 'm2', text: 'hello', time: '2', is_edited: false, sender_type: 'User', sender_id: 'u1' } },
+            ],
+            next_offset_id: 'after-2',
+          }
+        }
+        return { updates: [], next_offset_id: 'after-2' }
+      }
+      return { status: 'OK' }
+    }
+    const r = new RubikaFrontend({
+      token: 't',
+      allowFrom: ['u1'],
+      registry,
+      router: router as any,
+      sender: stubSender,
+      pollingIntervalMs: 1000,
+    })
+    await r.start()
+    await r.stop()
+
+    // Find the prompt sendMessage (skip getUpdates calls).
+    const sendCalls = sender.calls.filter(c => c.method === 'sendMessage')
+    expect(sendCalls.length).toBe(1)
+    const body = sendCalls[0]!.body as any
+    expect(body.chat_id).toBe('chat-u1')
+    expect(body.text).toContain('/list')
+    expect(body.text).toContain('hello')
+    expect(body.chat_keypad_type).toBe('New')
+    const ids = body.chat_keypad.rows.flatMap((r: any) => r.buttons.map((b: any) => b.id))
+    expect(ids).toContain('restart:drain:u1')
+    expect(ids).toContain('restart:keep:u1')
+
+    // No commands processed yet.
+    expect(router.calls.length).toBe(0)
+  })
+
+  test('bootstrap with no backlog does not send a prompt', async () => {
+    const registry = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
+    const router = new StubRouter()
+    const sender = new FakeSender()
+    sender.reply = { updates: [], next_offset_id: '' }
+    const r = new RubikaFrontend({
+      token: 't',
+      allowFrom: ['u1'],
+      registry,
+      router: router as any,
+      sender: (m, b) => sender.send(m, b),
+      pollingIntervalMs: 1000,
+    })
+    await r.start()
+    await r.stop()
+    const sendCalls = sender.calls.filter(c => c.method === 'sendMessage')
+    expect(sendCalls.length).toBe(0)
+  })
 })
 
 describe('RubikaFrontend.refreshEndpoints', () => {
@@ -597,6 +675,44 @@ describe('RubikaFrontend.handleInlineWebhook', () => {
     const { r, socketServer } = makeFrontend()
     r.handleInlineWebhook(inline('u1', 'drift:ignore:sap'))
     expect(socketServer.sent).toEqual([])
+  })
+
+  test('restart:keep:<senderId> replays captured updates and clears backlog', () => {
+    const { r, registry, router } = makeFrontend()
+    registry.register('/p/sap:0', { name: 'sap' })
+    const captured: RubikaUpdateBody[] = [
+      { update: { type: 'NewMessage', chat_id: 'chat-u1', new_message: { message_id: 'm1', text: '/list', time: '1', is_edited: false, sender_type: 'User', sender_id: 'u1' } } },
+      { update: { type: 'NewMessage', chat_id: 'chat-u1', new_message: { message_id: 'm2', text: 'hello', time: '2', is_edited: false, sender_type: 'User', sender_id: 'u1' } } },
+    ]
+    ;(r as any).pendingRestartBacklog.set('u1', captured)
+    ;(r as any).chatIdByUser.set('u1', 'chat-u1')
+
+    r.handleInlineWebhook(inline('u1', 'restart:keep:u1'))
+
+    // /list goes to handleWebhook → cmdList (sendMessage path), but plain text
+    // 'hello' gets routed through MessageRouter. Assert at least the routing
+    // path saw it.
+    expect(router.calls.find(c => c.text === 'hello')).toBeTruthy()
+    expect((r as any).pendingRestartBacklog.has('u1')).toBe(false)
+
+    // Second click is a no-op.
+    const before = router.calls.length
+    r.handleInlineWebhook(inline('u1', 'restart:keep:u1'))
+    expect(router.calls.length).toBe(before)
+  })
+
+  test('restart:drain:<senderId> clears backlog without replaying', () => {
+    const { r, router } = makeFrontend()
+    const captured: RubikaUpdateBody[] = [
+      { update: { type: 'NewMessage', chat_id: 'chat-u1', new_message: { message_id: 'm1', text: 'something', time: '1', is_edited: false, sender_type: 'User', sender_id: 'u1' } } },
+    ]
+    ;(r as any).pendingRestartBacklog.set('u1', captured)
+    ;(r as any).chatIdByUser.set('u1', 'chat-u1')
+
+    r.handleInlineWebhook(inline('u1', 'restart:drain:u1'))
+
+    expect(router.calls.length).toBe(0)
+    expect((r as any).pendingRestartBacklog.has('u1')).toBe(false)
   })
 
   test('drops malformed payloads', () => {
@@ -813,6 +929,36 @@ describe('cmdSpawn / cmdKill / cmdRemove / cmdRename', () => {
     await new Promise(rs => setTimeout(rs, 5))
     expect(screenManager.spawnTeamCalls.length).toBe(1)
     expect(screenManager.spawnTeamCalls[0]).toEqual(['alpha', '/home/foo', 3, undefined, undefined])
+  })
+
+  test('/resume with no args replies with usage', async () => {
+    const { r, sender } = makeFrontend()
+    r.handleWebhook(update('u1', '/resume'))
+    await new Promise(rs => setTimeout(rs, 5))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toContain('Usage: /resume')
+  })
+
+  test('/resume alpha /home/foo calls screenManager.spawn with continue resume spec', async () => {
+    const { r, sender, screenManager } = makeFrontend()
+    r.handleWebhook(update('u1', '/resume alpha /home/foo'))
+    await new Promise(rs => setTimeout(rs, 5))
+    expect(screenManager.spawnCalls.length).toBe(1)
+    expect(screenManager.spawnCalls[0]).toEqual(['alpha', '/home/foo', undefined, undefined, { mode: 'continue' }])
+    expect((r as any).activeSessionByUser.get('u1')).toBe('alpha')
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toContain('Resumed alpha at /home/foo')
+    expect(body.text).toContain('latest session')
+    expect(body.text).toContain('now active')
+  })
+
+  test('/resume with --profile unknown replies error and does not spawn', async () => {
+    const { r, sender, screenManager } = makeFrontend()
+    r.handleWebhook(update('u1', '/resume alpha /home/foo --profile unknownprofile99'))
+    await new Promise(rs => setTimeout(rs, 5))
+    expect(screenManager.spawnCalls.length).toBe(0)
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toContain('Profile "unknownprofile99" not found')
   })
 
   test('/spawn with --profile foo unknown profile replies error', async () => {
@@ -1091,6 +1237,60 @@ describe('cmdAutopilot', () => {
   })
 })
 
+describe('cmdPeek', () => {
+  test('/peek with no active session and no name replies with "no active session"', async () => {
+    const { r, sender } = makeFrontend()
+    r.handleWebhook(update('u1', '/peek'))
+    await new Promise(rs => setTimeout(rs, 10))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text.toLowerCase()).toContain('no active session')
+  })
+
+  test('/peek <name> captures pane and includes name in reply', async () => {
+    const { r, registry, screenManager, sender } = makeFrontend()
+    registry.register('/p/foo:0', { name: 'foo' })
+    screenManager.nextCapturePane = 'PANE_CONTENT_LINE_1\nPANE_CONTENT_LINE_2'
+    r.handleWebhook(update('u1', '/peek foo'))
+    await new Promise(rs => setTimeout(rs, 10))
+    expect(screenManager.capturePaneCalls[0]).toEqual({ name: 'hub-foo', lines: 80 })
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toContain('foo')
+    expect(body.text).toContain('PANE_CONTENT_LINE_1')
+    expect(body.text).toContain('PANE_CONTENT_LINE_2')
+  })
+
+  test('/peek with custom line count passes it through', async () => {
+    const { r, registry, screenManager } = makeFrontend()
+    registry.register('/p/foo:0', { name: 'foo' })
+    screenManager.nextCapturePane = 'x'
+    r.handleWebhook(update('u1', '/peek foo 200'))
+    await new Promise(rs => setTimeout(rs, 10))
+    expect(screenManager.capturePaneCalls[0]?.lines).toBe(200)
+  })
+
+  test('/peek with no tmux session reports the error', async () => {
+    const { r, registry, screenManager, sender } = makeFrontend()
+    registry.register('/p/foo:0', { name: 'foo' })
+    screenManager.nextCapturePane = { error: 'No tmux session "hub-foo"' }
+    r.handleWebhook(update('u1', '/peek foo'))
+    await new Promise(rs => setTimeout(rs, 10))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toContain('Could not peek foo')
+    expect(body.text).toContain('No tmux session')
+  })
+
+  test('/peek strips ANSI codes from captured output', async () => {
+    const { r, registry, screenManager, sender } = makeFrontend()
+    registry.register('/p/foo:0', { name: 'foo' })
+    screenManager.nextCapturePane = '\x1b[31mRED_TEXT\x1b[0m'
+    r.handleWebhook(update('u1', '/peek foo'))
+    await new Promise(rs => setTimeout(rs, 10))
+    const body = sender.calls.find(c => c.method === 'sendMessage')?.body as any
+    expect(body.text).toContain('RED_TEXT')
+    expect(body.text).not.toContain('\x1b[31m')
+  })
+})
+
 describe('cmdVerify', () => {
   test('/verify foo on passing run replies ✅', async () => {
     const { r, registry, verificationRunner, sender } = makeFrontend()
@@ -1335,7 +1535,7 @@ describe('deliverToUser with files', () => {
     }
   })
 
-  test('upload failure — falls back to text-only sendMessage with [file too big to upload: <path>] prefix', async () => {
+  test('upload failure — falls back to text-only sendMessage with [upload failed: <path> — <reason>] prefix', async () => {
     const registry = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
     const router = new StubRouter()
     const sender = new FakeSender()
@@ -1367,12 +1567,14 @@ describe('deliverToUser with files', () => {
         sender: customSender,
       })
       ;(r as any).chatIdByUser.set('u1', 'chat-u1')
+      ;(r as any).uploadBackoffsMs = [0, 0, 0, 0]
 
       await r.deliverToUser('sap', 'caption', [tmpFile])
 
       const sm = sender.calls.find(c => c.method === 'sendMessage')
       expect(sm).toBeDefined()
-      expect((sm!.body as any).text).toContain(`[file too big to upload: ${tmpFile}]`)
+      expect((sm!.body as any).text).toContain(`[upload failed: ${tmpFile}`)
+      expect((sm!.body as any).text).toContain('upload HTTP 413')
       expect((sm!.body as any).text).toContain('[sap] caption')
       // No file_inline on fallback
       expect((sm!.body as any).file_inline).toBeUndefined()
@@ -1586,7 +1788,12 @@ describe('RubikaFrontend.deliverPermissionRequest', () => {
     expect(body.chat_id).toBe('chat-99')
     expect(body.text).toContain('mysession')
     expect(body.text).toContain('bash')
-    const rows = body.inline_keypad.rows
+    // chat_keypad (not inline_keypad) — Rubika strips aux_data.button_id from
+    // inline_keypad taps so they never reach the daemon. chat_keypad delivers
+    // taps via getUpdates and works on mobile.
+    expect(body.inline_keypad).toBeUndefined()
+    expect(body.chat_keypad_type).toBe('New')
+    const rows = body.chat_keypad.rows
     expect(rows.length).toBe(1)
     const buttons = rows[0].buttons
     expect(buttons.length).toBe(2)
@@ -1678,7 +1885,7 @@ describe('RubikaFrontend.deliverAutopilotDraft', () => {
     expect(call.method).toBe('sendMessage')
     const b = call.body as any
     expect(b.text).toContain('draft text')
-    const buttons = b.inline_keypad?.rows?.flatMap((r: any) => r.buttons) ?? []
+    const buttons = b.chat_keypad?.rows?.flatMap((r: any) => r.buttons) ?? []
     expect(buttons.length).toBe(2)
     expect(buttons[0].id).toBe('ap-send:sap')
     expect(buttons[1].id).toBe('ap-cancel:sap')

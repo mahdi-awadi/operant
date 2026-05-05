@@ -470,6 +470,16 @@ export class WebFrontend {
           }
         }
 
+        // GET /api/peek/:name — capture the live tmux pane (incl. scrollback)
+        // so the dashboard can show what's actually on Claude's screen, not
+        // just what's been relayed through the MCP channel.
+        {
+          const m = url.pathname.match(/^\/api\/peek\/([^/]+)$/)
+          if (m && req.method === 'GET') {
+            return self.handlePeek(decodeURIComponent(m[1]!), url.searchParams.get('lines'))
+          }
+        }
+
         return new Response('Not Found', { status: 404 })
       },
       websocket: {
@@ -1217,6 +1227,27 @@ export class WebFrontend {
     } catch (err) {
       process.stderr.write(`hub: /api/sessions/${name}/prior error: ${err}\n`)
       return Response.json({ sessions: [], error: 'read-failed' }, { status: 200 })
+    }
+  }
+
+  private async handlePeek(name: string, linesRaw: string | null): Promise<Response> {
+    if (!this.deps.screenManager) {
+      return Response.json({ error: 'screen manager unavailable' }, { status: 503 })
+    }
+    const lines = linesRaw && /^\d+$/.test(linesRaw)
+      ? Math.max(1, Math.min(parseInt(linesRaw, 10), 500))
+      : 80
+    const path = this.deps.registry.findByName(name)
+    const managed = path ? this.deps.screenManager.getManagedByPath(this.deps.registry.folderPath(path)) : undefined
+    const tmuxName = managed?.sessionName ?? `hub-${name}`
+    try {
+      const pane = await this.deps.screenManager.capturePaneWithScrollback(tmuxName, lines)
+      return Response.json({ name, lines, pane })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      // tmux-not-found errors come from capturePaneWithScrollback's pre-check.
+      const status = /No tmux session/.test(msg) ? 404 : 500
+      return Response.json({ error: msg, name }, { status })
     }
   }
 }

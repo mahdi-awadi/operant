@@ -91,9 +91,9 @@ Get your Telegram user ID by messaging [@userinfobot](https://t.me/userinfobot).
 ### Start
 
 ```bash
-channelhub start              # Start the daemon in tmux
-channelhub status             # Check if it's running
-channelhub attach             # View daemon logs (Ctrl+B then D to detach)
+sudo systemctl start channelhub        # Start the daemon
+sudo systemctl status channelhub       # Check if it's running
+tail -f /var/log/channelhub.log        # View daemon logs
 ```
 
 ### Connect Claude Code
@@ -109,13 +109,12 @@ Your session appears in the dashboard at `http://localhost:3000` immediately.
 ### CLI Commands
 
 ```bash
-channelhub start       # Start daemon
-channelhub stop        # Stop daemon
-channelhub restart     # Restart daemon
-channelhub status      # Status
-channelhub attach      # Attach to daemon tmux
-channelhub update      # Pull latest and restart
-channelhub list        # List sessions
+sudo systemctl start channelhub     # Start daemon
+sudo systemctl stop channelhub      # Stop daemon
+sudo systemctl restart channelhub   # Restart daemon
+sudo systemctl status channelhub    # Status
+tail -f /var/log/channelhub.log     # Tail daemon logs
+channelhub list                     # List sessions
 channelhub send <name> "message"
 channelhub spawn <name> <path>
 channelhub trust <name> auto
@@ -138,8 +137,10 @@ $EDITOR ~/.claude/channels/hub/config.json
 # Register MCP server — add to ~/.claude.json mcpServers:
 # "hub": { "command": "bun", "args": ["run", "~/.channelhub/src/shim.ts"] }
 
-# Start daemon
-tmux new-session -d -s hub-daemon "bun run ~/.channelhub/src/daemon.ts"
+# Start daemon (systemd; see /etc/systemd/system/channelhub.service)
+sudo systemctl enable --now channelhub
+sudo systemctl status channelhub
+# Logs: /var/log/channelhub.log
 ```
 
 ## Telegram Bot Commands
@@ -158,6 +159,7 @@ tmux new-session -d -s hub-daemon "bun run ~/.channelhub/src/daemon.ts"
 | `/all <message>` | Broadcast to all sessions |
 | `/verify <name>` | Run the session's verification commands (tests, typecheck, lint) |
 | `/autopilot <name> [on\|off]` | Toggle proxy-answer autopilot mode |
+| `/btw <question>` | Ask a side question to the active session via the `/btw` overlay (also available on Rubika) |
 
 **Message routing:**
 - Plain text goes to your active session

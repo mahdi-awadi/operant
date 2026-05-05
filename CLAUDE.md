@@ -5,7 +5,7 @@ Multi-session Claude Code channel plugin with Web dashboard, Telegram bot, and C
 ## Architecture
 
 ```
-Hub Daemon (long-running, tmux session: hub-daemon)
+Hub Daemon (long-running, systemd: channelhub.service)
   ├── Socket Server (Unix: ~/.claude/channels/hub/hub.sock)
   │     ↕ shim processes (one per Claude Code session)
   ├── Web Dashboard (configurable port, Telegram login)
@@ -15,7 +15,7 @@ Hub Daemon (long-running, tmux session: hub-daemon)
 ```
 
 Two layers:
-- **Daemon** — single process managing everything. Runs in `tmux -t hub-daemon`
+- **Daemon** — single process managing everything. Runs as a systemd service (`channelhub.service`); logs to `/var/log/channelhub.log`.
 - **Shim** — tiny MCP bridge per Claude session. Claude launches it via `--channels server:hub`
 
 ## Quick Start
@@ -35,9 +35,36 @@ EOF
 ```
 
 ### 2. Start the daemon
+The daemon runs as a systemd service. Unit file lives at `/etc/systemd/system/channelhub.service`:
+
+```ini
+[Unit]
+Description=Claude Code Hub daemon
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/channelhub
+ExecStart=/root/.bun/bin/bun run /home/channelhub/src/daemon.ts
+Restart=always
+RestartSec=2
+KillMode=process
+StandardOutput=append:/var/log/channelhub.log
+StandardError=append:/var/log/channelhub.log
+Environment=PATH=/root/.bun/bin:/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=HOME=/root
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Manage it with:
 ```bash
-cd /path/to/channelhub
-tmux new-session -d -s hub-daemon "bun run src/daemon.ts"
+systemctl start channelhub        # start
+systemctl restart channelhub      # bounce after code changes
+systemctl status channelhub       # check state
+tail -f /var/log/channelhub.log   # tail logs
 ```
 
 ### 3. Connect Claude Code (from any project)
@@ -48,9 +75,9 @@ claude --dangerously-load-development-channels server:hub
 
 The `server:hub` name is configured in `~/.claude.json` under `mcpServers.hub`.
 
-### Attach to sessions
+### Attach to spawned sessions
+Daemon logs go to `/var/log/channelhub.log` (not tmux). Spawned Claude sessions still run in tmux:
 ```bash
-tmux attach -t hub-daemon         # daemon logs
 tmux attach -t hub-<session-name> # spawned session
 ```
 Detach: `Ctrl+B` then `D`
@@ -94,6 +121,7 @@ Commands:
 - `/list` — show sessions, pick active (inline buttons)
 - `/status` — dashboard with details
 - `/spawn <name> <path> [team-size]` — launch Claude in tmux
+- `/resume <name> <path> [--profile <n>]` — resume the **latest** Claude session for that cwd (`claude --continue`). Mobile frontends only continue the latest; pick a specific session id from the web spawn dialog.
 - `/kill <name>` — stop a session
 - `/remove <name>` — remove a disconnected session from the list (no tmux ops)
 - `/team <name> [add]` — show team status or add teammate
@@ -210,7 +238,7 @@ tests/
 - **Reconnect reuses slots** — disconnected sessions are reclaimed, no duplicates.
 - **Telegram `allowFrom`** controls both bot access and web login.
 - **Web login** via Telegram Login Widget, verified server-side with HMAC-SHA256.
-- **Daemon runs in tmux** — background `&` kills it on stdin EOF.
+- **Daemon runs as systemd service** (`channelhub.service`) — auto-restarts on failure, logs to `/var/log/channelhub.log`. Bounce with `systemctl restart channelhub` after code changes.
 - **Prompt tags** appended as `[Instructions: ...]` to messages.
 - **Spawn auto-confirms** dev channels warning via `tmux send-keys Enter` (only needed until plugin is approved).
 - **Verification runner** — `src/verification.ts` spawns `bash -c "<cmd>"` per profile-defined command with a 120s timeout, CWD set to the session's project path, `CI=true` in env. Single concurrent run per session; silent on success; 20-line tail on failure.
@@ -219,10 +247,12 @@ tests/
 ## Development
 
 ```bash
-bun test              # Run all 337 tests
-bun run src/daemon.ts # Start daemon (use tmux in production)
-bun run src/shim.ts   # Shim (launched by Claude, not manually)
-bun run src/cli.ts    # CLI tool
+bun test                       # Run all tests
+bun run src/daemon.ts          # Start daemon manually (in production: systemctl restart channelhub)
+bun run src/shim.ts            # Shim (launched by Claude, not manually)
+bun run src/cli.ts             # CLI tool
+systemctl restart channelhub   # Bounce daemon to pick up code changes
+tail -f /var/log/channelhub.log
 ```
 
 ## Tech Stack

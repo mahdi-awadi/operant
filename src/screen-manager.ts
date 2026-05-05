@@ -327,6 +327,20 @@ export class ScreenManager {
     }
   }
 
+  // /peek path — full visible pane PLUS scrollback. Distinct from capturePane
+  // because /peek wants the user's recent history, while capturePane is
+  // restricted to the current frame for autopilot parser correctness.
+  async capturePaneWithScrollback(sessionName: string, lines: number): Promise<string> {
+    const safeLines = Math.max(1, Math.min(Math.floor(lines), 5000))
+    const startArg = `-${safeLines}`
+    try {
+      await $`tmux has-session -t ${sessionName}`.quiet()
+    } catch {
+      throw new Error(`No tmux session "${sessionName}"`)
+    }
+    return await $`tmux capture-pane -t ${sessionName} -p -S ${startArg}`.quiet().text()
+  }
+
   async sendKeysRaw(sessionName: string, text: string, withEnter: boolean): Promise<void> {
     try {
       if (text === '' && withEnter) {

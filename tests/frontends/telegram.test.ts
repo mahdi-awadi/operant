@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test'
-import { formatSessionList, formatStatus, parseCommand, chunkText } from '../../src/frontends/telegram'
+import { formatSessionList, formatStatus, parseCommand, chunkText, stripAnsi, tailToCharLimit, parsePeekArgs } from '../../src/frontends/telegram'
 
 describe('telegram helpers', () => {
   test('formatSessionList with no sessions', () => {
@@ -52,5 +52,56 @@ describe('telegram helpers', () => {
   test('chunkText returns single chunk for short messages', () => {
     const chunks = chunkText('short', 4096)
     expect(chunks).toEqual(['short'])
+  })
+
+  test('stripAnsi removes CSI color codes', () => {
+    const colored = '\x1b[31mhello\x1b[0m world'
+    expect(stripAnsi(colored)).toBe('hello world')
+  })
+
+  test('stripAnsi removes cursor positioning sequences', () => {
+    const moves = 'a\x1b[2Jb\x1b[H\x1b[?25lc'
+    expect(stripAnsi(moves)).toBe('abc')
+  })
+
+  test('stripAnsi removes OSC sequences (window title)', () => {
+    const osc = 'before\x1b]0;some title\x07after'
+    expect(stripAnsi(osc)).toBe('beforeafter')
+  })
+
+  test('tailToCharLimit returns input when under limit', () => {
+    expect(tailToCharLimit('short', 100)).toBe('short')
+  })
+
+  test('tailToCharLimit keeps the tail when over limit', () => {
+    const text = 'aaaa\nbbbb\ncccc\ndddd'
+    const trimmed = tailToCharLimit(text, 9)
+    // Tail of length ~9, cut at newline boundary — should end with last lines
+    expect(trimmed.endsWith('dddd')).toBe(true)
+    expect(trimmed.length).toBeLessThanOrEqual(text.length)
+  })
+
+  test('parsePeekArgs handles empty input (defaults)', () => {
+    expect(parsePeekArgs('')).toEqual({ name: undefined, lines: 80 })
+  })
+
+  test('parsePeekArgs handles name only', () => {
+    expect(parsePeekArgs('eticket-v3')).toEqual({ name: 'eticket-v3', lines: 80 })
+  })
+
+  test('parsePeekArgs handles name + lines', () => {
+    expect(parsePeekArgs('eticket-v3 200')).toEqual({ name: 'eticket-v3', lines: 200 })
+  })
+
+  test('parsePeekArgs handles bare line count (no name)', () => {
+    expect(parsePeekArgs('150')).toEqual({ name: undefined, lines: 150 })
+  })
+
+  test('parsePeekArgs clamps line count to max 500', () => {
+    expect(parsePeekArgs('foo 9999').lines).toBe(500)
+  })
+
+  test('parsePeekArgs clamps line count to min 1', () => {
+    expect(parsePeekArgs('foo 0').lines).toBe(1)
   })
 })

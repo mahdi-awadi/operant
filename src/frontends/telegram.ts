@@ -4,7 +4,7 @@ import type { SessionState, PermissionRequest, TrustLevel, Profile } from '../ty
 import type { SessionRegistry } from '../session-registry'
 import type { MessageRouter } from '../message-router'
 import type { PermissionEngine } from '../permission-engine'
-import type { ScreenManager } from '../screen-manager'
+import type { ScreenManager, ResumeSpec } from '../screen-manager'
 import type { SocketServer } from '../socket-server'
 import type { TaskMonitor } from '../task-monitor'
 import { getProfile } from '../profiles'
@@ -14,6 +14,10 @@ import type { VetoController } from '../veto-controller'
 import type { EscalationController } from '../escalation-controller'
 import type { AutopilotRunner } from '../autopilot'
 import { formatForTelegram, escapeHtml as escapeHtmlText } from '../telegram-format'
+import { stripAnsi, tailToCharLimit, parsePeekArgs } from '../peek-helpers'
+
+// Re-export so existing tests (and any callers) keep working.
+export { stripAnsi, tailToCharLimit, parsePeekArgs }
 
 // ── Pure helper functions ────────────────────────────────────────────────────
 
@@ -349,6 +353,49 @@ export class TelegramFrontend {
       }
     })
 
+    // /resume <name> <path> [--profile <name>] — resumes the latest claude
+    // session for that cwd via `claude --continue`. No session-id picker on
+    // mobile frontends; for explicit session IDs, use the web spawn dialog.
+    bot.command('resume', async (ctx) => {
+      if (!this.isAllowed(ctx)) return
+      const rawArgs = ctx.match?.trim().split(/\s+/) ?? []
+      if (rawArgs.length < 2 || !rawArgs[0] || !rawArgs[1]) {
+        await ctx.reply('Usage: /resume <name> <path> [--profile <name>]')
+        return
+      }
+
+      let profileName: string | undefined
+      const args: string[] = []
+      for (let i = 0; i < rawArgs.length; i++) {
+        if (rawArgs[i] === '--profile' && rawArgs[i + 1]) {
+          profileName = rawArgs[i + 1]
+          i++
+        } else {
+          args.push(rawArgs[i])
+        }
+      }
+
+      const [name, projectPath] = args
+
+      if (profileName) {
+        const profiles = loadProfilesForHub()
+        if (!getProfile(profileName, profiles)) {
+          await ctx.reply(`Profile "${profileName}" not found. Use /profiles to see available.`)
+          return
+        }
+      }
+
+      try {
+        const userId = this.getUserId(ctx)
+        const resume: ResumeSpec = { mode: 'continue' }
+        await this.screenManager.spawn(name, projectPath, undefined, profileName, resume)
+        this.userActiveSessions.set(userId, name)
+        await ctx.reply(`Resumed ${name} at ${projectPath} (latest session)${profileName ? ` with profile ${profileName}` : ''} — now active`)
+      } catch (err) {
+        await ctx.reply(`Failed to resume: ${err}`)
+      }
+    })
+
     // /team <name> [add]
     bot.command('team', async (ctx) => {
       if (!this.isAllowed(ctx)) return
@@ -543,6 +590,89 @@ export class TelegramFrontend {
         saveSessions(this.registry.toSaveFormat())
       }
       await ctx.reply(`🤖 Autopilot ${enabled ? 'ON' : 'OFF'} for ${name}`)
+    })
+
+    // /btw <question> — fire a side question into the active session via the
+    // /btw overlay, capture the answer, and reply with it. Mirrors Rubika.
+    bot.command('btw', async (ctx) => {
+      if (!this.isAllowed(ctx)) return
+      const question = (ctx.match ?? '').trim()
+      if (!question) {
+        await ctx.reply('Usage: /btw <question>')
+        return
+      }
+      const runner = this.autopilotRunner
+      if (!runner) {
+        await ctx.reply('Autopilot runner not available.')
+        return
+      }
+      const userId = String(ctx.from?.id ?? '')
+      const activeSession = this.getActiveSession(userId)
+      if (!activeSession) {
+        await ctx.reply('No active session.')
+        return
+      }
+      const path = this.registry.findByName(activeSession)
+      if (!path) {
+        await ctx.reply(`Session "${activeSession}" not found`)
+        return
+      }
+      const managed = this.screenManager?.getManagedByPath(this.registry.folderPath(path))
+      const tmuxName = managed?.sessionName ?? `hub-${activeSession}`
+
+      const quick = await runner.quickProbe(tmuxName)
+      if (!quick.ok) {
+        await ctx.reply(`/btw precheck failed: ${quick.reason}`)
+        return
+      }
+
+      const result = await runner.runBtw(tmuxName, question)
+      switch (result.status) {
+        case 'answered':
+          await ctx.reply(`💬 ${activeSession}:\n\n${result.answer}`)
+          return
+        case 'escalate':
+          await ctx.reply(`⚠️ /btw escalated: ${result.reason}`)
+          return
+        case 'parse_error':
+          await ctx.reply(`⚠️ Could not parse /btw response from ${activeSession}`)
+          return
+        case 'timeout':
+          await ctx.reply(`⏱ /btw timed out — ${activeSession} did not respond in 30s`)
+          return
+      }
+    })
+
+    // /peek [name] [lines] — capture the live tmux pane (incl. scrollback) so
+    // the user can see Claude's actual terminal output, not just the relayed
+    // chat. Frontend chats only see what flows through the MCP channel —
+    // Ink overlays, slash commands, and autopilot output are otherwise hidden.
+    bot.command('peek', async (ctx) => {
+      if (!this.isAllowed(ctx)) return
+      const { name: argName, lines } = parsePeekArgs(ctx.match ?? '')
+      const userId = this.getUserId(ctx)
+      const sessionName = argName ?? this.getActiveSession(userId)
+      if (!sessionName) {
+        await ctx.reply('No active session. Use /list to pick one, or `/peek <name>`.')
+        return
+      }
+      const path = this.registry.findByName(sessionName)
+      const managed = path ? this.screenManager.getManagedByPath(this.registry.folderPath(path)) : undefined
+      const tmuxName = managed?.sessionName ?? `hub-${sessionName}`
+      try {
+        const raw = await this.screenManager.capturePaneWithScrollback(tmuxName, lines)
+        const stripped = stripAnsi(raw).trimEnd()
+        if (stripped.length === 0) {
+          await ctx.reply(`(empty pane for ${sessionName})`)
+          return
+        }
+        const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        const trimmed = tailToCharLimit(stripped, 3500)
+        await ctx.reply(`📺 <b>${escapeHtml(sessionName)}</b>\n<pre>${escapeHtml(trimmed)}</pre>`, { parse_mode: 'HTML' })
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        await ctx.reply(`Could not peek ${sessionName}: ${msg}`)
+      }
     })
 
     // /rules <session> [clear|<new rule text>]
@@ -1107,6 +1237,7 @@ export class TelegramFrontend {
       { command: 'list',     description: 'Show all sessions' },
       { command: 'status',   description: 'Dashboard with details' },
       { command: 'spawn',    description: 'Spawn a new session: <name> <path> [--profile <n>] [team-size]' },
+      { command: 'resume',   description: 'Resume latest claude session: <name> <path> [--profile <n>]' },
       { command: 'kill',     description: 'Gracefully end a session: <name>' },
       { command: 'remove',   description: 'Remove a disconnected session from the list: <name>' },
       { command: 'team',     description: 'Show team or add teammate: <name> [add]' },

@@ -105,7 +105,7 @@ export class AutopilotRunner {
     // 1/2/3 menu instead of opening the side-question overlay. Detect by the
     // canonical Claude Code prompt header + the `❯ 1.` numbered selection.
     if (/Do you want to proceed\?/.test(pane) && /^\s*❯\s*1\./m.test(pane)) {
-      return { ok: false, reason: 'session is at a permission prompt — answer it before enabling autopilot' }
+      return { ok: false, reason: 'session is at a permission prompt — answer it first (keystrokes would land in the 1/2/3 picker)' }
     }
     return { ok: true }
   }

@@ -159,6 +159,46 @@ test('sendEscape does not throw when session is missing', async () => {
   // No assertion needed — test passes if no exception is thrown
 })
 
+test('capturePaneWithScrollback includes content from scrollback history', async () => {
+  // Inverse of the capturePane scrollback test — /peek MUST surface old lines
+  // that have scrolled off the visible frame so the user can read recent
+  // terminal output.
+  const sm = new ScreenManager()
+  const s = `test-peek-scrollback-${Date.now()}`
+  await $`tmux new-session -d -s ${s} -x 80 -y 10 "bash -c 'echo SCROLLBACK_LINE; sleep 0.2; clear; echo VISIBLE_LINE; sleep 30'"`.quiet()
+  try {
+    await new Promise(r => setTimeout(r, 600))
+    const pane = await sm.capturePaneWithScrollback(s, 500)
+    expect(pane).toContain('VISIBLE_LINE')
+    expect(pane).toContain('SCROLLBACK_LINE')
+  } finally {
+    try { await $`tmux kill-session -t ${s}`.quiet() } catch {}
+  }
+})
+
+test('capturePaneWithScrollback throws when session does not exist', async () => {
+  const sm = new ScreenManager()
+  await expect(sm.capturePaneWithScrollback('hub-no-such-' + Date.now(), 80))
+    .rejects.toThrow(/No tmux session/)
+})
+
+test('capturePaneWithScrollback clamps line count', async () => {
+  // Asking for an absurd line count or zero should still work — the helper
+  // clamps to a sane range internally.
+  const sm = new ScreenManager()
+  const s = `test-peek-clamp-${Date.now()}`
+  await $`tmux new-session -d -s ${s} "bash -c 'echo CLAMP_OK; sleep 30'"`.quiet()
+  try {
+    await new Promise(r => setTimeout(r, 200))
+    const big = await sm.capturePaneWithScrollback(s, 999999)
+    expect(big).toContain('CLAMP_OK')
+    const zero = await sm.capturePaneWithScrollback(s, 0)
+    expect(zero.length).toBeGreaterThanOrEqual(0)
+  } finally {
+    try { await $`tmux kill-session -t ${s}`.quiet() } catch {}
+  }
+})
+
 describe('buildClaudeCmd', () => {
   test('no resume → bare claude', () => {
     const cmd = buildClaudeCmd({ team: false })

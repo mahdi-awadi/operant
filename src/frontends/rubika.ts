@@ -26,7 +26,7 @@ import type { SessionRegistry } from '../session-registry'
 import type { MessageRouter } from '../message-router'
 import type { SessionState } from '../types'
 import type { PermissionEngine } from '../permission-engine'
-import type { ScreenManager } from '../screen-manager'
+import type { ScreenManager, ResumeSpec } from '../screen-manager'
 import type { SocketServer } from '../socket-server'
 import type { TaskMonitor } from '../task-monitor'
 import type { VerificationRunner } from '../verification'
@@ -37,6 +37,7 @@ import type { PermissionRequest, TrustLevel, Profile } from '../types'
 import type { VerificationResult } from '../verification'
 import { getProfile } from '../profiles' // used in Task 7
 import { loadProfilesForHub, saveProfilesForHub, saveSessions } from '../config' // used in Tasks 7-12
+import { stripAnsi, tailToCharLimit, parsePeekArgs } from '../peek-helpers'
 
 const DEFAULT_API_BASE = 'https://botapi.rubika.ir/v3'
 
@@ -173,6 +174,11 @@ export class RubikaFrontend {
   private send: RubikaSendFn
   private activeSessionByUser = new Map<string, string>()
   private chatIdByUser = new Map<string, string>()
+  // Updates captured at bootstrap time, awaiting the user's Drain/Keep choice.
+  // Keyed by sender_id — each entry holds the inbound updates that landed in
+  // Rubika's queue while the daemon was offline. We do NOT process them until
+  // the user answers the restart prompt.
+  private pendingRestartBacklog = new Map<string, RubikaUpdateBody[]>()
   private started = false
   private permissions?: PermissionEngine
   private screenManager?: ScreenManager
@@ -228,26 +234,62 @@ export class RubikaFrontend {
     }
 
     if (this.pollingIntervalMs > 0) {
-      // Bootstrap: drain stale backlog without processing updates, but harvest
-      // chat_ids from the historical traffic so outbound delivery survives
-      // daemon restarts even before the user sends a new message.
+      // Bootstrap: pull every queued update from while the daemon was offline,
+      // harvest chat_ids, and capture the updates per sender. We do NOT
+      // dispatch them yet — the user gets a Drain/Keep prompt and decides.
+      // Loop until Rubika says the queue is empty (updates < limit) so we
+      // never leave stale messages behind to be replayed on the first poll.
       try {
-        const resp = (await this.send('getUpdates', { limit: 50, offset_id: '' })) as { updates?: unknown[]; next_offset_id?: string }
-        for (const u of resp?.updates ?? []) {
-          const upd = u as { chat_id?: string; new_message?: { sender_id?: string } }
-          const senderId = upd.new_message?.sender_id
-          const chatId = upd.chat_id
-          if (senderId && chatId && this.deps.allowFrom.includes(senderId)) {
-            this.chatIdByUser.set(senderId, chatId)
+        let drained = 0
+        for (let guard = 0; guard < 20; guard++) {
+          const resp = (await this.send('getUpdates', { limit: 50, offset_id: this.nextOffsetId ?? '' })) as { updates?: unknown[]; next_offset_id?: string }
+          const updates = (resp?.updates ?? []) as RubikaUpdateBody['update'][]
+          for (const u of updates) {
+            if (!u) continue
+            const senderId = u.new_message?.sender_id
+            const chatId = u.chat_id
+            if (senderId && chatId && this.deps.allowFrom.includes(senderId)) {
+              this.chatIdByUser.set(senderId, chatId)
+              const list = this.pendingRestartBacklog.get(senderId) ?? []
+              list.push({ update: u })
+              this.pendingRestartBacklog.set(senderId, list)
+            }
           }
+          if (resp?.next_offset_id !== undefined) {
+            this.nextOffsetId = resp.next_offset_id
+          }
+          drained += updates.length
+          if (updates.length < 50) break
         }
-        this.nextOffsetId = resp?.next_offset_id ?? null
-        process.stderr.write(`rubika: bootstrap drained ${resp?.updates?.length ?? 0}; learned chat_ids for ${this.chatIdByUser.size} sender(s)\n`)
+        process.stderr.write(`rubika: bootstrap drained ${drained}; pending for ${this.pendingRestartBacklog.size} sender(s)\n`)
+        for (const [senderId, list] of this.pendingRestartBacklog) {
+          await this.sendRestartPrompt(senderId, list).catch((err) => {
+            process.stderr.write(`rubika: sendRestartPrompt failed for ${senderId}: ${err}\n`)
+          })
+        }
       } catch (err) {
         process.stderr.write(`rubika: bootstrap getUpdates failed (will retry on first poll): ${err}\n`)
       }
       this.pollTimer = setInterval(() => { this.pollOnce().catch(() => {}) }, this.pollingIntervalMs)
     }
+  }
+
+  private async sendRestartPrompt(senderId: string, list: RubikaUpdateBody[]): Promise<void> {
+    const chatId = this.chatIdByUser.get(senderId)
+    if (!chatId) return
+    const lines = list.map((b, i) => {
+      const text = b.update?.new_message?.text ?? '(non-text update)'
+      const trimmed = text.length > 80 ? text.slice(0, 77) + '...' : text
+      return `${i + 1}. ${trimmed}`
+    })
+    const text =
+      `⚠️ ${list.length} message${list.length === 1 ? '' : 's'} arrived while I was offline:\n\n` +
+      lines.join('\n') +
+      `\n\nDrain (drop everything) or Keep (process them as if fresh)?`
+    await this.sendButtons(chatId, text, [[
+      { id: `restart:keep:${senderId}`, label: 'Keep & process' },
+      { id: `restart:drain:${senderId}`, label: 'Drain' },
+    ]])
   }
 
   private async registerEndpoint(type: 'ReceiveUpdate' | 'ReceiveInlineMessage', url: string): Promise<void> {
@@ -306,7 +348,7 @@ export class RubikaFrontend {
             // so command/permission/veto/drift buttons all work.
             const inner = u as { chat_id?: string; new_message?: { text?: string; sender_id?: string; message_id?: string; aux_data?: { button_id?: string } } }
             const buttonId = inner.new_message?.aux_data?.button_id
-            if (buttonId && /^(select:|perm:|ap-|drift:)/.test(buttonId)) {
+            if (buttonId && /^(select:|perm:|ap-|drift:|restart:)/.test(buttonId)) {
               this.handleInlineWebhook({
                 inline_message: {
                   chat_id: inner.chat_id ?? '',
@@ -371,9 +413,11 @@ export class RubikaFrontend {
                 text: i === 0 ? fullText : '',
               })
             } catch (err) {
+              process.stderr.write(`rubika: upload failed for ${files[i]}: ${err}\n`)
+              const reason = err instanceof Error ? err.message : String(err)
               await this.send('sendMessage', {
                 chat_id: chatId,
-                text: `[file too big to upload: ${files[i]}]\n${i === 0 ? fullText : ''}`,
+                text: `[upload failed: ${files[i]} — ${reason}]\n${i === 0 ? fullText : ''}`,
               })
             }
           }
@@ -406,7 +450,7 @@ export class RubikaFrontend {
     // Rubika uses `file` for inbound (verified 2026-05-02 via real photo); the
     // outbound shape is `file_inline`. Accept both — the old guess is harmless.
     const inboundFile =
-      ((m as any).file ?? (m as any).file_inline) as { file_id: string; file_name: string } | undefined
+      ((m as any).file ?? (m as any).file_inline) as { file_id: string; file_name: string; type?: string } | undefined
     if (inboundFile) {
       const target = this.activeSessionByUser.get(senderId) ?? this.firstActiveSessionName()
       if (!target) {
@@ -417,7 +461,8 @@ export class RubikaFrontend {
       const sess = sessionPath ? this.deps.registry.get(sessionPath) : null
       if (!sessionPath || !sess) return
       const folderPath = this.deps.registry.folderPath(sessionPath)
-      this.saveInboundFile(senderId, inner.chat_id, folderPath, sess.uploadDir, inboundFile).catch((err) => {
+      const caption = (m.text || '').trim()
+      this.saveInboundFile(senderId, inner.chat_id, sessionPath, target, folderPath, sess.uploadDir, inboundFile, caption).catch((err) => {
         this.send('sendMessage', { chat_id: inner.chat_id, text: `⚠️ Could not save file: ${err}` }).catch(() => {})
       })
       return
@@ -516,6 +561,30 @@ export class RubikaFrontend {
         })
         return
       }
+      const restartMatch = buttonId.match(/^restart:(drain|keep):(.+)$/)
+      if (restartMatch) {
+        const [, action, targetSenderId] = restartMatch
+        const captured = this.pendingRestartBacklog.get(targetSenderId)
+        this.pendingRestartBacklog.delete(targetSenderId)
+        // Always ack — clears the chat_keypad so the user isn't stuck looking
+        // at stale Drain/Keep buttons.
+        const ackText = action === 'keep'
+          ? `✅ Replaying ${captured?.length ?? 0} message(s)...`
+          : '🗑 Dropped pending messages.'
+        this.send('sendMessage', {
+          chat_id: im.chat_id,
+          text: ackText,
+          chat_keypad_type: 'Remove',
+        }).catch(() => {})
+        if (action === 'keep' && captured) {
+          for (const body of captured) {
+            try { this.handleWebhook(body) } catch (err) {
+              process.stderr.write(`rubika: replay error: ${err}\n`)
+            }
+          }
+        }
+        return
+      }
       process.stderr.write(`rubika: unknown inline button id "${buttonId}"\n`)
     } catch (err) {
       process.stderr.write(`rubika: inline handler error for "${buttonId}": ${err}\n`)
@@ -531,11 +600,17 @@ export class RubikaFrontend {
   }
 
   private async sendButtons(chatId: string, text: string, buttons: { id: string; label: string }[][]): Promise<void> {
+    // Rubika strips aux_data.button_id from inline_keypad taps in polling mode
+    // and never POSTs them to the registered ReceiveInlineMessage webhook in
+    // practice — taps just disappear. chat_keypad (persistent reply keyboard)
+    // is the only delivery shape that actually reaches the daemon, so we use
+    // it for every button-driven flow (perm, autopilot, drift, restart).
     try {
       await this.send('sendMessage', {
         chat_id: chatId,
         text,
-        inline_keypad: {
+        chat_keypad_type: 'New',
+        chat_keypad: {
           rows: buttons.map(row => ({
             buttons: row.map(b => ({ id: b.id, type: 'Simple', button_text: b.label })),
           })),
@@ -554,6 +629,7 @@ export class RubikaFrontend {
       case 'profiles': return this.cmdProfiles(chatId)
       case 'profile':  return this.cmdProfile(chatId, args)
       case 'spawn':    return this.cmdSpawn(senderId, chatId, args)
+      case 'resume':   return this.cmdResume(senderId, chatId, args)
       case 'team':     return this.cmdTeam(chatId, args)
       case 'kill':     return this.cmdKill(chatId, args)
       case 'remove':   return this.cmdRemove(chatId, args)
@@ -565,6 +641,8 @@ export class RubikaFrontend {
       case 'facts':    return this.cmdFacts(chatId, args)
       case 'channel':  return this.cmdChannel(chatId, args)
       case 'verify':   return this.cmdVerify(chatId, args)
+      case 'btw':      return this.cmdBtw(senderId, chatId, args)
+      case 'peek':     return this.cmdPeek(senderId, chatId, args)
       case 'prefix':   return this.cmdPrefix(chatId, args)
       case 'all':      return this.cmdAll(senderId, chatId, args)
       case 'select':   return this.cmdSelect(senderId, chatId, args)
@@ -690,6 +768,43 @@ export class RubikaFrontend {
     ].filter(Boolean)
     await this.replyTo('', chatId, lines.join('\n'))
   }
+  private async cmdResume(senderId: string, chatId: string, rawArgs: string[]): Promise<void> {
+    if (rawArgs.length < 2 || !rawArgs[0] || !rawArgs[1]) {
+      await this.replyTo(senderId, chatId, 'Usage: /resume <name> <path> [--profile <name>]')
+      return
+    }
+
+    let profileName: string | undefined
+    const args: string[] = []
+    for (let i = 0; i < rawArgs.length; i++) {
+      if (rawArgs[i] === '--profile' && rawArgs[i + 1]) {
+        profileName = rawArgs[i + 1]
+        i++
+      } else {
+        args.push(rawArgs[i])
+      }
+    }
+
+    const [name, projectPath] = args
+
+    if (profileName) {
+      const profiles = loadProfilesForHub()
+      if (!getProfile(profileName, profiles)) {
+        await this.replyTo(senderId, chatId, `Profile "${profileName}" not found. Use /profiles to see available.`)
+        return
+      }
+    }
+
+    try {
+      const resume: ResumeSpec = { mode: 'continue' }
+      await this.screenManager!.spawn(name, projectPath, undefined, profileName, resume)
+      this.activeSessionByUser.set(senderId, name)
+      await this.replyTo(senderId, chatId, `Resumed ${name} at ${projectPath} (latest session)${profileName ? ` with profile ${profileName}` : ''} — now active`)
+    } catch (err) {
+      await this.replyTo(senderId, chatId, `Failed to resume: ${err}`)
+    }
+  }
+
   private async cmdSpawn(senderId: string, chatId: string, rawArgs: string[]): Promise<void> {
     if (rawArgs.length < 2) {
       await this.replyTo(senderId, chatId, 'Usage: /spawn <name> <path> [--profile <name>] [team-size]')
@@ -1062,6 +1177,80 @@ export class RubikaFrontend {
     await this.renderVerificationResult('', chatId, sessionName, result)
   }
 
+  private async cmdBtw(senderId: string, chatId: string, args: string[]): Promise<void> {
+    const question = args.join(' ').trim()
+    if (!question) {
+      await this.replyTo(senderId, chatId, 'Usage: /btw <question>')
+      return
+    }
+    if (!this.autopilotRunner) {
+      await this.replyTo(senderId, chatId, 'Autopilot runner not available.')
+      return
+    }
+    const target = this.activeSessionByUser.get(senderId) ?? this.firstActiveSessionName()
+    if (!target) {
+      await this.replyTo(senderId, chatId, 'No active session.')
+      return
+    }
+    const path = this.deps.registry.findByName(target)
+    if (!path) {
+      await this.replyTo(senderId, chatId, `Session "${target}" not found`)
+      return
+    }
+    const managed = this.screenManager?.getManagedByPath(this.deps.registry.folderPath(path))
+    const tmuxName = managed?.sessionName ?? `hub-${target}`
+
+    const quick = await this.autopilotRunner.quickProbe(tmuxName)
+    if (!quick.ok) {
+      await this.replyTo(senderId, chatId, `/btw precheck failed: ${quick.reason}`)
+      return
+    }
+
+    const result = await this.autopilotRunner.runBtw(tmuxName, question)
+    switch (result.status) {
+      case 'answered':
+        await this.replyTo(senderId, chatId, `💬 ${target}:\n\n${result.answer}`)
+        return
+      case 'escalate':
+        await this.replyTo(senderId, chatId, `⚠️ /btw escalated: ${result.reason}`)
+        return
+      case 'parse_error':
+        await this.replyTo(senderId, chatId, `⚠️ Could not parse /btw response from ${target}`)
+        return
+      case 'timeout':
+        await this.replyTo(senderId, chatId, `⏱ /btw timed out — ${target} did not respond in 30s`)
+        return
+    }
+  }
+
+  // /peek [name] [lines] — capture the live tmux pane (incl. scrollback) and
+  // return it as plain text. Mirrors Telegram /peek; no buttons because Rubika
+  // can't render code blocks reliably and the user is on text-only mobile.
+  private async cmdPeek(senderId: string, chatId: string, args: string[]): Promise<void> {
+    const { name: argName, lines } = parsePeekArgs(args.join(' '))
+    const target = argName ?? this.activeSessionByUser.get(senderId) ?? this.firstActiveSessionName()
+    if (!target) {
+      await this.replyTo(senderId, chatId, 'No active session. Use /list to pick one, or /peek <name>.')
+      return
+    }
+    const path = this.deps.registry.findByName(target)
+    const managed = path ? this.screenManager?.getManagedByPath(this.deps.registry.folderPath(path)) : undefined
+    const tmuxName = managed?.sessionName ?? `hub-${target}`
+    try {
+      const raw = await this.screenManager!.capturePaneWithScrollback(tmuxName, lines)
+      const stripped = stripAnsi(raw).trimEnd()
+      if (stripped.length === 0) {
+        await this.replyTo(senderId, chatId, `(empty pane for ${target})`)
+        return
+      }
+      const trimmed = tailToCharLimit(stripped, 3500)
+      await this.replyTo(senderId, chatId, `📺 ${target}\n\n${trimmed}`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      await this.replyTo(senderId, chatId, `Could not peek ${target}: ${msg}`)
+    }
+  }
+
   private async renderVerificationResult(
     _senderId: string,
     chatId: string,
@@ -1109,15 +1298,18 @@ export class RubikaFrontend {
   }
 
   private async saveInboundFile(
-    _senderId: string,
+    senderId: string,
     chatId: string,
-    sessionPath: string,
+    registryKey: string,
+    sessionName: string,
+    folderPath: string,
     uploadDir: string,
-    file: { file_id: string; file_name: string },
+    file: { file_id: string; file_name: string; type?: string },
+    caption: string,
   ): Promise<void> {
     const fs = await import('node:fs/promises')
     const path = await import('node:path')
-    const dir = path.resolve(sessionPath, uploadDir)
+    const dir = path.resolve(folderPath, uploadDir)
     await fs.mkdir(dir, { recursive: true })
     // `getFile` is confirmed as a recognized Rubika bot API method (returns
     // INVALID_INPUT on a bad file_id, not "Invalid Method"). Expected to return
@@ -1128,7 +1320,20 @@ export class RubikaFrontend {
     const buf = Buffer.from(await res.arrayBuffer())
     const target = path.join(dir, file.file_name)
     await fs.writeFile(target, buf)
-    await this.send('sendMessage', { chat_id: chatId, text: `📎 Saved ${path.relative(sessionPath, target)}` })
+
+    const isImage = file.type === 'Image'
+    const label = isImage ? 'Photo uploaded' : 'File uploaded'
+    const content = caption ? `${caption}\n\n[${label}: ${target}]` : `[${label}: ${target}]`
+    const meta: Record<string, string> = {
+      source: 'hub',
+      frontend: 'rubika',
+      user: senderId,
+      session: sessionName,
+    }
+    if (isImage) meta.image_path = target
+    this.socketServer?.sendToSession(registryKey, { type: 'channel_message', content, meta })
+
+    await this.send('sendMessage', { chat_id: chatId, text: `📎 Saved ${path.relative(folderPath, target)}` })
   }
 
   // ── HTTP plumbing ────────────────────────────────────────────────────────
@@ -1178,24 +1383,39 @@ export class RubikaFrontend {
     }
   }
 
+  // Rubika's upload edge (messengerg2f1.rubika.ir) returns persistent 5xx
+  // bursts that can last 10–20s. 5 attempts with these backoffs = up to ~23s
+  // before fail. Field (not const) so tests can override to [0,0,0,0].
+  private uploadBackoffsMs = [2000, 4000, 7000, 10000]
+
   private async uploadFile(filePath: string, mime: string): Promise<{ file_id: string; file_name: string; size: number; type: string }> {
     const fs = await import('node:fs/promises')
     const path = await import('node:path')
     const buf = await fs.readFile(filePath)
     const fileName = path.basename(filePath)
     const type = mimeToType(mime)
-    const r1 = (await this.send('requestSendFile', { type })) as { upload_url: string }
-    // Rubika expects multipart form-data (verified 2026-05-02). Raw body POST
-    // returns {"status":"SERVER_ERROR"}.
-    const fd = new FormData()
-    fd.append('file', new Blob([new Uint8Array(buf)], { type: mime }), fileName)
-    const upload = await fetch(r1.upload_url, { method: 'POST', body: fd })
-    if (!upload.ok) throw new Error(`upload HTTP ${upload.status}`)
-    const j = (await upload.json()) as { status?: string; data?: { file_id?: string } }
-    if (j.status !== 'OK' || !j.data?.file_id) {
-      throw new Error(`upload failed: ${JSON.stringify(j)}`)
+    // Each requestSendFile yields a one-shot upload_url, so retries must request a fresh slot.
+    let lastErr: unknown
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      try {
+        const r1 = (await this.send('requestSendFile', { type })) as { upload_url: string }
+        // Rubika expects multipart form-data (verified 2026-05-02). Raw body POST
+        // returns {"status":"SERVER_ERROR"}.
+        const fd = new FormData()
+        fd.append('file', new Blob([new Uint8Array(buf)], { type: mime }), fileName)
+        const upload = await fetch(r1.upload_url, { method: 'POST', body: fd })
+        if (!upload.ok) throw new Error(`upload HTTP ${upload.status}`)
+        const j = (await upload.json()) as { status?: string; data?: { file_id?: string } }
+        if (j.status !== 'OK' || !j.data?.file_id) {
+          throw new Error(`upload failed: ${JSON.stringify(j)}`)
+        }
+        return { file_id: j.data.file_id, file_name: fileName, size: buf.byteLength, type }
+      } catch (err) {
+        lastErr = err
+        if (attempt < 5) await new Promise(r => setTimeout(r, this.uploadBackoffsMs[attempt - 1]))
+      }
     }
-    return { file_id: j.data.file_id, file_name: fileName, size: buf.byteLength, type }
+    throw lastErr instanceof Error ? lastErr : new Error(String(lastErr))
   }
 }
 

@@ -938,7 +938,18 @@
     <div id="header">
       <span id="session-title" style="color: var(--text-muted)">No session selected</span>
       <span id="trust-badge" class="trust-badge" style="display:none"></span>
-      <code id="tmux-cmd" style="display:none; margin-left:auto; font-size:11px; color:var(--text-muted); background:rgba(0,0,0,0.3); padding:3px 8px; border-radius:4px; cursor:pointer;" title="Click to copy" onclick="copyTmuxCmd()"></code>
+      <button id="peek-btn" style="display:none; margin-left:auto; font-size:11px; color:var(--text-muted); background:rgba(0,0,0,0.3); padding:3px 8px; border-radius:4px; cursor:pointer; border:none;" title="Capture the live tmux pane" onclick="openPeekModal()">📺 Peek tmux</button>
+      <code id="tmux-cmd" style="display:none; margin-left:8px; font-size:11px; color:var(--text-muted); background:rgba(0,0,0,0.3); padding:3px 8px; border-radius:4px; cursor:pointer;" title="Click to copy" onclick="copyTmuxCmd()"></code>
+    </div>
+    <div id="peek-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:1000; align-items:center; justify-content:center;" onclick="if(event.target.id==='peek-modal') closePeekModal()">
+      <div style="background:var(--bg); border:1px solid var(--border); border-radius:8px; max-width:min(900px, 92vw); max-height:80vh; width:100%; display:flex; flex-direction:column;">
+        <div style="display:flex; align-items:center; padding:10px 14px; border-bottom:1px solid var(--border);">
+          <span id="peek-title" style="font-weight:600;">tmux pane</span>
+          <button onclick="refreshPeek()" style="margin-left:auto; font-size:12px; background:rgba(0,0,0,0.3); color:var(--text); border:none; padding:4px 10px; border-radius:4px; cursor:pointer;" title="Re-capture">↻ Refresh</button>
+          <button onclick="closePeekModal()" style="margin-left:6px; font-size:14px; background:transparent; color:var(--text-muted); border:none; padding:4px 10px; cursor:pointer;">✕</button>
+        </div>
+        <pre id="peek-content" style="margin:0; padding:14px; overflow:auto; font-family:ui-monospace, SFMono-Regular, monospace; font-size:12px; line-height:1.4; white-space:pre; color:var(--text); flex:1;">Loading…</pre>
+      </div>
     </div>
     <div id="messages">
       <div id="no-session" style="color: var(--text-muted); margin: auto; opacity: 0.5;">Select a session to start chatting</div>
@@ -2058,15 +2069,18 @@
 
       const badge = document.getElementById('trust-badge')
       const tmuxCmd = document.getElementById('tmux-cmd')
+      const peekBtn = document.getElementById('peek-btn')
       if (session) {
         badge.style.display = ''
         badge.textContent = session.trust === 'auto' ? 'auto' : session.trust
         badge.className = 'trust-badge' + (session.trust === 'auto' ? ' auto' : '')
         tmuxCmd.style.display = ''
         tmuxCmd.textContent = `tmux attach -t hub-${name}`
+        peekBtn.style.display = ''
       } else {
         badge.style.display = 'none'
         tmuxCmd.style.display = 'none'
+        peekBtn.style.display = 'none'
       }
 
       // Show the compose area now that a session is active
@@ -2266,6 +2280,44 @@
         el.textContent = 'Copied!'
         setTimeout(() => { el.textContent = orig }, 1000)
       })
+    }
+
+    // /peek modal — fetches the live tmux pane (incl. scrollback) for the
+    // currently selected session and renders it in a monospace block. Manual
+    // refresh only; no live updates so the snapshot stays stable while reading.
+    function stripAnsiClient(text) {
+      return text
+        .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '')
+        .replace(/\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g, '')
+        .replace(/\x1b[@-Z\\-_]/g, '')
+    }
+    function openPeekModal() {
+      if (!activeSession) return
+      document.getElementById('peek-title').textContent = `tmux: hub-${activeSession}`
+      document.getElementById('peek-content').textContent = 'Loading…'
+      document.getElementById('peek-modal').style.display = 'flex'
+      refreshPeek()
+    }
+    function closePeekModal() {
+      document.getElementById('peek-modal').style.display = 'none'
+    }
+    async function refreshPeek() {
+      if (!activeSession) return
+      const target = activeSession
+      const content = document.getElementById('peek-content')
+      content.textContent = 'Loading…'
+      try {
+        const res = await fetch(`/api/peek/${encodeURIComponent(target)}?lines=200`)
+        const data = await res.json()
+        if (!res.ok) {
+          content.textContent = `⚠️ ${data.error || `HTTP ${res.status}`}`
+          return
+        }
+        const cleaned = stripAnsiClient(data.pane || '').trimEnd()
+        content.textContent = cleaned.length === 0 ? '(empty pane)' : cleaned
+      } catch (err) {
+        content.textContent = `⚠️ ${err && err.message ? err.message : String(err)}`
+      }
     }
 
     function formatRelativeTime(sec, nowSec) {
