@@ -2079,3 +2079,187 @@ describe('RubikaFrontend polling — re-entrancy guard', () => {
     await r.stop()
   })
 })
+
+describe('RubikaFrontend.handleWebhook reply-to routing', () => {
+  let registry: SessionRegistry
+  let router: StubRouter
+  let sender: FakeSender
+  let r: RubikaFrontend
+
+  // Build an inbound update mimicking a user reply-to-message. We pass the
+  // reply target via `reply_to_message_id` (Rubika's expected field name);
+  // the alternate `reply_to_message: { message_id }` shape is exercised
+  // separately below.
+  function replyUpdate(senderId: string, text: string, replyToId: string): RubikaUpdateBody {
+    return {
+      update: {
+        type: 'NewMessage',
+        chat_id: 'chat-' + senderId,
+        new_message: {
+          message_id: 'inbound-' + Math.random().toString(36).slice(2, 8),
+          text,
+          time: '1700000000',
+          is_edited: false,
+          sender_type: 'User',
+          sender_id: senderId,
+          aux_data: { start_id: null, button_id: null },
+          reply_to_message_id: replyToId,
+        },
+      },
+    }
+  }
+
+  beforeEach(() => {
+    registry = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
+    registry.register('/p/sap:0', { name: 'sap' })
+    registry.register('/p/eticket-v3:0', { name: 'eticket' })
+    router = new StubRouter()
+    sender = new FakeSender()
+    r = new RubikaFrontend({
+      token: 't',
+      allowFrom: ['u1'],
+      registry,
+      router: router as any,
+      sender: (m, b) => sender.send(m, b),
+    })
+  })
+
+  afterEach(async () => { await r.stop() })
+
+  // Send chat_id learning bootstrap update so deliverToUser has somewhere to send.
+  function learnChatId() {
+    r.handleWebhook({
+      update: {
+        type: 'NewMessage',
+        chat_id: 'chat-u1',
+        new_message: {
+          message_id: 'init',
+          text: 'hi',
+          time: '0',
+          is_edited: false,
+          sender_type: 'User',
+          sender_id: 'u1',
+          aux_data: { start_id: null, button_id: null },
+        },
+      },
+    })
+  }
+
+  test('reply with no captured mapping falls back to active session', () => {
+    learnChatId()
+    router.calls = []
+    r.handleWebhook(replyUpdate('u1', 'follow up', 'unknown-msg-id'))
+    // No mapping → falls through to active/first-active session ("eticket"
+    // alphabetically first OR by registration order; either way: routed).
+    expect(router.calls.length).toBe(1)
+    expect(router.calls[0]!.text).toBe('follow up')
+  })
+
+  test('reply to a captured outgoing message routes to that session, NOT active', async () => {
+    learnChatId()
+    sender.reply = { message_id: 'sap-msg-1' }
+    await r.deliverToUser('sap', 'hello from sap')
+    sender.reply = { message_id: 'eticket-msg-1' }
+    await r.deliverToUser('eticket', 'hello from eticket')
+
+    router.calls = []
+    // User replies to the sap message even though eticket was active last.
+    r.handleWebhook(replyUpdate('u1', 'thanks sap', 'sap-msg-1'))
+    expect(router.calls.length).toBe(1)
+    expect(router.calls[0]!.sessionName).toBe('sap')
+    expect(router.calls[0]!.text).toBe('thanks sap')
+  })
+
+  test('reply to mapped session whose name is no longer registered → user notice, no route', async () => {
+    learnChatId()
+    sender.reply = { message_id: 'goner-msg-1' }
+    await r.deliverToUser('goner', 'hi from goner')
+    // Note: 'goner' was never registered — registry.findByName returns undefined.
+
+    router.calls = []
+    sender.calls = []
+    r.handleWebhook(replyUpdate('u1', 'hello goner', 'goner-msg-1'))
+
+    expect(router.calls.length).toBe(0)
+    const notices = sender.calls.filter(c => c.method === 'sendMessage')
+    expect(notices.length).toBe(1)
+    expect((notices[0]!.body as any).text).toContain('Session "goner" is gone')
+  })
+
+  test('also handles the alternate reply_to_message.message_id shape', async () => {
+    learnChatId()
+    sender.reply = { message_id: 'sap-msg-2' }
+    await r.deliverToUser('sap', 'hi from sap')
+
+    router.calls = []
+    const upd: RubikaUpdateBody = {
+      update: {
+        type: 'NewMessage',
+        chat_id: 'chat-u1',
+        new_message: {
+          message_id: 'inbound-x',
+          text: 'reply nested',
+          time: '0',
+          is_edited: false,
+          sender_type: 'User',
+          sender_id: 'u1',
+          aux_data: { start_id: null, button_id: null },
+          reply_to_message: { message_id: 'sap-msg-2' },
+        },
+      },
+    }
+    r.handleWebhook(upd)
+    expect(router.calls.length).toBe(1)
+    expect(router.calls[0]!.sessionName).toBe('sap')
+  })
+
+  test('extracts message_id from message_update.message_id envelope shape', async () => {
+    learnChatId()
+    sender.reply = { message_update: { message_id: 'sap-msg-3' } }
+    await r.deliverToUser('sap', 'hi')
+
+    router.calls = []
+    r.handleWebhook(replyUpdate('u1', 'reply', 'sap-msg-3'))
+    expect(router.calls.length).toBe(1)
+    expect(router.calls[0]!.sessionName).toBe('sap')
+  })
+
+  test('caps the per-chat map at 200 entries and evicts oldest', async () => {
+    learnChatId()
+    // Insert 250 outgoing messages; the first 50 should be evicted.
+    for (let i = 0; i < 250; i++) {
+      sender.reply = { message_id: `m-${i}` }
+      await r.deliverToUser('sap', `n=${i}`)
+    }
+
+    router.calls = []
+    sender.calls = []
+    // Replying to the very first message → evicted → no mapping → fallback to active.
+    r.handleWebhook(replyUpdate('u1', 'too old', 'm-0'))
+    expect(router.calls.length).toBe(1)
+    expect(router.calls[0]!.text).toBe('too old')
+    // The text routed via fallback (active session is sap or first-active),
+    // it doesn't really matter — we just want to confirm we did NOT use a
+    // stale-map entry to send a "session is gone" notice.
+    const notices = sender.calls.filter(c => c.method === 'sendMessage')
+    expect(notices.length).toBe(0)
+
+    router.calls = []
+    // The most recent should still hit.
+    r.handleWebhook(replyUpdate('u1', 'still here', 'm-249'))
+    expect(router.calls.length).toBe(1)
+    expect(router.calls[0]!.sessionName).toBe('sap')
+  })
+
+  test('targeted prefix /<name> still wins over reply context (not exercised in rubika; reply only checked when no command)', () => {
+    // Rubika doesn't use parseTargetedMessage; commands take the parseCommand
+    // path first. This test guards: a reply that *also* starts with '/' is
+    // dispatched as a command, not routed via reply-target.
+    learnChatId()
+    router.calls = []
+    sender.calls = []
+    r.handleWebhook(replyUpdate('u1', '/list', 'unknown'))
+    // No router call (handled by /list command), and no fallback "session gone" notice.
+    expect(router.calls.length).toBe(0)
+  })
+})

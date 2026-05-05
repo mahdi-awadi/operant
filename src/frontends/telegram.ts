@@ -73,6 +73,41 @@ export function parseCommand(text: string): { command: string; args: string[] } 
   return { command, args }
 }
 
+/** Record an outgoing message_id ↔ session mapping for a recipient.
+ * Mutates and returns the user's list, capped at MESSAGE_MAP_CAP entries
+ * with oldest-eviction. Pure (no DOM/IO/grammy) so tests can exercise the
+ * eviction policy without standing up a Telegram bot.
+ */
+export function recordOutgoingMapping(
+  map: Map<string, Array<{ messageId: number; sessionName: string }>>,
+  userId: string,
+  sessionName: string,
+  messageId: number,
+  cap = 200,
+): void {
+  const list = map.get(userId) ?? []
+  list.push({ messageId, sessionName })
+  if (list.length > cap) list.splice(0, list.length - cap)
+  map.set(userId, list)
+}
+
+/** Look up the session a given inbound reply-to message originally came from.
+ * Returns null when no mapping exists (user replied to their own message,
+ * or the entry has been evicted, or we never captured it).
+ */
+export function lookupReplyMapping(
+  map: Map<string, Array<{ messageId: number; sessionName: string }>>,
+  userId: string,
+  replyToMessageId: number,
+): string | null {
+  const list = map.get(userId)
+  if (!list) return null
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (list[i]!.messageId === replyToMessageId) return list[i]!.sessionName
+  }
+  return null
+}
+
 export function chunkText(text: string, limit: number): string[] {
   if (text.length <= limit) return [text]
 
@@ -170,6 +205,11 @@ export class TelegramFrontend {
   private userActiveSessions = new Map<string, string>()
   // Track all users who have messaged the bot (for delivering replies when allowFrom is empty)
   private knownUsers = new Set<string>()
+  // Per-user ring buffer of outgoing-message → session mappings. When the
+  // user replies to one of the bot's messages, we look up the original
+  // session here and route there instead of the active one.
+  private messageMap = new Map<string, Array<{ messageId: number; sessionName: string }>>()
+  private static readonly MESSAGE_MAP_CAP = 200
 
   constructor(deps: TelegramFrontendDeps) {
     this.bot = new Bot(deps.token)
@@ -202,6 +242,19 @@ export class TelegramFrontend {
 
   private getActiveSession(userId: string): string | null {
     return this.userActiveSessions.get(userId) ?? null
+  }
+
+  /** Record an outgoing bot message so a future reply-to update from the
+   * user can be routed back to the originating session. Capped per-user. */
+  private recordOutgoing(userId: string, sessionName: string, sent: { message_id?: number } | null | undefined): void {
+    const messageId = sent?.message_id
+    if (typeof messageId !== 'number') return
+    recordOutgoingMapping(this.messageMap, userId, sessionName, messageId, TelegramFrontend.MESSAGE_MAP_CAP)
+  }
+
+  /** Look up the session a given inbound reply-to message originally came from. */
+  private lookupReplyTarget(userId: string, replyToMessageId: number): string | null {
+    return lookupReplyMapping(this.messageMap, userId, replyToMessageId)
   }
 
   private registerHandlers(): void {
@@ -1083,6 +1136,22 @@ export class TelegramFrontend {
         return
       }
 
+      // Reply-to-message routing: if the user replied to a bot message we
+      // captured earlier, route to that message's source session — even if
+      // it's not the currently-active one for this user.
+      const replyToId = ctx.message.reply_to_message?.message_id
+      if (typeof replyToId === 'number') {
+        const mapped = this.lookupReplyTarget(userId, replyToId)
+        if (mapped) {
+          const sent = this.router.routeToSession(mapped, text, 'telegram', userId)
+          if (!sent) {
+            await ctx.reply(`🪦 Session "${mapped}" is gone — pick another with /list.`)
+          }
+          return
+        }
+        // No mapping for this reply target — fall through to active session.
+      }
+
       // Send to active session
       const activeSession = this.getActiveSession(userId)
       if (!activeSession) {
@@ -1111,17 +1180,20 @@ export class TelegramFrontend {
     for (const userId of recipients) {
       for (const chunk of chunks) {
         try {
-          await this.bot.api.sendMessage(userId, chunk, { parse_mode: 'HTML' })
+          const sent = await this.bot.api.sendMessage(userId, chunk, { parse_mode: 'HTML' })
+          this.recordOutgoing(userId, sessionName, sent)
         } catch (err) {
           // Fallback: if the formatted HTML somehow has unbalanced tags after
           // chunking, retry as plain text so the user still gets the content.
           process.stderr.write(`telegram: HTML send failed (${err}); retrying as plain text\n`)
-          await this.bot.api.sendMessage(userId, chunk).catch(() => {})
+          const sent = await this.bot.api.sendMessage(userId, chunk).catch(() => null)
+          this.recordOutgoing(userId, sessionName, sent ?? undefined)
         }
       }
       if (files && files.length > 0) {
         for (const filePath of files) {
-          await this.bot.api.sendDocument(userId, new InputFile(filePath))
+          const sent = await this.bot.api.sendDocument(userId, new InputFile(filePath))
+          this.recordOutgoing(userId, sessionName, sent)
         }
       }
     }
@@ -1166,10 +1238,11 @@ export class TelegramFrontend {
 
     for (const userId of recipients) {
       try {
-        await this.bot.api.sendMessage(userId, htmlMessage, {
+        const sent = await this.bot.api.sendMessage(userId, htmlMessage, {
           parse_mode: 'HTML',
           reply_markup: keyboard,
         })
+        this.recordOutgoing(userId, sessionName, sent)
       } catch (err) {
         process.stderr.write(`telegram: drift alert failed: ${err}\n`)
       }
@@ -1199,10 +1272,11 @@ export class TelegramFrontend {
 
     for (const userId of recipients) {
       try {
-        await this.bot.api.sendMessage(userId, text, {
+        const sent = await this.bot.api.sendMessage(userId, text, {
           parse_mode: 'HTML',
           reply_markup: keyboard,
         })
+        this.recordOutgoing(userId, sessionName, sent)
       } catch (err) {
         process.stderr.write(`telegram: deliverAutopilotDraft failed: ${err}\n`)
       }
@@ -1224,10 +1298,11 @@ export class TelegramFrontend {
       .text('❌ Deny', `perm:deny:${req.requestId}`)
 
     for (const userId of recipients) {
-      await this.bot.api.sendMessage(userId, text, {
+      const sent = await this.bot.api.sendMessage(userId, text, {
         parse_mode: 'HTML',
         reply_markup: keyboard,
       })
+      this.recordOutgoing(userId, req.sessionName, sent)
     }
   }
 

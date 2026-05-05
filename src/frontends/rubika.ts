@@ -138,6 +138,11 @@ export type RubikaUpdateBody = {
       // sendMessage; `file` is a possible legacy alias. Adjust if the live API
       // returns a different key when a user sends a photo/document.
       file_inline?: { file_id: string; file_name: string; size?: number; type?: string }
+      // Reply-to fields. Rubika's actual key is unverified at coding time;
+      // both shapes are checked at runtime so the feature degrades gracefully
+      // if the wire format differs.
+      reply_to_message_id?: string
+      reply_to_message?: { message_id?: string }
     }
   } | null
   // Rubika delivers inline-button clicks on a separate endpoint; we ignore
@@ -174,6 +179,11 @@ export class RubikaFrontend {
   private send: RubikaSendFn
   private activeSessionByUser = new Map<string, string>()
   private chatIdByUser = new Map<string, string>()
+  // Per-chat ring buffer of outgoing-message → session mappings. When the
+  // user replies to a bot message, we look up the original session here and
+  // route there instead of the active one. Capped per-chat; oldest evicted.
+  private messageMap = new Map<string, Array<{ messageId: string; sessionName: string }>>()
+  private static readonly MESSAGE_MAP_CAP = 200
   // Updates captured at bootstrap time, awaiting the user's Drain/Keep choice.
   // Keyed by sender_id — each entry holds the inbound updates that landed in
   // Rubika's queue while the daemon was offline. We do NOT process them until
@@ -374,6 +384,47 @@ export class RubikaFrontend {
     }
   }
 
+  // ── Reply-to-message routing ─────────────────────────────────────────────
+
+  /** Pull a Rubika message_id out of a sendMessage/sendFile/sendButtons response.
+   * Rubika's response shape varies by method and isn't fully documented in our
+   * codebase; defensive across the two known variants. Returns null if the
+   * response shape doesn't carry one — caller logs and moves on.
+   */
+  private extractMessageId(response: unknown): string | null {
+    if (!response || typeof response !== 'object') return null
+    const r = response as { message_update?: { message_id?: unknown }; message_id?: unknown }
+    if (typeof r.message_id === 'string' && r.message_id.length > 0) return r.message_id
+    if (r.message_update && typeof r.message_update.message_id === 'string' && r.message_update.message_id.length > 0) {
+      return r.message_update.message_id
+    }
+    return null
+  }
+
+  /** Record an outgoing message_id ↔ sessionName for this chat so a future
+   * reply-to-message inbound update can be routed back to the right session.
+   */
+  private recordOutgoing(chatId: string, sessionName: string, response: unknown): void {
+    const messageId = this.extractMessageId(response)
+    if (!messageId) return
+    const list = this.messageMap.get(chatId) ?? []
+    list.push({ messageId, sessionName })
+    if (list.length > RubikaFrontend.MESSAGE_MAP_CAP) {
+      list.splice(0, list.length - RubikaFrontend.MESSAGE_MAP_CAP)
+    }
+    this.messageMap.set(chatId, list)
+  }
+
+  /** Look up the session a given inbound reply-to message originally came from. */
+  private lookupReplyTarget(chatId: string, replyToMessageId: string): string | null {
+    const list = this.messageMap.get(chatId)
+    if (!list) return null
+    for (let i = list.length - 1; i >= 0; i--) {
+      if (list[i]!.messageId === replyToMessageId) return list[i]!.sessionName
+    }
+    return null
+  }
+
   // ── Outbound (Claude → user) ─────────────────────────────────────────────
   async deliverPermissionRequest(req: PermissionRequest): Promise<void> {
     if (this.deps.allowFrom.length === 0) return
@@ -381,10 +432,11 @@ export class RubikaFrontend {
     for (const senderId of this.deps.allowFrom) {
       const chatId = this.chatIdByUser.get(senderId)
       if (!chatId) continue
-      await this.sendButtons(chatId, text, [[
+      const resp = await this.sendButtons(chatId, text, [[
         { id: `perm:allow:${req.requestId}`, label: 'Allow' },
         { id: `perm:deny:${req.requestId}`, label: 'Deny' },
       ]])
+      this.recordOutgoing(chatId, req.sessionName, resp)
     }
   }
 
@@ -404,7 +456,7 @@ export class RubikaFrontend {
               // (chat_id, file_id, type, file_name, size, text). sendMessage
               // with file_inline returns OK but the photo never renders for
               // the recipient — verified 2026-05-02 against the live server.
-              await this.send('sendFile', {
+              const resp = await this.send('sendFile', {
                 chat_id: chatId,
                 file_id: meta.file_id,
                 type: meta.type,
@@ -412,17 +464,20 @@ export class RubikaFrontend {
                 size: meta.size,
                 text: i === 0 ? fullText : '',
               })
+              this.recordOutgoing(chatId, sessionName, resp)
             } catch (err) {
               process.stderr.write(`rubika: upload failed for ${files[i]}: ${err}\n`)
               const reason = err instanceof Error ? err.message : String(err)
-              await this.send('sendMessage', {
+              const resp = await this.send('sendMessage', {
                 chat_id: chatId,
                 text: `[upload failed: ${files[i]} — ${reason}]\n${i === 0 ? fullText : ''}`,
               })
+              this.recordOutgoing(chatId, sessionName, resp)
             }
           }
         } else {
-          await this.send('sendMessage', { chat_id: chatId, text: fullText })
+          const resp = await this.send('sendMessage', { chat_id: chatId, text: fullText })
+          this.recordOutgoing(chatId, sessionName, resp)
         }
       } catch (err) {
         process.stderr.write(`rubika: deliverToUser to ${chatId} failed: ${err}\n`)
@@ -477,6 +532,27 @@ export class RubikaFrontend {
         process.stderr.write(`rubika: command "${parsed.command}" failed: ${err}\n`),
       )
       return
+    }
+
+    // Reply-to-message routing: if the user replied to a bot message we
+    // captured earlier, route to that message's source session — even if
+    // it's not the active one. Rubika's wire format for the reply field is
+    // unverified, so check both shapes we expect.
+    const replyToId = m.reply_to_message_id ?? m.reply_to_message?.message_id
+    if (replyToId) {
+      const mapped = this.lookupReplyTarget(inner.chat_id, replyToId)
+      if (mapped) {
+        if (this.deps.registry.findByName(mapped)) {
+          this.deps.router.routeToSession(mapped, text, 'rubika', senderId)
+        } else {
+          this.send('sendMessage', { chat_id: inner.chat_id, text: `🪦 Session "${mapped}" is gone — pick another with /list.` })
+            .catch((err) => process.stderr.write(`rubika: stale-reply notice failed: ${err}\n`))
+        }
+        return
+      }
+      // No mapping found (likely the user replied to their own prior
+      // message, or to a system message we didn't capture) — fall through
+      // to the active-session path below.
     }
 
     const target = this.activeSessionByUser.get(senderId) ?? this.firstActiveSessionName()
@@ -599,14 +675,14 @@ export class RubikaFrontend {
     }
   }
 
-  private async sendButtons(chatId: string, text: string, buttons: { id: string; label: string }[][]): Promise<void> {
+  private async sendButtons(chatId: string, text: string, buttons: { id: string; label: string }[][]): Promise<unknown> {
     // Rubika strips aux_data.button_id from inline_keypad taps in polling mode
     // and never POSTs them to the registered ReceiveInlineMessage webhook in
     // practice — taps just disappear. chat_keypad (persistent reply keyboard)
     // is the only delivery shape that actually reaches the daemon, so we use
     // it for every button-driven flow (perm, autopilot, drift, restart).
     try {
-      await this.send('sendMessage', {
+      return await this.send('sendMessage', {
         chat_id: chatId,
         text,
         chat_keypad_type: 'New',
@@ -618,6 +694,7 @@ export class RubikaFrontend {
       })
     } catch (err) {
       process.stderr.write(`rubika: sendButtons failed: ${err}\n`)
+      return null
     }
   }
 
@@ -1373,10 +1450,11 @@ export class RubikaFrontend {
       const chatId = this.chatIdByUser.get(senderId)
       if (!chatId) continue
       try {
-        await this.sendButtons(chatId, text, [[
+        const resp = await this.sendButtons(chatId, text, [[
           { id: `ap-send:${sessionName}`, label: '✅ Send' },
           { id: `ap-cancel:${sessionName}`, label: '❌ Cancel' },
         ]])
+        this.recordOutgoing(chatId, sessionName, resp)
       } catch (err) {
         process.stderr.write(`rubika: deliverAutopilotDraft failed: ${err}\n`)
       }

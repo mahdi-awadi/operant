@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test'
-import { formatSessionList, formatStatus, parseCommand, chunkText, stripAnsi, tailToCharLimit, parsePeekArgs } from '../../src/frontends/telegram'
+import { formatSessionList, formatStatus, parseCommand, chunkText, stripAnsi, tailToCharLimit, parsePeekArgs, recordOutgoingMapping, lookupReplyMapping } from '../../src/frontends/telegram'
 
 describe('telegram helpers', () => {
   test('formatSessionList with no sessions', () => {
@@ -103,5 +103,47 @@ describe('telegram helpers', () => {
 
   test('parsePeekArgs clamps line count to min 1', () => {
     expect(parsePeekArgs('foo 0').lines).toBe(1)
+  })
+})
+
+describe('telegram reply-to routing helpers', () => {
+  test('lookupReplyMapping returns null when nothing recorded', () => {
+    const map = new Map<string, Array<{ messageId: number; sessionName: string }>>()
+    expect(lookupReplyMapping(map, 'u1', 42)).toBeNull()
+  })
+
+  test('recordOutgoingMapping + lookupReplyMapping round-trip', () => {
+    const map = new Map<string, Array<{ messageId: number; sessionName: string }>>()
+    recordOutgoingMapping(map, 'u1', 'sap', 100)
+    recordOutgoingMapping(map, 'u1', 'eticket', 101)
+    expect(lookupReplyMapping(map, 'u1', 100)).toBe('sap')
+    expect(lookupReplyMapping(map, 'u1', 101)).toBe('eticket')
+    expect(lookupReplyMapping(map, 'u1', 999)).toBeNull()
+  })
+
+  test('lookupReplyMapping is per-user (no cross-user leak)', () => {
+    const map = new Map<string, Array<{ messageId: number; sessionName: string }>>()
+    recordOutgoingMapping(map, 'u1', 'sap', 100)
+    expect(lookupReplyMapping(map, 'u2', 100)).toBeNull()
+  })
+
+  test('recordOutgoingMapping evicts oldest when cap is exceeded', () => {
+    const map = new Map<string, Array<{ messageId: number; sessionName: string }>>()
+    for (let i = 0; i < 10; i++) {
+      recordOutgoingMapping(map, 'u1', 'sap', i, 5)
+    }
+    // Cap is 5, first 5 evicted, last 5 kept (5..9).
+    expect(lookupReplyMapping(map, 'u1', 4)).toBeNull()
+    expect(lookupReplyMapping(map, 'u1', 5)).toBe('sap')
+    expect(lookupReplyMapping(map, 'u1', 9)).toBe('sap')
+  })
+
+  test('lookupReplyMapping prefers most-recent when same messageId reused', () => {
+    // Edge case: same message_id could theoretically appear twice for the
+    // same user (telegram never reuses, but defensive). Most recent wins.
+    const map = new Map<string, Array<{ messageId: number; sessionName: string }>>()
+    recordOutgoingMapping(map, 'u1', 'sap', 100)
+    recordOutgoingMapping(map, 'u1', 'eticket', 100)
+    expect(lookupReplyMapping(map, 'u1', 100)).toBe('eticket')
   })
 })
