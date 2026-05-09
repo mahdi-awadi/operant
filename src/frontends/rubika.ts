@@ -32,6 +32,7 @@ import type { TaskMonitor } from '../task-monitor'
 import type { VerificationRunner } from '../verification'
 import type { VetoController } from '../veto-controller'
 import type { AutopilotRunner } from '../autopilot'
+import type { RubikaInviteStore } from '../rubika-invites'
 // Type-only imports below are reserved for later tasks (Tasks 7-17).
 import type { PermissionRequest, TrustLevel, Profile } from '../types'
 import type { VerificationResult } from '../verification'
@@ -103,9 +104,11 @@ export type RubikaSendFn = (method: string, body: unknown) => Promise<unknown>
 export type RubikaFrontendDeps = {
   token: string
   allowFrom: string[]
-  // sender_id → pinned session name. Guests bypass allowFrom, are always
-  // routed to their pinned session, and may not run any /command.
-  guests?: Record<string, string>
+  // Invite-code store. Owners mint codes via /invite; future guests claim
+  // them by sending the code as their first message. Pinned guests bypass
+  // allowFrom, are routed exclusively to their pinned session, and may not
+  // run any /command.
+  inviteStore?: RubikaInviteStore
   registry: SessionRegistry
   router: MessageRouter
   // New deps for command parity:
@@ -182,9 +185,9 @@ export class RubikaFrontend {
   private send: RubikaSendFn
   private activeSessionByUser = new Map<string, string>()
   private chatIdByUser = new Map<string, string>()
-  // Frozen snapshot of rubikaGuests at construction. Guests are pinned: they
-  // bypass allowFrom, route only to their session, and cannot run commands.
-  private readonly guests: Map<string, string>
+  // Persistent invite/pin store. When undefined, the bot operates without
+  // guest support (back-compat for callers that haven't wired it).
+  private inviteStore: RubikaInviteStore | undefined
   // Per-chat ring buffer of outgoing-message → session mappings. When the
   // user replies to a bot message, we look up the original session here and
   // route there instead of the active one. Capped per-chat; oldest evicted.
@@ -222,7 +225,7 @@ export class RubikaFrontend {
     this.vetoController = deps.vetoController
     this.autopilotRunner = deps.autopilotRunner
     this.inlineWebhookPath = `/api/rubika/inline-webhook/${deriveInlineWebhookSecret(deps.token)}`
-    this.guests = new Map(Object.entries(deps.guests ?? {}))
+    this.inviteStore = deps.inviteStore
     // pollingIntervalMs: 0 = disabled; otherwise enforce min 1000ms, default 2000ms
     const raw = deps.pollingIntervalMs
     if (raw === 0) {
@@ -451,8 +454,10 @@ export class RubikaFrontend {
     // Recipients = allowFrom owners + guests pinned to this session.
     // Either set may be empty; we still proceed if the other has chat_ids.
     const recipientSenderIds = new Set<string>(this.deps.allowFrom)
-    for (const [guestId, pinned] of this.guests) {
-      if (pinned === sessionName) recipientSenderIds.add(guestId)
+    if (this.inviteStore) {
+      for (const [guestId, pinned] of Object.entries(this.inviteStore.listPins())) {
+        if (pinned === sessionName) recipientSenderIds.add(guestId)
+      }
     }
     if (recipientSenderIds.size === 0) return
     const fullText = `[${sessionName}] ${text}`
@@ -508,8 +513,29 @@ export class RubikaFrontend {
     const m = inner.new_message
     if (m.sender_type !== 'User') return
     const senderId = m.sender_id
-    const guestSession = this.guests.get(senderId)
-    if (!guestSession && !this.deps.allowFrom.includes(senderId)) {
+    const isOwner = this.deps.allowFrom.includes(senderId)
+    let guestSession = this.inviteStore?.getPin(senderId) ?? null
+
+    // Invite-code claim path. A non-owner, non-pinned sender whose entire
+    // text is a 6-char invite code gets bound to the matching session here,
+    // before any other handling. The claim message itself is consumed (not
+    // routed); subsequent messages flow as guest.
+    if (!isOwner && !guestSession && this.inviteStore) {
+      const text = (m.new_message ? '' : '') + (m.text || '').trim()
+      if (/^[A-Za-z0-9]{6}$/.test(text)) {
+        const sessionName = this.inviteStore.claim(text, senderId)
+        if (sessionName) {
+          this.chatIdByUser.set(senderId, inner.chat_id)
+          this.send('sendMessage', {
+            chat_id: inner.chat_id,
+            text: `✅ Connected to ${sessionName}. Send any message to talk.`,
+          }).catch((err) => process.stderr.write(`rubika: claim ack failed: ${err}\n`))
+          return
+        }
+      }
+    }
+
+    if (!guestSession && !isOwner) {
       process.stderr.write(`rubika: rejecting message from non-allowed sender ${senderId}\n`)
       return
     }
@@ -602,7 +628,7 @@ export class RubikaFrontend {
     const im = body?.inline_message
     if (!im || !im.aux_data?.button_id) return
     const senderId = im.sender_id
-    if (this.guests.has(senderId)) {
+    if (this.inviteStore?.getPin(senderId)) {
       process.stderr.write(`rubika: inline dropping guest tap from ${senderId}\n`)
       return
     }
@@ -759,9 +785,67 @@ export class RubikaFrontend {
       case 'prefix':   return this.cmdPrefix(chatId, args)
       case 'all':      return this.cmdAll(senderId, chatId, args)
       case 'select':   return this.cmdSelect(senderId, chatId, args)
+      case 'invite':   return this.cmdInvite(senderId, chatId, args)
+      case 'invites':  return this.cmdInvites(senderId, chatId)
+      case 'unpin':    return this.cmdUnpin(senderId, chatId, args)
       default:
         return this.replyTo(senderId, chatId, `Unknown command "/${command}". Try /list or /status.`)
     }
+  }
+
+  private async cmdInvite(senderId: string, chatId: string, args: string[]): Promise<void> {
+    if (!this.inviteStore) {
+      await this.replyTo(senderId, chatId, 'Invites not configured on this hub.')
+      return
+    }
+    const sessionName = (args[0] ?? '').trim()
+    if (!sessionName) {
+      await this.replyTo(senderId, chatId, 'Usage: /invite <session-name>')
+      return
+    }
+    if (!this.deps.registry.findByName(sessionName)) {
+      await this.replyTo(senderId, chatId, `Session "${sessionName}" not found.`)
+      return
+    }
+    const code = this.inviteStore.mintInvite(sessionName)
+    await this.replyTo(senderId, chatId,
+      `🎟 Invite for ${sessionName}: ${code}\n` +
+      `Share this code with the user. They text it to the bot to claim. Single-use, expires in 24h.`)
+  }
+
+  private async cmdInvites(senderId: string, chatId: string): Promise<void> {
+    if (!this.inviteStore) {
+      await this.replyTo(senderId, chatId, 'Invites not configured on this hub.')
+      return
+    }
+    const list = this.inviteStore.listPendingInvites()
+    if (list.length === 0) {
+      await this.replyTo(senderId, chatId, 'No pending invites.')
+      return
+    }
+    const lines = list.map((inv) => {
+      const hoursLeft = Math.max(0, Math.round((inv.expiresAt - Date.now()) / 3_600_000))
+      return `• ${inv.code} → ${inv.sessionName} (${hoursLeft}h left)`
+    })
+    await this.replyTo(senderId, chatId, 'Pending invites:\n' + lines.join('\n'))
+  }
+
+  private async cmdUnpin(senderId: string, chatId: string, args: string[]): Promise<void> {
+    if (!this.inviteStore) {
+      await this.replyTo(senderId, chatId, 'Invites not configured on this hub.')
+      return
+    }
+    const target = (args[0] ?? '').trim()
+    if (!target) {
+      await this.replyTo(senderId, chatId, 'Usage: /unpin <sender-id>')
+      return
+    }
+    const ok = this.inviteStore.unpin(target)
+    if (!ok) {
+      await this.replyTo(senderId, chatId, `Sender "${target}" is not pinned.`)
+      return
+    }
+    await this.replyTo(senderId, chatId, `🔓 Unpinned ${target}.`)
   }
 
   private async cmdStart(senderId: string, chatId: string): Promise<void> {

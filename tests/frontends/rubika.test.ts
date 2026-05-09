@@ -2264,18 +2264,23 @@ describe('RubikaFrontend.handleWebhook reply-to routing', () => {
   })
 })
 
-// ── Guest pinning ────────────────────────────────────────────────────────────
-// rubikaGuests is a sender_id → session_name map. Guests bypass the
-// rubikaAllowFrom allowlist, are forced to route to their pinned session, and
-// can NOT run any command (`/<anything>`). When a pinned session replies via
-// deliverToUser, the message is also delivered to the guest's chat (in
-// addition to allowFrom owners) so the conversation flows.
+// ── Guest pinning via invite codes ───────────────────────────────────────────
+// Owners mint invite codes via /invite <session>. Future guests text the code
+// to the bot to claim a pin: senderId → session_name. Pinned guests bypass
+// rubikaAllowFrom, route exclusively to the pinned session, and can NOT run
+// any /command. When a pinned session replies via deliverToUser, the message
+// is delivered to the guest's chat in addition to allowFrom owners so the
+// conversation flows.
 
-describe('RubikaFrontend rubikaGuests pinning', () => {
+import { RubikaInviteStore } from '../../src/rubika-invites'
+
+describe('RubikaFrontend guest pinning (after invite-claim)', () => {
   let registry: SessionRegistry
   let router: StubRouter
   let sender: FakeSender
   let r: RubikaFrontend
+  let store: RubikaInviteStore
+  let storeDir: string
 
   function update(senderId: string, text: string, type: string = 'NewMessage'): RubikaUpdateBody {
     return {
@@ -2301,17 +2306,25 @@ describe('RubikaFrontend rubikaGuests pinning', () => {
     registry.register('/p/other:0', { name: 'other' })
     router = new StubRouter()
     sender = new FakeSender()
+    storeDir = mkdtempSync(joinPath(tmpdir(), 'rubika-store-'))
+    store = new RubikaInviteStore({ dir: storeDir })
+    // Pre-pin guest-9 → mhmd by minting & claiming a code.
+    const code = store.mintInvite('mhmd')
+    store.claim(code, 'guest-9')
     r = new RubikaFrontend({
       token: 't',
       allowFrom: ['owner-1'],
-      guests: { 'guest-9': 'mhmd' },
+      inviteStore: store,
       registry,
       router: router as any,
       sender: (m, b) => sender.send(m, b),
     })
   })
 
-  afterEach(async () => { await r.stop() })
+  afterEach(async () => {
+    await r.stop()
+    rmSync(storeDir, { recursive: true, force: true })
+  })
 
   test('guest sender bypasses allowFrom and routes to pinned session', () => {
     r.handleWebhook(update('guest-9', 'hi'))
@@ -2415,7 +2428,7 @@ describe('RubikaFrontend rubikaGuests pinning', () => {
     const r2 = new RubikaFrontend({
       token: 't',
       allowFrom: ['owner-1'],
-      guests: { 'guest-9': 'mhmd' },
+      inviteStore: store,
       registry,
       router: router as any,
       sender: (m, b) => sender.send(m, b),
@@ -2468,5 +2481,166 @@ describe('RubikaFrontend rubikaGuests pinning', () => {
     await r.deliverToUser('other', 'leak?')
     const sends = sender.calls.filter(c => c.method === 'sendMessage')
     expect(sends.length).toBe(0)
+  })
+})
+
+// ── Invite / claim / unpin commands ──────────────────────────────────────────
+
+describe('RubikaFrontend /invite, /unpin, claim flow', () => {
+  let registry: SessionRegistry
+  let router: StubRouter
+  let sender: FakeSender
+  let r: RubikaFrontend
+  let store: RubikaInviteStore
+  let storeDir: string
+
+  function update(senderId: string, text: string, type: string = 'NewMessage'): RubikaUpdateBody {
+    return {
+      update: {
+        type,
+        chat_id: 'chat-' + senderId,
+        new_message: {
+          message_id: 'm-' + Math.random().toString(36).slice(2, 8),
+          text,
+          time: '1700000000',
+          is_edited: false,
+          sender_type: 'User',
+          sender_id: senderId,
+          aux_data: { start_id: null, button_id: null },
+        },
+      },
+    }
+  }
+
+  beforeEach(() => {
+    registry = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
+    registry.register('/p/mhmd:0', { name: 'mhmd' })
+    registry.register('/p/other:0', { name: 'other' })
+    router = new StubRouter()
+    sender = new FakeSender()
+    storeDir = mkdtempSync(joinPath(tmpdir(), 'rubika-claim-'))
+    store = new RubikaInviteStore({ dir: storeDir })
+    r = new RubikaFrontend({
+      token: 't',
+      allowFrom: ['owner-1'],
+      inviteStore: store,
+      registry,
+      router: router as any,
+      sender: (m, b) => sender.send(m, b),
+    })
+  })
+
+  afterEach(async () => {
+    await r.stop()
+    rmSync(storeDir, { recursive: true, force: true })
+  })
+
+  test('owner /invite <session> mints a code and replies with it', async () => {
+    r.handleWebhook(update('owner-1', '/invite mhmd'))
+    await new Promise(r => setTimeout(r, 5))
+    const replies = sender.calls.filter(c => c.method === 'sendMessage')
+    expect(replies.length).toBe(1)
+    const text = (replies[0]!.body as any).text as string
+    // Code must appear in the reply.
+    const match = text.match(/[A-Z0-9]{6}/)
+    expect(match).not.toBeNull()
+    // And it must be a real pending invite.
+    expect(store.peekInvite(match![0])).not.toBeNull()
+    expect(store.peekInvite(match![0])!.sessionName).toBe('mhmd')
+  })
+
+  test('owner /invite <unknown-session> rejects (no code minted)', async () => {
+    r.handleWebhook(update('owner-1', '/invite ghostproject'))
+    await new Promise(r => setTimeout(r, 5))
+    const replies = sender.calls.filter(c => c.method === 'sendMessage')
+    expect(replies.length).toBe(1)
+    const text = (replies[0]!.body as any).text as string
+    expect(text.toLowerCase()).toContain('not found')
+    expect(store.listPendingInvites().length).toBe(0)
+  })
+
+  test('owner /invite without session arg replies with usage', async () => {
+    r.handleWebhook(update('owner-1', '/invite'))
+    await new Promise(r => setTimeout(r, 5))
+    const replies = sender.calls.filter(c => c.method === 'sendMessage')
+    expect(replies.length).toBe(1)
+    expect((replies[0]!.body as any).text.toLowerCase()).toContain('usage')
+  })
+
+  test('non-allowed sender sending a valid invite code claims it and gets pinned', async () => {
+    const code = store.mintInvite('mhmd')
+    expect(store.getPin('newcomer-1')).toBeNull()
+    r.handleWebhook(update('newcomer-1', code))
+    await new Promise(r => setTimeout(r, 5))
+    expect(store.getPin('newcomer-1')).toBe('mhmd')
+    expect(router.calls.length).toBe(0)   // the claim itself isn't routed
+    const replies = sender.calls.filter(c => c.method === 'sendMessage')
+    expect(replies.length).toBe(1)
+    expect((replies[0]!.body as any).text.toLowerCase()).toContain('connected')
+  })
+
+  test('next message from a freshly-claimed sender routes to the pinned session', () => {
+    const code = store.mintInvite('mhmd')
+    r.handleWebhook(update('newcomer-2', code))            // claim
+    r.handleWebhook(update('newcomer-2', 'hello there'))   // first real message
+    expect(router.calls.length).toBe(1)
+    expect(router.calls[0]!.sessionName).toBe('mhmd')
+    expect(router.calls[0]!.text).toBe('hello there')
+  })
+
+  test('claimed code is consumed — second sender with the same code is rejected', async () => {
+    const code = store.mintInvite('mhmd')
+    r.handleWebhook(update('first-9', code))
+    sender.calls = []
+    // A different non-allowed sender tries the same code.
+    r.handleWebhook(update('second-9', code))
+    expect(store.getPin('second-9')).toBeNull()
+  })
+
+  test('unknown 6-char text from non-allowed sender is rejected (not treated as claim)', () => {
+    r.handleWebhook(update('stranger-1', 'ABCDEF'))
+    expect(store.getPin('stranger-1')).toBeNull()
+    expect(router.calls.length).toBe(0)
+  })
+
+  test('owner /unpin <senderId> removes the pin', async () => {
+    const code = store.mintInvite('mhmd')
+    store.claim(code, 'guest-7')
+    expect(store.getPin('guest-7')).toBe('mhmd')
+    r.handleWebhook(update('owner-1', '/unpin guest-7'))
+    await new Promise(r => setTimeout(r, 5))
+    expect(store.getPin('guest-7')).toBeNull()
+    const replies = sender.calls.filter(c => c.method === 'sendMessage')
+    expect(replies.length).toBe(1)
+    expect((replies[0]!.body as any).text.toLowerCase()).toContain('unpinned')
+  })
+
+  test('owner /unpin of an unknown sender replies "not pinned"', async () => {
+    r.handleWebhook(update('owner-1', '/unpin nobody-here'))
+    await new Promise(r => setTimeout(r, 5))
+    const replies = sender.calls.filter(c => c.method === 'sendMessage')
+    expect(replies.length).toBe(1)
+    expect((replies[0]!.body as any).text.toLowerCase()).toContain('not pinned')
+  })
+
+  test('owner /invites lists pending invites with their session and code', async () => {
+    const c1 = store.mintInvite('mhmd')
+    store.mintInvite('other')
+    r.handleWebhook(update('owner-1', '/invites'))
+    await new Promise(r => setTimeout(r, 5))
+    const replies = sender.calls.filter(c => c.method === 'sendMessage')
+    expect(replies.length).toBe(1)
+    const text = (replies[0]!.body as any).text as string
+    expect(text).toContain(c1)
+    expect(text).toContain('mhmd')
+    expect(text).toContain('other')
+  })
+
+  test('non-allowed sender sending /invite as their first message is NOT a command (no leakage)', () => {
+    // /invite is owner-only; from a stranger it should fall through to the
+    // "not a code" path, NOT mint anything.
+    r.handleWebhook(update('stranger-x', '/invite mhmd'))
+    expect(store.listPendingInvites().length).toBe(0)
+    expect(store.getPin('stranger-x')).toBeNull()
   })
 })

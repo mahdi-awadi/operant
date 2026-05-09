@@ -24,6 +24,7 @@ import { Personalities } from './personalities'
 import { Decisions } from './decisions'
 import { Messages } from './messages'
 import { RubikaFrontend } from './frontends/rubika'
+import { RubikaInviteStore } from './rubika-invites'
 import { BrowserController } from './browser-controller'
 
 const DRIFT_RATE_LIMIT_MS = 2 * 60 * 1000 // 2 minutes between alerts per session
@@ -602,10 +603,11 @@ async function start(): Promise<void> {
         'Add your Rubika sender_id to rubikaAllowFrom in config.json.\n',
       )
     } else {
+      const inviteStore = new RubikaInviteStore({ dir: HUB_DIR })
       rubikaFrontend = new RubikaFrontend({
         token: config.rubikaToken,
         allowFrom,
-        guests: config.rubikaGuests ?? {},
+        inviteStore,
         registry,
         router,
         permissions,

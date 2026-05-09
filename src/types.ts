@@ -97,10 +97,6 @@ export type HubConfig = {
   rubikaApiBase?: string                   // default "https://botapi.rubika.ir/v3"
   rubikaWebhookBase?: string               // public origin where Rubika should POST updates, e.g. "https://hub.tech-gate.online"
   rubikaPollingMs?: number                 // getUpdates polling interval ms; undefined = default 2000; set to 0 to disable
-  // Per-user pinning. Maps a Rubika sender_id to a session name. Senders in
-  // this map bypass rubikaAllowFrom, route every message to their pinned
-  // session, and may not run /commands or //raw-keys (locked-down guest mode).
-  rubikaGuests?: Record<string, string>
   defaultTrust: TrustLevel
   defaultUploadDir: string
   autopilot?: Partial<AutopilotDefaults>   // optional overrides of DEFAULT_AUTOPILOT_DEFAULTS
