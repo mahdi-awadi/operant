@@ -131,6 +131,38 @@ test('loadHubConfig reads rubika section', () => {
   }
 })
 
+test('loadHubConfig reads rubikaGuests pinning map', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cfg-rubika-guests-'))
+  try {
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({
+      webPort: 3000,
+      defaultTrust: 'ask',
+      defaultUploadDir: '.',
+      telegramToken: '',
+      telegramAllowFrom: [],
+      rubikaGuests: { 'guest-sender-id': 'mhmd', 'other-id': 'foo' },
+    }))
+    const cfg = loadHubConfig(dir)
+    expect(cfg.rubikaGuests).toEqual({ 'guest-sender-id': 'mhmd', 'other-id': 'foo' })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('loadHubConfig defaults rubikaGuests to empty object when missing', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cfg-rubika-noguests-'))
+  try {
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({
+      webPort: 3000, defaultTrust: 'ask', defaultUploadDir: '.',
+      telegramToken: '', telegramAllowFrom: [],
+    }))
+    const cfg = loadHubConfig(dir)
+    expect(cfg.rubikaGuests).toEqual({})
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('loadHubConfig without autopilot key returns undefined for autopilot', () => {
   const dir = mkdtempSync(join(tmpdir(), 'cfg-noauto-'))
   try {

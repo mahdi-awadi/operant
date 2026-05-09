@@ -2263,3 +2263,210 @@ describe('RubikaFrontend.handleWebhook reply-to routing', () => {
     expect(router.calls.length).toBe(0)
   })
 })
+
+// ── Guest pinning ────────────────────────────────────────────────────────────
+// rubikaGuests is a sender_id → session_name map. Guests bypass the
+// rubikaAllowFrom allowlist, are forced to route to their pinned session, and
+// can NOT run any command (`/<anything>`). When a pinned session replies via
+// deliverToUser, the message is also delivered to the guest's chat (in
+// addition to allowFrom owners) so the conversation flows.
+
+describe('RubikaFrontend rubikaGuests pinning', () => {
+  let registry: SessionRegistry
+  let router: StubRouter
+  let sender: FakeSender
+  let r: RubikaFrontend
+
+  function update(senderId: string, text: string, type: string = 'NewMessage'): RubikaUpdateBody {
+    return {
+      update: {
+        type,
+        chat_id: 'chat-' + senderId,
+        new_message: {
+          message_id: 'm-' + Math.random().toString(36).slice(2, 8),
+          text,
+          time: '1700000000',
+          is_edited: false,
+          sender_type: 'User',
+          sender_id: senderId,
+          aux_data: { start_id: null, button_id: null },
+        },
+      },
+    }
+  }
+
+  beforeEach(() => {
+    registry = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
+    registry.register('/p/mhmd:0', { name: 'mhmd' })
+    registry.register('/p/other:0', { name: 'other' })
+    router = new StubRouter()
+    sender = new FakeSender()
+    r = new RubikaFrontend({
+      token: 't',
+      allowFrom: ['owner-1'],
+      guests: { 'guest-9': 'mhmd' },
+      registry,
+      router: router as any,
+      sender: (m, b) => sender.send(m, b),
+    })
+  })
+
+  afterEach(async () => { await r.stop() })
+
+  test('guest sender bypasses allowFrom and routes to pinned session', () => {
+    r.handleWebhook(update('guest-9', 'hi'))
+    expect(router.calls.length).toBe(1)
+    expect(router.calls[0]).toMatchObject({
+      sessionName: 'mhmd',
+      text: 'hi',
+      frontend: 'rubika',
+      user: 'guest-9',
+    })
+  })
+
+  test('guest message ignores active-session-by-user (always pinned)', () => {
+    // Even if some prior code path tried to set the guest's active session
+    // to "other", inbound text must still go to mhmd.
+    r.handleWebhook(update('guest-9', 'first'))
+    // Pretend the guest somehow hits inline select:other (which we also block,
+    // but defense-in-depth) — they should still pin to mhmd on next message.
+    r.handleWebhook(update('guest-9', 'second'))
+    expect(router.calls.every(c => c.sessionName === 'mhmd')).toBe(true)
+    expect(router.calls.length).toBe(2)
+  })
+
+  test('guest /list is rejected with a "Not available." reply', async () => {
+    r.handleWebhook(update('guest-9', '/list'))
+    await new Promise(r => setTimeout(r, 5))
+    expect(router.calls.length).toBe(0)
+    const replies = sender.calls.filter(c => c.method === 'sendMessage')
+    expect(replies.length).toBe(1)
+    expect(replies[0]!.body).toMatchObject({
+      chat_id: 'chat-guest-9',
+      text: 'Not available.',
+    })
+  })
+
+  test('guest /<other-session-name> is rejected with "Not available."', async () => {
+    r.handleWebhook(update('guest-9', '/other do something'))
+    await new Promise(r => setTimeout(r, 5))
+    expect(router.calls.length).toBe(0)
+    const replies = sender.calls.filter(c => c.method === 'sendMessage')
+    expect(replies.length).toBe(1)
+    expect(replies[0]!.body).toMatchObject({ text: 'Not available.' })
+  })
+
+  test('guest /<their-pinned-session> ... is also rejected (no command access at all)', async () => {
+    r.handleWebhook(update('guest-9', '/mhmd hi there'))
+    await new Promise(r => setTimeout(r, 5))
+    expect(router.calls.length).toBe(0)
+    const replies = sender.calls.filter(c => c.method === 'sendMessage')
+    expect(replies.length).toBe(1)
+    expect(replies[0]!.body).toMatchObject({ text: 'Not available.' })
+  })
+
+  test('guest /spawn (privileged) is rejected — privileges are not escalated', async () => {
+    r.handleWebhook(update('guest-9', '/spawn evil /tmp'))
+    await new Promise(r => setTimeout(r, 5))
+    expect(router.calls.length).toBe(0)
+    const replies = sender.calls.filter(c => c.method === 'sendMessage')
+    expect(replies.length).toBe(1)
+    expect(replies[0]!.body).toMatchObject({ text: 'Not available.' })
+  })
+
+  test('guest plain text routes (no command rejection)', () => {
+    r.handleWebhook(update('guest-9', 'just a question'))
+    expect(router.calls.length).toBe(1)
+    expect(router.calls[0]!.text).toBe('just a question')
+  })
+
+  test('guest replying to a captured bot message still pins to their session, not the reply-target', () => {
+    // Even if the guest taps "reply" to some old bot message that originated
+    // from "other", we ignore the reply-to mapping and stay pinned to mhmd.
+    const u: RubikaUpdateBody = {
+      update: {
+        type: 'NewMessage',
+        chat_id: 'chat-guest-9',
+        new_message: {
+          message_id: 'mx',
+          text: 'hi',
+          time: '1700000000',
+          is_edited: false,
+          sender_type: 'User',
+          sender_id: 'guest-9',
+          aux_data: { start_id: null, button_id: null },
+          reply_to_message_id: 'whatever',
+        },
+      },
+    }
+    r.handleWebhook(u)
+    expect(router.calls.length).toBe(1)
+    expect(router.calls[0]!.sessionName).toBe('mhmd')
+  })
+
+  test('non-guest non-allowFrom sender is still rejected (guest list does not open the bot)', () => {
+    r.handleWebhook(update('random-stranger', 'hi'))
+    expect(router.calls.length).toBe(0)
+  })
+
+  test('inline button tap from a guest is dropped (no engine resolve, no socket send)', () => {
+    const permissions = new StubPermissionEngine()
+    const socketServer = new StubSocketServer()
+    const r2 = new RubikaFrontend({
+      token: 't',
+      allowFrom: ['owner-1'],
+      guests: { 'guest-9': 'mhmd' },
+      registry,
+      router: router as any,
+      sender: (m, b) => sender.send(m, b),
+      permissions: permissions as any,
+      socketServer: socketServer as any,
+    })
+    const im: RubikaInlineMessageBody = {
+      inline_message: {
+        chat_id: 'chat-guest-9',
+        sender_id: 'guest-9',
+        message_id: 'm1',
+        aux_data: { button_id: 'perm:allow:req-123' },
+      },
+    }
+    r2.handleInlineWebhook(im)
+    expect(permissions.resolveCalls.length).toBe(0)
+    expect(socketServer.sent.length).toBe(0)
+  })
+
+  test('deliverToUser fans out to the guest pinned to that session', async () => {
+    // Guest must have spoken first so their chat_id is recorded.
+    r.handleWebhook(update('guest-9', 'hi'))
+    sender.calls = []
+    await r.deliverToUser('mhmd', 'pong')
+    const sends = sender.calls.filter(c => c.method === 'sendMessage')
+    // owner-1 has not spoken to the bot, so only the guest receives.
+    expect(sends.length).toBe(1)
+    expect(sends[0]!.body).toMatchObject({
+      chat_id: 'chat-guest-9',
+      text: '[mhmd] pong',
+    })
+  })
+
+  test('deliverToUser still fans out to allowFrom owners alongside guests', async () => {
+    // Owner speaks once so chat_id is recorded, then guest does too.
+    r.handleWebhook(update('owner-1', '/list'))   // owner is on allowFrom — chat_id is captured
+    r.handleWebhook(update('guest-9', 'hi'))
+    sender.calls = []
+    await r.deliverToUser('mhmd', 'pong')
+    const sends = sender.calls.filter(c => c.method === 'sendMessage')
+    expect(sends.length).toBe(2)
+    const chatIds = sends.map(s => (s.body as any).chat_id).sort()
+    expect(chatIds).toEqual(['chat-guest-9', 'chat-owner-1'])
+  })
+
+  test('deliverToUser does NOT fan out to a guest pinned to a DIFFERENT session', async () => {
+    // Guest is pinned to mhmd; replies from "other" should not reach them.
+    r.handleWebhook(update('guest-9', 'hi'))
+    sender.calls = []
+    await r.deliverToUser('other', 'leak?')
+    const sends = sender.calls.filter(c => c.method === 'sendMessage')
+    expect(sends.length).toBe(0)
+  })
+})

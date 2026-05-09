@@ -103,6 +103,9 @@ export type RubikaSendFn = (method: string, body: unknown) => Promise<unknown>
 export type RubikaFrontendDeps = {
   token: string
   allowFrom: string[]
+  // sender_id → pinned session name. Guests bypass allowFrom, are always
+  // routed to their pinned session, and may not run any /command.
+  guests?: Record<string, string>
   registry: SessionRegistry
   router: MessageRouter
   // New deps for command parity:
@@ -179,6 +182,9 @@ export class RubikaFrontend {
   private send: RubikaSendFn
   private activeSessionByUser = new Map<string, string>()
   private chatIdByUser = new Map<string, string>()
+  // Frozen snapshot of rubikaGuests at construction. Guests are pinned: they
+  // bypass allowFrom, route only to their session, and cannot run commands.
+  private readonly guests: Map<string, string>
   // Per-chat ring buffer of outgoing-message → session mappings. When the
   // user replies to a bot message, we look up the original session here and
   // route there instead of the active one. Capped per-chat; oldest evicted.
@@ -216,6 +222,7 @@ export class RubikaFrontend {
     this.vetoController = deps.vetoController
     this.autopilotRunner = deps.autopilotRunner
     this.inlineWebhookPath = `/api/rubika/inline-webhook/${deriveInlineWebhookSecret(deps.token)}`
+    this.guests = new Map(Object.entries(deps.guests ?? {}))
     // pollingIntervalMs: 0 = disabled; otherwise enforce min 1000ms, default 2000ms
     const raw = deps.pollingIntervalMs
     if (raw === 0) {
@@ -441,9 +448,15 @@ export class RubikaFrontend {
   }
 
   async deliverToUser(sessionName: string, text: string, files?: string[]): Promise<void> {
-    if (this.deps.allowFrom.length === 0) return
+    // Recipients = allowFrom owners + guests pinned to this session.
+    // Either set may be empty; we still proceed if the other has chat_ids.
+    const recipientSenderIds = new Set<string>(this.deps.allowFrom)
+    for (const [guestId, pinned] of this.guests) {
+      if (pinned === sessionName) recipientSenderIds.add(guestId)
+    }
+    if (recipientSenderIds.size === 0) return
     const fullText = `[${sessionName}] ${text}`
-    for (const senderId of this.deps.allowFrom) {
+    for (const senderId of recipientSenderIds) {
       const chatId = this.chatIdByUser.get(senderId)
       if (!chatId) continue
       try {
@@ -495,7 +508,8 @@ export class RubikaFrontend {
     const m = inner.new_message
     if (m.sender_type !== 'User') return
     const senderId = m.sender_id
-    if (!this.deps.allowFrom.includes(senderId)) {
+    const guestSession = this.guests.get(senderId)
+    if (!guestSession && !this.deps.allowFrom.includes(senderId)) {
       process.stderr.write(`rubika: rejecting message from non-allowed sender ${senderId}\n`)
       return
     }
@@ -507,7 +521,7 @@ export class RubikaFrontend {
     const inboundFile =
       ((m as any).file ?? (m as any).file_inline) as { file_id: string; file_name: string; type?: string } | undefined
     if (inboundFile) {
-      const target = this.activeSessionByUser.get(senderId) ?? this.firstActiveSessionName()
+      const target = guestSession ?? this.activeSessionByUser.get(senderId) ?? this.firstActiveSessionName()
       if (!target) {
         this.send('sendMessage', { chat_id: inner.chat_id, text: 'No active session.' }).catch(() => {})
         return
@@ -525,6 +539,24 @@ export class RubikaFrontend {
 
     const text = (m.text || '').trim()
     if (text.length === 0) return
+
+    // Guests are locked to their pinned session: every command (/list, /spawn,
+    // /<other-session>, even /<their-own-session>) is rejected; reply-to
+    // routing is ignored; text always goes to the pinned session.
+    if (guestSession) {
+      if (text.startsWith('/')) {
+        this.send('sendMessage', { chat_id: inner.chat_id, text: 'Not available.' })
+          .catch((err) => process.stderr.write(`rubika: guest reject ack failed: ${err}\n`))
+        return
+      }
+      if (!this.deps.registry.findByName(guestSession)) {
+        this.send('sendMessage', { chat_id: inner.chat_id, text: 'Session offline. Try later.' })
+          .catch(() => {})
+        return
+      }
+      this.deps.router.routeToSession(guestSession, text, 'rubika', senderId)
+      return
+    }
 
     const parsed = parseCommand(text)
     if (parsed) {
@@ -570,6 +602,10 @@ export class RubikaFrontend {
     const im = body?.inline_message
     if (!im || !im.aux_data?.button_id) return
     const senderId = im.sender_id
+    if (this.guests.has(senderId)) {
+      process.stderr.write(`rubika: inline dropping guest tap from ${senderId}\n`)
+      return
+    }
     if (!this.deps.allowFrom.includes(senderId)) {
       process.stderr.write(`rubika: inline rejecting non-allowed sender ${senderId}\n`)
       return

@@ -605,6 +605,7 @@ async function start(): Promise<void> {
       rubikaFrontend = new RubikaFrontend({
         token: config.rubikaToken,
         allowFrom,
+        guests: config.rubikaGuests ?? {},
         registry,
         router,
         permissions,

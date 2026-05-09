@@ -163,6 +163,11 @@ Commands: `list`, `status`, `spawn`, `kill`, `send`, `trust`, `prefix`, `rename`
 - `defaultTrust`: `ask` (prompt user) or `auto-approve` (auto-allow all tools)
 - `defaultUploadDir`: where uploaded files go (relative to project root)
 - `browseRoot` (optional): scope for `/api/browse` and the spawn dialog directory picker. Defaults to `$HOME`. Set to `"/home"` if the daemon runs as `root` with projects under `/home/*`.
+- `rubikaGuests` (optional, Rubika only): map of `sender_id → session_name`. Pinned guests bypass `rubikaAllowFrom`, route every message to their pinned session, and may not run any `/command`. Replies from the pinned session fan out to the guest's chat in addition to allowFrom owners. Find a guest's `sender_id` in `/var/log/channelhub.log` — rejected senders are logged on first contact.
+
+  ```json
+  "rubikaGuests": { "<sender-id>": "mhmd" }
+  ```
 
 Supports `CLAUDE_PLUGIN_DATA` env var for plugin-managed data persistence.
 

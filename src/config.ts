@@ -54,6 +54,7 @@ export function loadHubConfig(dir: string = HUB_DIR): HubConfig {
     rubikaApiBase: raw.rubikaApiBase,                 // override; defaults to botapi.rubika.ir/v3
     rubikaWebhookBase: raw.rubikaWebhookBase,         // public origin where the daemon is reachable, e.g. "https://hub.tech-gate.online"
     rubikaPollingMs: raw.rubikaPollingMs,             // getUpdates polling interval; undefined = default 2000
+    rubikaGuests: raw.rubikaGuests ?? {},             // per-user → pinned session; empty = no guests
     defaultTrust: raw.defaultTrust ?? 'ask',
     defaultUploadDir: raw.defaultUploadDir ?? '.',
     autopilot: raw.autopilot,   // pass through as-is
