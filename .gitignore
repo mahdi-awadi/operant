@@ -57,3 +57,4 @@ playwright/.cache/
 
 # Git worktrees
 .worktrees/
+.gitnexus/
