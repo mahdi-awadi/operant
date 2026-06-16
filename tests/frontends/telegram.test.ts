@@ -1,5 +1,23 @@
 import { describe, test, expect } from 'bun:test'
-import { formatSessionList, formatStatus, parseCommand, chunkText, stripAnsi, tailToCharLimit, parsePeekArgs, recordOutgoingMapping, lookupReplyMapping } from '../../src/frontends/telegram'
+import { formatSessionList, formatStatus, parseCommand, chunkText, stripAnsi, tailToCharLimit, parsePeekArgs, recordOutgoingMapping, lookupReplyMapping, isUserAllowed } from '../../src/frontends/telegram'
+
+describe('isUserAllowed (access gate, fail-closed)', () => {
+  test('empty allowlist denies everyone', () => {
+    // The previous behaviour returned true here — letting any stranger who
+    // DMed the bot drive Claude under the owner's account.
+    expect(isUserAllowed([], '123')).toBe(false)
+    expect(isUserAllowed([], '999')).toBe(false)
+  })
+
+  test('allows a user listed in the allowlist', () => {
+    expect(isUserAllowed(['123'], '123')).toBe(true)
+    expect(isUserAllowed(['123', '456'], '456')).toBe(true)
+  })
+
+  test('denies a user not in the allowlist', () => {
+    expect(isUserAllowed(['123'], '999')).toBe(false)
+  })
+})
 
 describe('telegram helpers', () => {
   test('formatSessionList with no sessions', () => {

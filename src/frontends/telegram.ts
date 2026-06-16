@@ -188,6 +188,18 @@ export type TelegramFrontendDeps = {
   autopilotRunner?: AutopilotRunner
 }
 
+/**
+ * Access gate for the Telegram bot. **Fail-closed:** an empty allowlist denies
+ * everyone, matching the web frontend and the documented "no allow-everyone
+ * mode" contract (see README). The previous "empty = allow all" behaviour let
+ * any stranger who DMed the bot drive Claude under the owner's account — an
+ * account-sharing footgun and an Anthropic Terms-of-Service risk.
+ */
+export function isUserAllowed(allowFrom: readonly string[], userId: string): boolean {
+  if (allowFrom.length === 0) return false
+  return allowFrom.includes(userId)
+}
+
 export class TelegramFrontend {
   private bot: Bot
   private registry: SessionRegistry
@@ -203,8 +215,6 @@ export class TelegramFrontend {
 
   // Per-user active session: telegram user id → session name
   private userActiveSessions = new Map<string, string>()
-  // Track all users who have messaged the bot (for delivering replies when allowFrom is empty)
-  private knownUsers = new Set<string>()
   // Per-user ring buffer of outgoing-message → session mappings. When the
   // user replies to one of the bot's messages, we look up the original
   // session here and route there instead of the active one.
@@ -231,9 +241,17 @@ export class TelegramFrontend {
   }
 
   private isAllowed(ctx: { from?: { id: number } }): boolean {
-    if (this.allowFrom.length === 0) return true
     if (!ctx.from) return false
-    return this.allowFrom.includes(String(ctx.from.id))
+    return isUserAllowed(this.allowFrom, String(ctx.from.id))
+  }
+
+  /** Recipients for outbound delivery. Fail-closed: only the configured
+   * allowlist receives messages. (Previously this fell back to every user who
+   * had ever DMed the bot whenever allowFrom was empty — an account-sharing
+   * footgun.) When allowFrom is empty the daemon refuses to start this
+   * frontend at all, so this returns [] only in defensive/test paths. */
+  private recipients(): string[] {
+    return this.allowFrom
   }
 
   private getUserId(ctx: { from?: { id: number } }): string {
@@ -646,7 +664,7 @@ export class TelegramFrontend {
     })
 
     // /btw <question> — fire a side question into the active session via the
-    // /btw overlay, capture the answer, and reply with it. Mirrors Rubika.
+    // /btw overlay, capture the answer, and reply with it.
     bot.command('btw', async (ctx) => {
       if (!this.isAllowed(ctx)) return
       const question = (ctx.match ?? '').trim()
@@ -1004,7 +1022,6 @@ export class TelegramFrontend {
     bot.on('message:photo', async (ctx) => {
       if (!this.isAllowed(ctx)) return
       const userId = this.getUserId(ctx)
-      this.knownUsers.add(userId)
 
       const activeName = this.userActiveSessions.get(userId)
       if (!activeName) {
@@ -1063,7 +1080,6 @@ export class TelegramFrontend {
     bot.on('message:document', async (ctx) => {
       if (!this.isAllowed(ctx)) return
       const userId = this.getUserId(ctx)
-      this.knownUsers.add(userId)
 
       const activeName = this.userActiveSessions.get(userId)
       if (!activeName) {
@@ -1124,7 +1140,6 @@ export class TelegramFrontend {
       if (!this.isAllowed(ctx)) return
       const text = ctx.message.text
       const userId = this.getUserId(ctx)
-      this.knownUsers.add(userId)
 
       // Check for targeted message via router
       const targeted = this.router.parseTargetedMessage(text)
@@ -1166,7 +1181,7 @@ export class TelegramFrontend {
   }
 
   async deliverToUser(sessionName: string, text: string, files?: string[]): Promise<void> {
-    const recipients = this.allowFrom.length > 0 ? this.allowFrom : [...this.knownUsers]
+    const recipients = this.recipients()
     if (recipients.length === 0) return
 
     // Render with Telegram HTML so daemon-emitted markdown-ish content
@@ -1200,7 +1215,7 @@ export class TelegramFrontend {
   }
 
   async deliverFileContent(sessionName: string, filePath: string, content: string): Promise<void> {
-    const recipients = this.allowFrom.length > 0 ? this.allowFrom : [...this.knownUsers]
+    const recipients = this.recipients()
     if (recipients.length === 0) return
 
     const maxInline = 3500 // headroom for markdown code-block wrapping
@@ -1229,7 +1244,7 @@ export class TelegramFrontend {
   }
 
   async deliverDriftAlert(sessionName: string, htmlMessage: string, _matches: unknown[]): Promise<void> {
-    const recipients = this.allowFrom.length > 0 ? this.allowFrom : [...this.knownUsers]
+    const recipients = this.recipients()
     if (recipients.length === 0) return
 
     const keyboard = new InlineKeyboard()
@@ -1258,7 +1273,7 @@ export class TelegramFrontend {
   }
 
   async deliverAutopilotDraft(sessionName: string, draft: string, vetoMs: number): Promise<void> {
-    const recipients = this.allowFrom.length > 0 ? this.allowFrom : [...this.knownUsers]
+    const recipients = this.recipients()
     if (recipients.length === 0) return
 
     const seconds = Math.round(vetoMs / 1000)
@@ -1284,7 +1299,7 @@ export class TelegramFrontend {
   }
 
   async deliverPermissionRequest(req: PermissionRequest): Promise<void> {
-    const recipients = this.allowFrom.length > 0 ? this.allowFrom : [...this.knownUsers]
+    const recipients = this.recipients()
     if (recipients.length === 0) return
 
     const text =
@@ -1307,6 +1322,18 @@ export class TelegramFrontend {
   }
 
   async start(): Promise<void> {
+    // Fail-closed: refuse to start without an allowlist. An empty allowFrom
+    // would otherwise mean "anyone who DMs the bot can drive Claude under the
+    // owner's account" — account sharing, and an Anthropic ToS risk. The daemon
+    // also guards this; we enforce it here so the frontend is safe in isolation.
+    if (this.allowFrom.length === 0) {
+      process.stderr.write(
+        'hub telegram: telegramAllowFrom is empty — refusing to start. ' +
+        'Add your Telegram user id to telegramAllowFrom in config.json.\n',
+      )
+      return
+    }
+
     // Register the command menu so Telegram shows autocomplete in the chat input.
     const commands = [
       { command: 'list',     description: 'Show all sessions' },

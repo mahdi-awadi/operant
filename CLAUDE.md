@@ -159,25 +159,12 @@ Commands: `list`, `status`, `spawn`, `kill`, `send`, `trust`, `prefix`, `rename`
 
 - `webPort`: API + Web dashboard port
 - `telegramToken`: from @BotFather
-- `telegramAllowFrom`: Telegram user IDs (empty = allow all). Also controls web login.
+- `telegramAllowFrom`: Telegram user IDs allowed. Also controls web login. **Empty = deny all** — the Telegram frontend refuses to start and web login rejects every user. There is no "allow everyone" mode (account sharing is an Anthropic ToS risk).
 - `defaultTrust`: `ask` (prompt user) or `auto-approve` (auto-allow all tools)
 - `defaultUploadDir`: where uploaded files go (relative to project root)
 - `browseRoot` (optional): scope for `/api/browse` and the spawn dialog directory picker. Defaults to `$HOME`. Set to `"/home"` if the daemon runs as `root` with projects under `/home/*`.
 
 Supports `CLAUDE_PLUGIN_DATA` env var for plugin-managed data persistence.
-
-### Rubika guest pinning (invite codes)
-
-Bind a Rubika user to a single project so they can talk to that session only.
-
-- Owner DMs the bot `/invite <session-name>` → bot returns a 6-char single-use code, valid 24h.
-- Owner shares the code out-of-band with the future guest.
-- The guest DMs the bot with just the code as their first message → bot pins their `sender_id → session_name`, sends "✅ Connected to …", consumes the code.
-- After claim, the guest's messages always route to the pinned session. They can NOT run any `/command` (rejected with "Not available."). Inline buttons from a guest are dropped.
-- Replies from the pinned session fan out to the guest's chat in addition to allowFrom owners.
-- Owner can run `/invites` to list pending codes and `/unpin <sender-id>` to revoke a guest.
-
-Pins and pending invites are persisted to `~/.claude/channels/hub/rubika-invites.json` and survive daemon restart.
 
 ### MCP server registration: `~/.claude.json`
 ```json
