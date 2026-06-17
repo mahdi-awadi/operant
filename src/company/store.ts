@@ -1,4 +1,6 @@
 import type { Database } from 'bun:sqlite'
+import { mkdirSync, appendFileSync } from 'fs'
+import { join } from 'path'
 
 export type Task = {
   id: string; title: string; body: string | null; project: string | null
@@ -49,7 +51,35 @@ function deptFromRow(r: any): Department {
 }
 
 export class CompanyStore {
+  private mirrorDir: string | null = null
   constructor(private db: Database) {}
+
+  setMemoryMirrorDir(dir: string): void { this.mirrorDir = dir }
+
+  writeMemory(input: { scope: string; key: string; value: string; author_dept?: string; source_task?: string }): void {
+    const ts = Date.now()
+    const res = this.db.prepare(
+      'INSERT INTO memory (scope,key,value,source_task,author_dept,ts) VALUES (?,?,?,?,?,?)',
+    ).run(input.scope, input.key, input.value, input.source_task ?? null, input.author_dept ?? null, ts)
+    this.db.prepare('INSERT INTO memory_fts (rowid,value,key,scope) VALUES (?,?,?,?)')
+      .run(res.lastInsertRowid, input.value, input.key, input.scope)
+    if (this.mirrorDir) {
+      mkdirSync(this.mirrorDir, { recursive: true })
+      const file = join(this.mirrorDir, input.scope.replace(/[:/]/g, '_') + '.md')
+      appendFileSync(file, `- **${input.key}** (${input.author_dept ?? 'system'}): ${input.value}\n`)
+    }
+  }
+
+  searchMemory(query: string, scope?: string): Array<{ scope: string; key: string; value: string }> {
+    // FTS5 match; scope optional narrowing. Escape double-quotes for the MATCH string.
+    const q = `"${query.replace(/"/g, '""')}"`
+    if (scope) {
+      return this.db.prepare(
+        `SELECT scope,key,value FROM memory_fts WHERE memory_fts MATCH ? AND scope = ? LIMIT 20`,
+      ).all(q, scope) as any
+    }
+    return this.db.prepare(`SELECT scope,key,value FROM memory_fts WHERE memory_fts MATCH ? LIMIT 20`).all(q) as any
+  }
 
   upsertDepartment(d: Department): void {
     this.db.prepare(
