@@ -12,6 +12,7 @@
 import { Database } from 'bun:sqlite'
 import { existsSync, copyFileSync, renameSync, statSync } from 'fs'
 import { join } from 'path'
+import { COMPANY_SCHEMA_STATEMENTS } from './company/schema'
 
 export type HubDbHandle = {
   db: Database
@@ -133,7 +134,7 @@ export function openHubDb(dir: string): HubDbHandle {
   db.exec('PRAGMA foreign_keys = ON')
   db.exec('BEGIN')
   try {
-    for (const stmt of SCHEMA_STATEMENTS) {
+    for (const stmt of [...SCHEMA_STATEMENTS, ...COMPANY_SCHEMA_STATEMENTS]) {
       db.exec(stmt)
     }
     db.exec('COMMIT')
