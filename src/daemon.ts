@@ -51,8 +51,9 @@ function cronDueNow(cron: string | null, now: Date): boolean {
 }
 
 export function deptIdForPath(path: string, store: CompanyStore): string | null {
+  const folder = path.replace(/:\d+$/, '')
   for (const d of store.listDepartments()) {
-    if (d.folder === path) return d.id
+    if (d.folder === folder) return d.id
   }
   return null
 }
@@ -275,6 +276,13 @@ socketServer.on('session:disconnected', (path: string) => {
   process.stderr.write(`hub: session disconnected: ${path}\n`)
   saveSessions(registry.toSaveFormat())
   webFrontend?.refreshSessions()
+
+  // Reset department status to 'idle' so the orchestrator can wake it again.
+  const deptId = deptIdForPath(path, companyStore)
+  if (deptId) {
+    const dept = companyStore.getDepartment(deptId)
+    if (dept) companyStore.upsertDepartment({ ...dept, status: 'idle' })
+  }
 
   if (session?.managed) {
     const s = registry.get(path)

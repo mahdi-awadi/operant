@@ -17,4 +17,8 @@ describe('deptIdForPath', () => {
     expect(deptIdForPath('/home/company/desks/secretary', store)).toBe('secretary')
     expect(deptIdForPath('/home/eticket-v3', store)).toBeNull()
   })
+
+  test('resolves dept id from session-key form (folder:index)', () => {
+    expect(deptIdForPath('/home/company/desks/secretary:0', store)).toBe('secretary')
+  })
 })
