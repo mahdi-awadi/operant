@@ -1,6 +1,6 @@
 // src/daemon.ts
 import { join } from 'path'
-import { readFileSync, statSync, existsSync } from 'fs'
+import { readFileSync, statSync, existsSync, mkdirSync } from 'fs'
 import { loadHubConfig, loadSessions, saveSessions, loadProfilesForHub, saveProfilesForHub, HUB_DIR, resolveAutopilotDefaults } from './config'
 import { SessionRegistry } from './session-registry'
 import { SocketServer } from './socket-server'
@@ -159,6 +159,7 @@ const messages = new Messages(hubDb.db)
 const companyStore = new CompanyStore(hubDb.db)
 companyStore.setMemoryMirrorDir('/home/company/memory')
 try { loadOrg('/home/company', companyStore) } catch (e) { console.error('org load failed', e) }
+mkdirSync('/home/company/desks/secretary', { recursive: true })
 // Bound error-log storage at 5000 entries — captured panes can be large.
 setInterval(() => errorLog.purgeKeepLast(5000), 60 * 60 * 1000).unref()
 // Bound decision history to last 500 per session.
