@@ -20,14 +20,22 @@ import { VetoController } from './veto-controller'
 import { EscalationController } from './escalation-controller'
 import { ErrorLog } from './error-log'
 import { openHubDb } from './hub-db'
+import { CompanyStore } from './company/store'
+import { handleCompanyTool } from './company/tools'
+import { loadOrg } from './company/org-loader'
 import { Personalities } from './personalities'
 import { Decisions } from './decisions'
 import { Messages } from './messages'
-import { RubikaFrontend } from './frontends/rubika'
-import { RubikaInviteStore } from './rubika-invites'
 import { BrowserController } from './browser-controller'
 
 const DRIFT_RATE_LIMIT_MS = 2 * 60 * 1000 // 2 minutes between alerts per session
+
+export function deptIdForPath(path: string, store: CompanyStore): string | null {
+  for (const d of store.listDepartments()) {
+    if (d.folder === path) return d.id
+  }
+  return null
+}
 
 async function findChromiumPath(override?: string): Promise<string | null> {
   if (override) return override
@@ -108,12 +116,10 @@ const verificationRunner = new VerificationRunner({
 // Permission engine
 let telegramFrontend: TelegramFrontend | null = null
 let webFrontend: WebFrontend | null = null
-let rubikaFrontend: RubikaFrontend | null = null
 
 const permissions = new PermissionEngine(registry, (req: PermissionRequest) => {
   telegramFrontend?.deliverPermissionRequest(req)
   webFrontend?.deliverPermissionRequest(req)
-  rubikaFrontend?.deliverPermissionRequest(req)
 })
 
 // Screen manager
@@ -130,6 +136,9 @@ const errorLog = new ErrorLog(hubDb.db)
 const personalities = new Personalities(hubDb.db)
 const decisions = new Decisions(hubDb.db)
 const messages = new Messages(hubDb.db)
+const companyStore = new CompanyStore(hubDb.db)
+companyStore.setMemoryMirrorDir('/home/company/memory')
+try { loadOrg('/home/company', companyStore) } catch (e) { console.error('org load failed', e) }
 // Bound error-log storage at 5000 entries — captured panes can be large.
 setInterval(() => errorLog.purgeKeepLast(5000), 60 * 60 * 1000).unref()
 // Bound decision history to last 500 per session.
@@ -214,7 +223,6 @@ const router = new MessageRouter(
   (sessionName, text, files) => {
     telegramFrontend?.deliverToUser(sessionName, text, files)
     webFrontend?.deliverToUser(sessionName, text, files)
-    rubikaFrontend?.deliverToUser(sessionName, text, files)
   },
 )
 
@@ -239,9 +247,26 @@ socketServer.on('session:disconnected', (path: string) => {
   }
 })
 
-socketServer.on('tool_call', (path: string, name: string, args: Record<string, unknown>) => {
+socketServer.on('tool_call', async (path: string, name: string, args: Record<string, unknown>) => {
   const session = registry.get(path)
   if (!session) return
+
+  if (name.startsWith('company_')) {
+    const deptId = deptIdForPath(path, companyStore) ?? 'unknown'
+    let result: string, isError = false
+    try { result = await handleCompanyTool(companyStore, deptId, name, args) }
+    catch (e) { result = String(e); isError = true }
+    socketServer.sendToSession(path, { type: 'tool_result', name, result, isError })
+    if (name === 'company_request_approval' && !isError) {
+      const pending = companyStore.listPendingApprovals()
+      const appr = pending[pending.length - 1]
+      if (appr) {
+        ;(telegramFrontend as any)?.deliverApprovalRequest?.(appr)
+        ;(webFrontend as any)?.deliverApprovalRequest?.(appr)
+      }
+    }
+    return
+  }
 
   if (name === 'reply') {
     const text = args.text as string
@@ -384,11 +409,9 @@ socketServer.on('tool_call', (path: string, name: string, args: Record<string, u
               })
               telegramFrontend?.deliverToUser(v.sessionName, `🤖 Autopilot sent: ${v.draft}`)
               webFrontend?.deliverToUser(v.sessionName, `🤖 Autopilot sent: ${v.draft}`)
-              rubikaFrontend?.deliverToUser(v.sessionName, `🤖 Autopilot sent: ${v.draft}`)
             }, decisionId)
             telegramFrontend?.deliverAutopilotDraft(sessionName, veto.draft, vetoMs)
             webFrontend?.deliverAutopilotDraft(path, sessionName, veto.draft, vetoMs)
-            rubikaFrontend?.deliverAutopilotDraft(sessionName, veto.draft)
           } else {
             socketServer.sendToSession(path, {
               type: 'channel_message',
@@ -397,7 +420,6 @@ socketServer.on('tool_call', (path: string, name: string, args: Record<string, u
             })
             telegramFrontend?.deliverToUser(sessionName, `🤖 Autopilot answered: ${result.answer}`)
             webFrontend?.deliverToUser(sessionName, `🤖 Autopilot answered: ${result.answer}`)
-            rubikaFrontend?.deliverToUser(sessionName, `🤖 Autopilot answered: ${result.answer}`)
           }
         } else if (result.status === 'escalate') {
           const reasonKind = /risk keyword/i.test(result.reason) ? 'risk'
@@ -408,7 +430,6 @@ socketServer.on('tool_call', (path: string, name: string, args: Record<string, u
             tmuxName, reason: result.reason, reasonKind, createdAt: Date.now(),
           })
           telegramFrontend?.deliverToUser(sessionName, `🟡 Autopilot escalated: ${result.reason}`)
-          rubikaFrontend?.deliverToUser(sessionName, `🟡 Autopilot escalated: ${result.reason}`)
           webFrontend?.deliverAutopilotEscalation?.(path, sessionName, text, result.reason, reasonKind)
         } else {
           const kind: 'parse_error' | 'timeout' = result.status
@@ -418,7 +439,6 @@ socketServer.on('tool_call', (path: string, name: string, args: Record<string, u
             createdAt: Date.now(),
           })
           telegramFrontend?.deliverToUser(sessionName, `🟡 Autopilot failed (${result.status}); please answer directly.`)
-          rubikaFrontend?.deliverToUser(sessionName, `🟡 Autopilot failed (${result.status}); please answer directly.`)
           webFrontend?.deliverAutopilotEscalation?.(path, sessionName, text, `autopilot /btw failed (${result.status})`, kind)
         }
       }).catch(err => {
@@ -428,7 +448,6 @@ socketServer.on('tool_call', (path: string, name: string, args: Record<string, u
   } else if (name === 'edit_message') {
     telegramFrontend?.deliverToUser(session.name, `(edited) ${args.text as string}`)
     webFrontend?.deliverToUser(session.name, `(edited) ${args.text as string}`)
-    rubikaFrontend?.deliverToUser(session.name, `(edited) ${args.text as string}`)
     socketServer.sendToSession(path, {
       type: 'tool_result',
       name: 'edit_message',
@@ -487,7 +506,6 @@ socketServer.on('tool_call', (path: string, name: string, args: Record<string, u
           const note = `↪ ${session.name} → ${targetName}: ${text}`
           telegramFrontend?.deliverToUser(session.name, note)
           webFrontend?.deliverToUser(session.name, note)
-          rubikaFrontend?.deliverToUser(session.name, note)
         }
       }
     }
@@ -589,49 +607,6 @@ async function start(): Promise<void> {
     }
   } else {
     process.stderr.write('hub: no telegram token — skipping telegram frontend\n')
-  }
-
-  // ── Rubika frontend (webhook-based, MVP) ─────────────────────────────────
-  if (config.rubikaToken) {
-    const allowFrom = config.rubikaAllowFrom ?? []
-    if (allowFrom.length === 0) {
-      // Same safety stance as Telegram: an empty allowlist used to mean
-      // "everyone", which is a public shell on this box once command parsing
-      // lands. Refuse to start the bot rather than shipping a misconfig.
-      process.stderr.write(
-        'hub: rubikaToken is set but rubikaAllowFrom is empty — refusing to start rubika frontend. ' +
-        'Add your Rubika sender_id to rubikaAllowFrom in config.json.\n',
-      )
-    } else {
-      const inviteStore = new RubikaInviteStore({ dir: HUB_DIR })
-      rubikaFrontend = new RubikaFrontend({
-        token: config.rubikaToken,
-        allowFrom,
-        inviteStore,
-        registry,
-        router,
-        permissions,
-        screenManager,
-        socketServer,
-        taskMonitor,
-        verificationRunner,
-        vetoController,
-        autopilotRunner,
-        apiBase: config.rubikaApiBase,
-        webhookBase: config.rubikaWebhookBase,
-        pollingIntervalMs: config.rubikaPollingMs,
-      })
-      // Wire the webhook endpoint into the existing WebFrontend before
-      // start() registers the URL with Rubika.
-      webFrontend.attachRubikaWebhook(rubikaFrontend)
-      rubikaFrontend.start().catch((err) => {
-        process.stderr.write(`hub: rubika failed to start: ${err}\n`)
-      })
-      const tag = config.rubikaBotUsername ? ` (@${config.rubikaBotUsername})` : ''
-      process.stderr.write(`hub: rubika frontend started${tag}\n`)
-    }
-  } else {
-    process.stderr.write('hub: no rubika token — skipping rubika frontend\n')
   }
 
   // Permission relay works natively through the MCP channel protocol.
