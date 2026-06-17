@@ -16,11 +16,9 @@ export function decideWakes(
     if (!d.active) continue
     if (d.status === 'computing') continue
     if (opts.minutesUsedThisWeek(d.id) >= d.budget_minutes_week) continue   // over budget -> skip
-    const hasWork = opts.hasInboxOrAssigned(d.id)
     const due = opts.isDue(d.schedule_cron, now)
-    // Wake only if there is actual inbox/assigned work (due cron alone is not enough for MVP)
-    if (!hasWork) continue
-    if (!due) continue                                                      // cron not matched yet
+    const hasWork = opts.hasInboxOrAssigned(d.id)
+    if (!due && !hasWork) continue                                          // wake if due OR has work
     wake.push(d.id)
     if (wake.length >= opts.maxConcurrent) break
   }
