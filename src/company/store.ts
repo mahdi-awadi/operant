@@ -119,4 +119,18 @@ export class CompanyStore {
     this.db.prepare('UPDATE tasks SET status = ?, result_ref = COALESCE(?, result_ref), updated_at = ? WHERE id = ?')
       .run(status, resultRef ?? null, Date.now(), id)
   }
+
+  createHandoff(input: { task_id: string; from_dept: string; to_dept: string; reason?: string; payload?: string }): void {
+    this.db.prepare('INSERT INTO handoffs (task_id,from_dept,to_dept,reason,payload,ts) VALUES (?,?,?,?,?,?)')
+      .run(input.task_id, input.from_dept, input.to_dept, input.reason ?? null, input.payload ?? null, Date.now())
+  }
+
+  listHandoffs(toDept: string): Array<{ task_id: string; from_dept: string; to_dept: string; reason: string | null }> {
+    return this.db.prepare('SELECT task_id, from_dept, to_dept, reason FROM handoffs WHERE to_dept = ? ORDER BY ts DESC').all(toDept) as any
+  }
+
+  logActivity(a: { actor_type: string; actor: string; action: string; entity_type?: string; entity_id?: string; details?: string }): void {
+    this.db.prepare('INSERT INTO activity_log (actor_type,actor,action,entity_type,entity_id,details,ts) VALUES (?,?,?,?,?,?,?)')
+      .run(a.actor_type, a.actor, a.action, a.entity_type ?? null, a.entity_id ?? null, a.details ?? null, Date.now())
+  }
 }
