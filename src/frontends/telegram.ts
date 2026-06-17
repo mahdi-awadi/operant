@@ -15,7 +15,7 @@ import type { EscalationController } from '../escalation-controller'
 import type { AutopilotRunner } from '../autopilot'
 import { formatForTelegram, escapeHtml as escapeHtmlText } from '../telegram-format'
 import { stripAnsi, tailToCharLimit, parsePeekArgs } from '../peek-helpers'
-import type { Approval, CompanyStore } from '../company/store'
+import type { Approval, CompanyStore, Task } from '../company/store'
 
 // Re-export so existing tests (and any callers) keep working.
 export { stripAnsi, tailToCharLimit, parsePeekArgs }
@@ -176,6 +176,18 @@ export function formatApproval(a: Approval): string {
   return `🏢 Approval from <b>${a.dept_id}</b>\nAction: <code>${a.kind}</code>\n${a.summary}`
 }
 
+export function formatBoard(tasks: Task[]): string {
+  if (tasks.length === 0) return 'Board is empty.'
+  const byStatus = new Map<string, Task[]>()
+  for (const t of tasks) { (byStatus.get(t.status) ?? byStatus.set(t.status, []).get(t.status)!).push(t) }
+  const lines: string[] = []
+  for (const [status, ts] of byStatus) {
+    lines.push(`• ${status}:`)
+    for (const t of ts) lines.push(`   - [${t.dept_id ?? '—'}] ${t.title}${t.project ? ' (' + t.project + ')' : ''}`)
+  }
+  return lines.join('\n')
+}
+
 // ── TelegramFrontend class ───────────────────────────────────────────────────
 
 export type TelegramFrontendDeps = {
@@ -313,6 +325,26 @@ export class TelegramFrontend {
       const pending = this.companyStore.listPendingApprovals()
       if (pending.length === 0) { await ctx.reply('No pending approvals.'); return }
       for (const a of pending) await this.deliverApprovalRequest(a)
+    })
+
+    // /board — show all tasks grouped by status
+    bot.command('board', async (ctx) => {
+      if (!this.isAllowed(ctx)) return
+      if (!this.companyStore) { await ctx.reply('Company store not available.'); return }
+      await ctx.reply(formatBoard(this.companyStore.listTasks()))
+    })
+
+    // /brief — ask the Secretary to produce a short brief now
+    bot.command('brief', async (ctx) => {
+      if (!this.isAllowed(ctx)) return
+      if (!this.companyStore) { await ctx.reply('Company store not available.'); return }
+      const path = this.registry.findByName('secretary')
+      if (path) {
+        this.socketServer.sendToSession(path, { type: 'channel_message', content: 'Produce a short brief now: what is blocked on me and what is next.', meta: { source: 'company', frontend: 'telegram', user: 'mahdi' } })
+        await ctx.reply('Asked the Secretary for a brief.')
+      } else {
+        await ctx.reply('Secretary is not running right now; it will brief on its next scheduled wake.')
+      }
     })
 
     // /status — dashboard view
