@@ -30,4 +30,23 @@ describe('CompanyStore departments', () => {
     expect(store.getDepartment('secretary')!.title).toBe('COS v2')
     expect(store.listDepartments().length).toBe(1)
   })
+
+  test('listDepartments filters by active flag, getDepartment does not', () => {
+    store.upsertDepartment({
+      id: 'active-dept', title: 'Active Department', folder: '/home/company/desks/active',
+      reports_to: 'mahdi', manages: ['dev'], profile_name: 'careful',
+      skills: ['brainstorming'], mcps: ['hub'], schedule_cron: '0 7 * * *',
+      budget_minutes_week: 240, approval_policy: 'ask', autonomy_level: 1,
+      status: 'idle', active: true,
+    })
+    store.upsertDepartment({
+      id: 'inactive-dept', title: 'Inactive Department', folder: '/home/company/desks/inactive',
+      reports_to: 'mahdi', manages: ['qa'], profile_name: 'careful',
+      skills: ['testing'], mcps: ['hub'], schedule_cron: '0 8 * * *',
+      budget_minutes_week: 120, approval_policy: 'ask', autonomy_level: 1,
+      status: 'idle', active: false,
+    })
+    expect(store.listDepartments().map(d => d.id)).toEqual(['active-dept'])
+    expect(store.getDepartment('inactive-dept')).not.toBeNull()
+  })
 })
