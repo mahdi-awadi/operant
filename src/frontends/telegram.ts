@@ -15,6 +15,7 @@ import type { EscalationController } from '../escalation-controller'
 import type { AutopilotRunner } from '../autopilot'
 import { formatForTelegram, escapeHtml as escapeHtmlText } from '../telegram-format'
 import { stripAnsi, tailToCharLimit, parsePeekArgs } from '../peek-helpers'
+import type { Approval, CompanyStore } from '../company/store'
 
 // Re-export so existing tests (and any callers) keep working.
 export { stripAnsi, tailToCharLimit, parsePeekArgs }
@@ -171,6 +172,10 @@ export async function renderVerificationResult(
   }
 }
 
+export function formatApproval(a: Approval): string {
+  return `🏢 Approval from <b>${a.dept_id}</b>\nAction: <code>${a.kind}</code>\n${a.summary}`
+}
+
 // ── TelegramFrontend class ───────────────────────────────────────────────────
 
 export type TelegramFrontendDeps = {
@@ -186,6 +191,7 @@ export type TelegramFrontendDeps = {
   vetoController?: VetoController
   escalationController?: EscalationController
   autopilotRunner?: AutopilotRunner
+  companyStore?: CompanyStore
 }
 
 /**
@@ -212,6 +218,7 @@ export class TelegramFrontend {
   private verificationRunner: VerificationRunner
   private vetoController: VetoController | undefined
   private autopilotRunner: AutopilotRunner | undefined
+  private companyStore: CompanyStore | undefined
 
   // Per-user active session: telegram user id → session name
   private userActiveSessions = new Map<string, string>()
@@ -236,6 +243,7 @@ export class TelegramFrontend {
     this.verificationRunner = deps.verificationRunner
     this.vetoController = deps.vetoController
     this.autopilotRunner = deps.autopilotRunner
+    this.companyStore = deps.companyStore
 
     this.registerHandlers()
   }
@@ -296,6 +304,15 @@ export class TelegramFrontend {
         keyboard.text(s.name, `select:${s.name}`).row()
       }
       await ctx.reply(text, { reply_markup: keyboard })
+    })
+
+    // /approvals — list pending approvals
+    bot.command('approvals', async (ctx) => {
+      if (!this.isAllowed(ctx)) return
+      if (!this.companyStore) { await ctx.reply('Company store not available.'); return }
+      const pending = this.companyStore.listPendingApprovals()
+      if (pending.length === 0) { await ctx.reply('No pending approvals.'); return }
+      for (const a of pending) await this.deliverApprovalRequest(a)
     })
 
     // /status — dashboard view
@@ -956,6 +973,19 @@ export class TelegramFrontend {
         } else {
           await ctx.answerCallbackQuery('Permission request not found')
         }
+      } else if (data.startsWith('appr:approve:') || data.startsWith('appr:deny:')) {
+        const approve = data.startsWith('appr:approve:')
+        const id = data.slice((approve ? 'appr:approve:' : 'appr:deny:').length)
+        if (!this.companyStore) { await ctx.answerCallbackQuery('Company store not available'); return }
+        const a = this.companyStore.resolveApproval(id, approve ? 'approved' : 'denied')
+        if (!a) { await ctx.answerCallbackQuery('Approval not found'); return }
+        await ctx.answerCallbackQuery(approve ? 'Approved' : 'Denied')
+        await ctx.editMessageText(`${approve ? '✅ Approved' : '❌ Denied'}: ${a.summary}`)
+        if (a.dept_id) {
+          const dept = this.companyStore.getDepartment(a.dept_id)
+          const path = dept ? this.registry.findByName(dept.id) : undefined
+          if (path) this.socketServer.sendToSession(path, { type: 'channel_message', content: `[CEO ${approve ? 'APPROVED' : 'DENIED'} approval ${id}: ${a.summary}]`, meta: { source: 'company', frontend: 'telegram', user: 'mahdi' } })
+        }
       } else {
         const driftMatch = data.match(/^drift:(ignore|remind):(.+)$/)
         if (driftMatch) {
@@ -1318,6 +1348,17 @@ export class TelegramFrontend {
         reply_markup: keyboard,
       })
       this.recordOutgoing(userId, req.sessionName, sent)
+    }
+  }
+
+  async deliverApprovalRequest(a: Approval): Promise<void> {
+    const recipients = this.recipients()
+    if (recipients.length === 0) return
+    const keyboard = new InlineKeyboard()
+      .text('✅ Approve', `appr:approve:${a.id}`)
+      .text('❌ Deny', `appr:deny:${a.id}`)
+    for (const userId of recipients) {
+      await this.bot.api.sendMessage(userId, formatApproval(a), { parse_mode: 'HTML', reply_markup: keyboard })
     }
   }
 

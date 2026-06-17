@@ -297,8 +297,8 @@ socketServer.on('tool_call', async (path: string, name: string, args: Record<str
       const pending = companyStore.listPendingApprovals()
       const appr = pending[pending.length - 1]
       if (appr) {
-        ;(telegramFrontend as any)?.deliverApprovalRequest?.(appr)
-        ;(webFrontend as any)?.deliverApprovalRequest?.(appr)
+        // Approvals are Telegram-only for MVP; web frontend does not surface them.
+        telegramFrontend?.deliverApprovalRequest(appr)
       }
     }
     return
@@ -636,6 +636,7 @@ async function start(): Promise<void> {
         vetoController,
         escalationController,
         autopilotRunner,
+        companyStore,
       })
       telegramFrontend.start().catch(err => {
         process.stderr.write(`hub: telegram failed to start: ${err}\n`)
