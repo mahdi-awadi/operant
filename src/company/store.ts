@@ -1,5 +1,26 @@
 import type { Database } from 'bun:sqlite'
 
+export type Task = {
+  id: string; title: string; body: string | null; project: string | null
+  dept_id: string | null; status: string; priority: number; origin: string | null
+  emits_on_done: string | null; corr_id: string | null; request_depth: number
+  created_at: number; updated_at: number
+}
+
+function taskFromRow(r: any): Task {
+  return {
+    id: r.id, title: r.title, body: r.body ?? null, project: r.project ?? null,
+    dept_id: r.dept_id ?? null, status: r.status, priority: r.priority,
+    origin: r.origin ?? null, emits_on_done: r.emits_on_done ?? null,
+    corr_id: r.corr_id ?? null, request_depth: r.request_depth,
+    created_at: r.created_at, updated_at: r.updated_at,
+  }
+}
+
+function newId(prefix: string): string {
+  return `${prefix}_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e6).toString(36)}`
+}
+
 export type Department = {
   id: string; title: string; folder: string
   reports_to: string | null; manages: string[]
@@ -57,5 +78,45 @@ export class CompanyStore {
 
   listDepartments(): Department[] {
     return this.db.prepare('SELECT * FROM departments WHERE active = 1 ORDER BY id').all().map(deptFromRow)
+  }
+
+  createTask(input: { title: string; body?: string; project?: string; dept_id?: string; priority?: number; origin?: string; emits_on_done?: string; corr_id?: string; request_depth?: number }): Task {
+    const id = newId('task')
+    const now = Date.now()
+    this.db.prepare(
+      `INSERT INTO tasks (id,title,body,project,dept_id,status,priority,origin,emits_on_done,corr_id,request_depth,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ).run(
+      id, input.title, input.body ?? null, input.project ?? null, input.dept_id ?? null,
+      input.dept_id ? 'assigned' : 'inbox', input.priority ?? 3, input.origin ?? null,
+      input.emits_on_done ?? null, input.corr_id ?? null, input.request_depth ?? 0, now, now,
+    )
+    return this.getTask(id)!
+  }
+
+  getTask(id: string): Task | null {
+    const r = this.db.prepare('SELECT * FROM tasks WHERE id = ?').get(id)
+    return r ? taskFromRow(r) : null
+  }
+
+  listTasks(filter?: { dept_id?: string; status?: string }): Task[] {
+    const where: string[] = [], args: (string | undefined)[] = []
+    if (filter?.dept_id) { where.push('dept_id = ?'); args.push(filter.dept_id) }
+    if (filter?.status) { where.push('status = ?'); args.push(filter.status) }
+    const sql = `SELECT * FROM tasks ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY priority DESC, created_at ASC`
+    return this.db.prepare(sql).all(...(args as any)).map(taskFromRow)
+  }
+
+  claimTask(id: string, runId: string): boolean {
+    const res = this.db.prepare(
+      `UPDATE tasks SET checkout_run_id = ?, execution_locked_at = ?, status = 'in_progress', updated_at = ?
+       WHERE id = ? AND checkout_run_id IS NULL`,
+    ).run(runId, Date.now(), Date.now(), id)
+    return res.changes === 1
+  }
+
+  updateTaskStatus(id: string, status: string, resultRef?: string): void {
+    this.db.prepare('UPDATE tasks SET status = ?, result_ref = COALESCE(?, result_ref), updated_at = ? WHERE id = ?')
+      .run(status, resultRef ?? null, Date.now(), id)
   }
 }
