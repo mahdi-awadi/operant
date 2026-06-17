@@ -23,6 +23,11 @@ function newId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e6).toString(36)}`
 }
 
+export type Approval = {
+  id: string; task_id: string | null; dept_id: string | null
+  kind: string; summary: string; payload: string | null; state: string; requested_at: number
+}
+
 export type Department = {
   id: string; title: string; folder: string
   reports_to: string | null; manages: string[]
@@ -48,6 +53,10 @@ function deptFromRow(r: any): Department {
     status: r.status,
     active: !!r.active,
   }
+}
+
+function approvalFromRow(r: any): Approval {
+  return { id: r.id, task_id: r.task_id ?? null, dept_id: r.dept_id ?? null, kind: r.kind, summary: r.summary, payload: r.payload ?? null, state: r.state, requested_at: r.requested_at }
 }
 
 export class CompanyStore {
@@ -162,5 +171,24 @@ export class CompanyStore {
   logActivity(a: { actor_type: string; actor: string; action: string; entity_type?: string; entity_id?: string; details?: string }): void {
     this.db.prepare('INSERT INTO activity_log (actor_type,actor,action,entity_type,entity_id,details,ts) VALUES (?,?,?,?,?,?,?)')
       .run(a.actor_type, a.actor, a.action, a.entity_type ?? null, a.entity_id ?? null, a.details ?? null, Date.now())
+  }
+
+  createApproval(input: { task_id?: string; dept_id?: string; kind: string; summary: string; payload?: string }): Approval {
+    const id = newId('appr'); const now = Date.now()
+    this.db.prepare('INSERT INTO approvals (id,task_id,dept_id,kind,summary,payload,state,requested_at) VALUES (?,?,?,?,?,?,?,?)')
+      .run(id, input.task_id ?? null, input.dept_id ?? null, input.kind, input.summary, input.payload ?? null, 'pending', now)
+    return this.db.prepare('SELECT * FROM approvals WHERE id = ?').get(id) as any
+  }
+
+  resolveApproval(id: string, state: 'approved' | 'denied', note?: string): Approval | null {
+    const r = this.db.prepare('SELECT * FROM approvals WHERE id = ? AND state = ?').get(id, 'pending')
+    if (!r) return null
+    this.db.prepare('UPDATE approvals SET state = ?, resolved_at = ?, decision_note = ? WHERE id = ?')
+      .run(state, Date.now(), note ?? null, id)
+    return approvalFromRow({ ...r, state })
+  }
+
+  listPendingApprovals(): Approval[] {
+    return this.db.prepare("SELECT * FROM approvals WHERE state = 'pending' ORDER BY requested_at ASC").all().map(approvalFromRow)
   }
 }
