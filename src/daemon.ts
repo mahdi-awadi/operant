@@ -23,12 +23,32 @@ import { openHubDb } from './hub-db'
 import { CompanyStore } from './company/store'
 import { handleCompanyTool } from './company/tools'
 import { loadOrg } from './company/org-loader'
+import { decideWakes } from './company/orchestrator'
+import { spawnDepartment } from './company/spawn'
 import { Personalities } from './personalities'
 import { Decisions } from './decisions'
 import { Messages } from './messages'
 import { BrowserController } from './browser-controller'
 
 const DRIFT_RATE_LIMIT_MS = 2 * 60 * 1000 // 2 minutes between alerts per session
+
+/** Parse a 5-field cron string and return true if minute, hour, and day-of-week match now.
+ *  Supports '*' (any) and comma lists like '7,13,19'. DOM and month are ignored for MVP. */
+function cronDueNow(cron: string | null, now: Date): boolean {
+  if (!cron) return false
+  const fields = cron.trim().split(/\s+/)
+  if (fields.length < 5) return false
+  const [minF, hourF, , , dowF] = fields
+  const matches = (field: string, value: number): boolean => {
+    if (field === '*') return true
+    return field.split(',').map(Number).includes(value)
+  }
+  return (
+    matches(minF, now.getMinutes()) &&
+    matches(hourF, now.getHours()) &&
+    matches(dowF, now.getDay())
+  )
+}
 
 export function deptIdForPath(path: string, store: CompanyStore): string | null {
   for (const d of store.listDepartments()) {
@@ -145,6 +165,22 @@ setInterval(() => errorLog.purgeKeepLast(5000), 60 * 60 * 1000).unref()
 setInterval(() => decisions.purgeKeepLastPerSession(500), 60 * 60 * 1000).unref()
 // Bound visible chat history to last 1000 per session.
 setInterval(() => messages.purgeKeepLastPerSession(1000), 60 * 60 * 1000).unref()
+// Orchestrator tick: wake departments that are due and have pending work.
+setInterval(async () => {
+  const depts = companyStore.listDepartments()
+  const wake = decideWakes(new Date(), depts, {
+    maxConcurrent: 2,
+    isDue: (cron, now) => cronDueNow(cron, now),
+    hasInboxOrAssigned: (id) => companyStore.listTasks({ dept_id: id }).some(t => t.status === 'inbox' || t.status === 'assigned'),
+    minutesUsedThisWeek: () => 0, // MVP: ledger summation is a Phase-4 refinement
+  })
+  for (const id of wake) {
+    const d = companyStore.getDepartment(id)!
+    if (registry.findByName(id)) continue // already running
+    companyStore.upsertDepartment({ ...d, status: 'computing' })
+    try { await spawnDepartment(d, screenManager) } catch (e) { console.error('wake failed', id, e) }
+  }
+}, 60 * 1000).unref()
 const autopilotRunner = new AutopilotRunner({
   screenManager,
   btwTimeoutMs: autopilotDefaults.btwTimeoutMs,
