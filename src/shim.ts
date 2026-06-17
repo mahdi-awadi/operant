@@ -10,6 +10,7 @@ import { connect, type Socket } from 'net'
 import { join } from 'path'
 import { homedir } from 'os'
 import type { DaemonToShim, ShimToDaemon } from './types'
+import { COMPANY_TOOL_DEFS } from './company/tools'
 
 const SOCKET_PATH = process.env.HUB_SOCKET ?? join(homedir(), '.claude', 'channels', 'hub', 'hub.sock')
 
@@ -193,6 +194,7 @@ function main() {
           required: ['name', 'text'],
         },
       },
+      ...COMPANY_TOOL_DEFS,
     ],
   }))
 
