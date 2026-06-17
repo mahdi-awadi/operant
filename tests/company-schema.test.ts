@@ -13,7 +13,7 @@ describe('company schema', () => {
     const { db, close } = openHubDb(dir)
     try {
       const names = db.prepare(`SELECT name FROM sqlite_master WHERE type='table'`).all().map((r: any) => r.name)
-      for (const t of ['departments', 'tasks', 'handoffs', 'memory', 'approvals', 'compute_ledger', 'activity_log']) {
+      for (const t of ['departments', 'tasks', 'handoffs', 'memory', 'approvals', 'activity_log']) {
         expect(names).toContain(t)
       }
       // FTS5 virtual table exists

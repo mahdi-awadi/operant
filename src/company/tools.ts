@@ -33,9 +33,28 @@ export async function handleCompanyTool(store: CompanyStore, deptId: string, nam
     }
     case 'company_claim_task':
       return store.claimTask(String(args.id), String(args.run_id)) ? 'claimed' : 'already-claimed'
-    case 'company_update_task':
-      store.updateTaskStatus(String(args.id), String(args.status), args.result_ref as string)
-      return `Task ${args.id} -> ${args.status}`
+    case 'company_update_task': {
+      const status = String(args.status)
+      store.updateTaskStatus(String(args.id), status, args.result_ref as string)
+      if (status === 'done') {
+        const task = store.getTask(String(args.id))
+        if (task?.emits_on_done) {
+          const parts = task.emits_on_done.split('.')
+          const targetDept = parts[0]
+          const actionHint = parts[1] ?? ''
+          store.createTask({
+            title: `Follow-up from ${task.id}` + (actionHint ? `: ${actionHint}` : ''),
+            dept_id: targetDept,
+            project: task.project ?? undefined,
+            corr_id: task.corr_id ?? undefined,
+            origin: `dept:${deptId}`,
+          })
+          store.createHandoff({ task_id: String(args.id), from_dept: deptId, to_dept: targetDept, reason: 'auto-handoff on done' })
+          return `Task ${args.id} -> done; handed off to ${targetDept}`
+        }
+      }
+      return `Task ${args.id} -> ${status}`
+    }
     case 'company_create_handoff': {
       store.createHandoff({ task_id: String(args.task_id), from_dept: deptId, to_dept: String(args.to_dept), reason: args.reason as string })
       return `Handed off ${args.task_id} to ${args.to_dept}`

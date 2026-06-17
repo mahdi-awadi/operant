@@ -74,14 +74,6 @@ export const COMPANY_SCHEMA_STATEMENTS: string[] = [
     resolved_at INTEGER,
     decision_note TEXT
   )`,
-  `CREATE TABLE IF NOT EXISTS compute_ledger (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    dept_id TEXT,
-    started_at INTEGER,
-    ended_at INTEGER,
-    minutes REAL,
-    week TEXT
-  )`,
   `CREATE TABLE IF NOT EXISTS activity_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     actor_type TEXT,

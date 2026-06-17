@@ -29,4 +29,15 @@ describe('company tools', () => {
     expect(out).toContain('appr_')
     expect(store.listPendingApprovals().length).toBe(1)
   })
+
+  test('emits_on_done auto-handoff creates follow-up task in target dept', async () => {
+    await handleCompanyTool(store, 'ops', 'company_create_task', { title: 'Prepare report', dept_id: 'ops', emits_on_done: 'sales' })
+    const tasks = store.listTasks({ dept_id: 'ops' })
+    expect(tasks.length).toBe(1)
+    const taskId = tasks[0].id
+    const out = await handleCompanyTool(store, 'ops', 'company_update_task', { id: taskId, status: 'done' })
+    expect(out).toContain('handed off to sales')
+    const salesTasks = store.listTasks({ dept_id: 'sales' })
+    expect(salesTasks.length).toBeGreaterThan(0)
+  })
 })
