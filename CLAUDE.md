@@ -59,6 +59,12 @@ Environment=HOME=/root
 WantedBy=multi-user.target
 ```
 
+Secrets (the Telegram bot token) live in `<HUB_DIR>/.env` (gitignored, `chmod 600`).
+The **daemon loads it itself at startup** (`loadDotEnv` in `src/config.ts`) — *not* via
+systemd `EnvironmentFile`, because SELinux (RHEL, enforcing) blocks PID 1 from reading
+files under `$HOME`. Values fill gaps in `process.env`, so a real env var still wins.
+Env vars override `config.json` — see the Configuration section.
+
 Manage it with:
 ```bash
 systemctl start operant        # start
@@ -146,19 +152,30 @@ Commands: `list`, `status`, `spawn`, `kill`, `send`, `trust`, `prefix`, `rename`
 
 ## Configuration
 
+Settings come from two places, with **env vars overriding `config.json`** (precedence:
+environment → `config.json` → built-in default). Secrets belong in the environment;
+structured settings (`telegramAllowFrom`, `autopilot`) belong in `config.json`.
+
+### Secrets: `~/.claude/channels/hub/.env`
+Loaded by the daemon at startup (`loadDotEnv`), gitignored, `chmod 600`. See `.env.example`.
+(Not systemd `EnvironmentFile` — SELinux blocks PID 1 from reading under `$HOME`.)
+```sh
+TELEGRAM_TOKEN=<bot-token-from-botfather>   # overrides config.json telegramToken
+# WEB_PORT / WEB_HOST / BROWSE_ROOT — optional overrides
+```
+
 ### Hub config: `~/.claude/channels/hub/config.json`
 ```json
 {
   "webPort": 3000,
-  "telegramToken": "<bot-token-from-botfather>",
   "telegramAllowFrom": ["<your-telegram-user-id>"],
   "defaultTrust": "ask",
   "defaultUploadDir": "."
 }
 ```
 
-- `webPort`: API + Web dashboard port
-- `telegramToken`: from @BotFather
+- `webPort`: API + Web dashboard port (overridable via `WEB_PORT`)
+- `telegramToken`: from @BotFather — **prefer `.env` (`TELEGRAM_TOKEN`)**; the env value wins over any value here
 - `telegramAllowFrom`: Telegram user IDs allowed. Also controls web login. **Empty = deny all** — the Telegram frontend refuses to start and web login rejects every user. There is no "allow everyone" mode (account sharing is an Anthropic ToS risk).
 - `defaultTrust`: `ask` (prompt user) or `auto-approve` (auto-allow all tools)
 - `defaultUploadDir`: where uploaded files go (relative to project root)

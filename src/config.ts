@@ -8,16 +8,6 @@ export const HUB_DIR = process.env.CLAUDE_PLUGIN_DATA
   ?? process.env.HUB_DIR
   ?? join(homedir(), '.claude', 'channels', 'hub')
 
-function defaultConfig(): HubConfig {
-  return {
-    webPort: 3000,
-    telegramToken: '',
-    telegramAllowFrom: [],
-    defaultTrust: 'ask',
-    defaultUploadDir: '.',
-  }
-}
-
 function ensureDir(dir: string): void {
   mkdirSync(dir, { recursive: true, mode: 0o700 })
 }
@@ -38,14 +28,44 @@ function writeJson(path: string, data: unknown): void {
   renameSync(tmp, path)
 }
 
+// Load `<dir>/.env` into process.env. Existing env vars win (we only fill
+// the gaps), so a real environment value always takes precedence over the
+// file. Loaded by the daemon itself rather than systemd EnvironmentFile,
+// which SELinux blocks PID 1 from reading under $HOME.
+export function loadDotEnv(dir: string = HUB_DIR): void {
+  let text: string
+  try {
+    text = readFileSync(join(dir, '.env'), 'utf8')
+  } catch {
+    return
+  }
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#')) continue
+    const eq = trimmed.indexOf('=')
+    if (eq === -1) continue
+    const key = trimmed.slice(0, eq).trim()
+    let val = trimmed.slice(eq + 1).trim()
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+      val = val.slice(1, -1)
+    }
+    if (key && !(key in process.env)) process.env[key] = val
+  }
+}
+
 export function loadHubConfig(dir: string = HUB_DIR): HubConfig {
-  const raw = readJson<Partial<HubConfig>>(join(dir, 'config.json'))
-  if (!raw) return defaultConfig()
+  // Precedence: environment (incl. <dir>/.env) > config.json > default.
+  // Secrets (TELEGRAM_TOKEN) and host/port live in the environment; structured
+  // settings (telegramAllowFrom, autopilot) stay in config.json.
+  loadDotEnv(dir)
+  const raw = readJson<Partial<HubConfig>>(join(dir, 'config.json')) ?? {}
+  const envPort = process.env.WEB_PORT
+  const webPort = envPort && !Number.isNaN(Number(envPort)) ? Number(envPort) : (raw.webPort ?? 3000)
   return {
-    webPort: raw.webPort ?? 3000,
-    webHost: raw.webHost,
-    browseRoot: raw.browseRoot,
-    telegramToken: raw.telegramToken ?? '',
+    webPort,
+    webHost: process.env.WEB_HOST || raw.webHost,
+    browseRoot: process.env.BROWSE_ROOT || raw.browseRoot,
+    telegramToken: process.env.TELEGRAM_TOKEN || raw.telegramToken || '',
     telegramBotUsername: raw.telegramBotUsername,
     telegramAllowFrom: raw.telegramAllowFrom ?? [],
     defaultTrust: raw.defaultTrust ?? 'ask',

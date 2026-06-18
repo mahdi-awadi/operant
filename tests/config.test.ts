@@ -180,6 +180,96 @@ test('loadHubConfig passes through chrome config when present', () => {
   }
 })
 
+test('TELEGRAM_TOKEN env var overrides config.json telegramToken', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cfg-env-token-'))
+  const prev = process.env.TELEGRAM_TOKEN
+  try {
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({
+      webPort: 3000, defaultTrust: 'ask', defaultUploadDir: '.',
+      telegramToken: 'file-token', telegramAllowFrom: ['123'],
+    }))
+    process.env.TELEGRAM_TOKEN = 'env-token'
+    const cfg = loadHubConfig(dir)
+    expect(cfg.telegramToken).toBe('env-token')
+    // structured settings still come from the file
+    expect(cfg.telegramAllowFrom).toEqual(['123'])
+  } finally {
+    if (prev === undefined) delete process.env.TELEGRAM_TOKEN
+    else process.env.TELEGRAM_TOKEN = prev
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('telegramToken falls back to config.json when TELEGRAM_TOKEN env is unset', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cfg-env-token-fallback-'))
+  const prev = process.env.TELEGRAM_TOKEN
+  try {
+    delete process.env.TELEGRAM_TOKEN
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({
+      webPort: 3000, defaultTrust: 'ask', defaultUploadDir: '.',
+      telegramToken: 'file-token', telegramAllowFrom: [],
+    }))
+    const cfg = loadHubConfig(dir)
+    expect(cfg.telegramToken).toBe('file-token')
+  } finally {
+    if (prev === undefined) delete process.env.TELEGRAM_TOKEN
+    else process.env.TELEGRAM_TOKEN = prev
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('WEB_PORT env var overrides config.json webPort as a number', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cfg-env-port-'))
+  const prev = process.env.WEB_PORT
+  try {
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({
+      webPort: 3000, defaultTrust: 'ask', defaultUploadDir: '.',
+      telegramToken: '', telegramAllowFrom: [],
+    }))
+    process.env.WEB_PORT = '4500'
+    const cfg = loadHubConfig(dir)
+    expect(cfg.webPort).toBe(4500)
+  } finally {
+    if (prev === undefined) delete process.env.WEB_PORT
+    else process.env.WEB_PORT = prev
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('loadHubConfig reads TELEGRAM_TOKEN from a .env file in the hub dir', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cfg-dotenv-'))
+  const prev = process.env.TELEGRAM_TOKEN
+  try {
+    delete process.env.TELEGRAM_TOKEN
+    writeFileSync(join(dir, '.env'), '# secrets\nTELEGRAM_TOKEN=dotenv-token\n')
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({
+      webPort: 3000, defaultTrust: 'ask', defaultUploadDir: '.',
+      telegramToken: 'file-token', telegramAllowFrom: [],
+    }))
+    const cfg = loadHubConfig(dir)
+    expect(cfg.telegramToken).toBe('dotenv-token')
+  } finally {
+    if (prev === undefined) delete process.env.TELEGRAM_TOKEN
+    else process.env.TELEGRAM_TOKEN = prev
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a real env var takes precedence over the .env file', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cfg-dotenv-prec-'))
+  const prev = process.env.TELEGRAM_TOKEN
+  try {
+    process.env.TELEGRAM_TOKEN = 'real-env'
+    writeFileSync(join(dir, '.env'), 'TELEGRAM_TOKEN=dotenv-token\n')
+    const cfg = loadHubConfig(dir)
+    expect(cfg.telegramToken).toBe('real-env')
+  } finally {
+    if (prev === undefined) delete process.env.TELEGRAM_TOKEN
+    else process.env.TELEGRAM_TOKEN = prev
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('resolveAutopilotDefaults merges user overrides with built-in defaults', () => {
   const cfg: HubConfig = {
     webPort: 3000, defaultTrust: 'ask', defaultUploadDir: '.',
