@@ -1,5 +1,5 @@
 {
-  "name": "channelhub",
+  "name": "operant",
   "version": "0.1.0-beta.2",
   "description": "Multi-session channel plugin for Claude Code — manage all your sessions from Telegram, web, or CLI",
   "repository": "https://github.com/mahdi-awadi/channelhub",
