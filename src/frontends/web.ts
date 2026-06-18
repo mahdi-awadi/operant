@@ -20,6 +20,7 @@ import type { ErrorLog } from '../error-log'
 import type { Personalities, PersonalityInput } from '../personalities'
 import type { Decisions } from '../decisions'
 import type { Messages } from '../messages'
+import type { CompanyStore, Approval } from '../company/store'
 import { saveSessions } from '../config'
 import { listPriorSessions } from '../claude-sessions'
 
@@ -140,6 +141,7 @@ type WebFrontendDeps = {
   personalities?: Personalities
   decisions?: Decisions
   messages?: Messages
+  companyStore?: CompanyStore
   projectsRootOverride?: string  // test-only: override ~/.claude/projects root
 }
 
@@ -411,6 +413,27 @@ export class WebFrontend {
           if (m && req.method === 'GET') {
             return self.handlePeek(decodeURIComponent(m[1]!), url.searchParams.get('lines'))
           }
+        }
+
+        // === Company engine routes ==========================================
+        if (url.pathname === '/api/company/board' && req.method === 'GET') {
+          if (!self.deps.companyStore) return Response.json({ error: 'Company store not available' }, { status: 503 })
+          return Response.json(self.deps.companyStore.listTasks())
+        }
+
+        if (url.pathname === '/api/company/departments' && req.method === 'GET') {
+          if (!self.deps.companyStore) return Response.json({ error: 'Company store not available' }, { status: 503 })
+          return Response.json(self.deps.companyStore.listDepartments())
+        }
+
+        if (url.pathname === '/api/company/approvals' && req.method === 'GET') {
+          if (!self.deps.companyStore) return Response.json({ error: 'Company store not available' }, { status: 503 })
+          return Response.json(self.deps.companyStore.listPendingApprovals())
+        }
+
+        if (url.pathname === '/api/company/approvals/resolve' && req.method === 'POST') {
+          if (!self.deps.companyStore) return Response.json({ error: 'Company store not available' }, { status: 503 })
+          return self.handleResolveApproval(req)
         }
 
         return new Response('Not Found', { status: 404 })
@@ -1182,5 +1205,35 @@ export class WebFrontend {
       const status = /No tmux session/.test(msg) ? 404 : 500
       return Response.json({ error: msg, name }, { status })
     }
+  }
+
+  private async handleResolveApproval(req: Request): Promise<Response> {
+    try {
+      const { id, decision } = (await req.json()) as { id: string; decision: 'approved' | 'denied' }
+      const store = this.deps.companyStore!
+      const a = store.resolveApproval(id, decision)
+      if (a?.dept_id) {
+        const dept = store.getDepartment(a.dept_id)
+        const path = dept ? this.deps.registry.findByName(dept.id) : undefined
+        if (path) {
+          this.deps.socketServer?.sendToSession(path, {
+            type: 'channel_message',
+            content: `[CEO ${decision === 'approved' ? 'APPROVED' : 'DENIED'} approval ${id}]`,
+            meta: { source: 'company', frontend: 'web', user: 'mahdi' },
+          })
+        }
+      }
+      return Response.json({ ok: !!a })
+    } catch (err) {
+      return new Response(String(err), { status: 500 })
+    }
+  }
+
+  // Push an approval request to connected web clients.
+  // The web dashboard uses polling (GET /api/company/approvals) for the
+  // primary flow, so this is a best-effort live push via the existing WS
+  // broadcast mechanism. No new WS path is invented.
+  deliverApprovalRequest(a: Approval): void {
+    this.broadcastToClients({ type: 'company_approval', approval: a })
   }
 }

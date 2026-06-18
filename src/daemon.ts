@@ -306,8 +306,8 @@ socketServer.on('tool_call', async (path: string, name: string, args: Record<str
       const pending = companyStore.listPendingApprovals()
       const appr = pending[pending.length - 1]
       if (appr) {
-        // Approvals are Telegram-only for MVP; web frontend does not surface them.
         telegramFrontend?.deliverApprovalRequest(appr)
+        webFrontend?.deliverApprovalRequest(appr)
       }
     }
     return
@@ -618,6 +618,7 @@ async function start(): Promise<void> {
     personalities,
     decisions,
     messages,
+    companyStore,
   })
   await webFrontend.start()
   process.stderr.write(`hub: web UI at http://localhost:${webFrontend.port}\n`)

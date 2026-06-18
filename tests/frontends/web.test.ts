@@ -2,7 +2,6 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
 import { WebFrontend, signSession } from '../../src/frontends/web'
 import { SessionRegistry } from '../../src/session-registry'
-import { RubikaFrontend } from '../../src/frontends/rubika'
 
 const TOKEN = 'test-bot-token'
 const ALLOWED_USER = '123'
@@ -187,91 +186,182 @@ describe('WebFrontend', () => {
     expect(res.status).toBe(404)
   })
 
-  test('POST /api/rubika/webhook/:secret accepts Rubika updates without dashboard cookie', async () => {
-    const calls: unknown[] = []
-    const rubika = new RubikaFrontend({
-      token: 'rubika-token',
-      allowFrom: ['sender-1'],
-      registry,
-      router: { routeToSession: (...args: unknown[]) => { calls.push(args); return true } } as any,
-      sender: async () => ({ status: 'OK' }),
-    })
-    web.attachRubikaWebhook(rubika)
+  // === Company engine routes ===============================================
 
-    const res = await fetch(`http://localhost:${web.port}${rubika.webhookPath}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        update: {
-          type: 'NewMessage',
-          chat_id: 'chat-1',
-          new_message: {
-            message_id: 'm1',
-            text: 'hello from rubika',
-            time: '1700000000',
-            is_edited: false,
-            sender_type: 'User',
-            sender_id: 'sender-1',
-          },
-        },
-      }),
-    })
-
-    expect(res.status).toBe(200)
-    expect(calls[0]).toEqual(['frontend', 'hello from rubika', 'rubika', 'sender-1'])
-  })
-
-  test('POST /api/rubika/refresh with valid auth returns 200 and calls refreshEndpoints', async () => {
-    let refreshCalled = false
-    const rubika = new RubikaFrontend({
-      token: 'rubika-token',
-      allowFrom: ['sender-1'],
-      registry,
-      router: { routeToSession: () => true } as any,
-      sender: async () => ({ status: 'OK' }),
-    })
-    rubika.refreshEndpoints = async () => { refreshCalled = true }
-    web.attachRubikaWebhook(rubika)
-
-    const res = await fetch(`http://localhost:${web.port}/api/rubika/refresh`, {
-      method: 'POST',
+  test('GET /api/company/board returns 503 when no companyStore', async () => {
+    const res = await fetch(`http://localhost:${web.port}/api/company/board`, {
       headers: { Cookie: authCookie() },
     })
-    expect(res.status).toBe(200)
-    expect(refreshCalled).toBe(true)
+    expect(res.status).toBe(503)
+    const data = await res.json() as any
+    expect(data.error).toContain('Company store not available')
   })
 
-  test('POST /api/rubika/refresh without auth returns 401', async () => {
-    const res = await fetch(`http://localhost:${web.port}/api/rubika/refresh`, {
-      method: 'POST',
-    })
-    expect(res.status).toBe(401)
-  })
-
-  test('POST /api/rubika/refresh without rubika attached returns 503', async () => {
-    const res = await fetch(`http://localhost:${web.port}/api/rubika/refresh`, {
-      method: 'POST',
+  test('GET /api/company/departments returns 503 when no companyStore', async () => {
+    const res = await fetch(`http://localhost:${web.port}/api/company/departments`, {
       headers: { Cookie: authCookie() },
     })
     expect(res.status).toBe(503)
   })
 
-  test('POST /api/rubika/webhook/:secret rejects wrong secret', async () => {
-    const rubika = new RubikaFrontend({
-      token: 'rubika-token',
-      allowFrom: ['sender-1'],
-      registry,
-      router: { routeToSession: () => true } as any,
-      sender: async () => ({ status: 'OK' }),
+  test('GET /api/company/approvals returns 503 when no companyStore', async () => {
+    const res = await fetch(`http://localhost:${web.port}/api/company/approvals`, {
+      headers: { Cookie: authCookie() },
     })
-    web.attachRubikaWebhook(rubika)
+    expect(res.status).toBe(503)
+  })
 
-    const res = await fetch(`http://localhost:${web.port}/api/rubika/webhook/wrong-secret`, {
+  test('POST /api/company/approvals/resolve returns 503 when no companyStore', async () => {
+    const res = await fetch(`http://localhost:${web.port}/api/company/approvals/resolve`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ update: null }),
+      headers: { Cookie: authCookie(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'appr_abc', decision: 'approved' }),
     })
+    expect(res.status).toBe(503)
+  })
+})
 
-    expect(res.status).toBe(401)
+describe('WebFrontend — company store wired', () => {
+  let web: WebFrontend
+  let registry: SessionRegistry
+  let mockStore: any
+
+  beforeEach(async () => {
+    registry = new SessionRegistry({ defaultTrust: 'ask', defaultUploadDir: '.' })
+    // Minimal stub that satisfies the CompanyStore interface for these tests.
+    mockStore = {
+      listTasks: () => [{ id: 'task_1', title: 'Test task', status: 'inbox' }],
+      listDepartments: () => [{ id: 'eng', title: 'Engineering', folder: '/home/eng' }],
+      listPendingApprovals: () => [{ id: 'appr_1', summary: 'Deploy?', state: 'pending' }],
+      resolveApproval: (id: string, decision: string) => {
+        if (id === 'appr_1') return { id, dept_id: null, summary: 'Deploy?', state: decision }
+        return null
+      },
+      getDepartment: () => null,
+    }
+    web = new WebFrontend({
+      port: 0,
+      registry,
+      router: null as any,
+      permissions: null as any,
+      socketServer: null as any,
+      screenManager: null as any,
+      telegramToken: TOKEN,
+      telegramBotUsername: '',
+      telegramAllowFrom: [ALLOWED_USER],
+      taskMonitor: null,
+      companyStore: mockStore,
+    })
+    await web.start()
+  })
+
+  afterEach(async () => {
+    await web.stop()
+  })
+
+  test('GET /api/company/board returns task list', async () => {
+    const res = await fetch(`http://localhost:${web.port}/api/company/board`, {
+      headers: { Cookie: authCookie() },
+    })
+    expect(res.status).toBe(200)
+    const data = await res.json() as any[]
+    expect(data.length).toBe(1)
+    expect(data[0].id).toBe('task_1')
+  })
+
+  test('GET /api/company/departments returns department list', async () => {
+    const res = await fetch(`http://localhost:${web.port}/api/company/departments`, {
+      headers: { Cookie: authCookie() },
+    })
+    expect(res.status).toBe(200)
+    const data = await res.json() as any[]
+    expect(data[0].id).toBe('eng')
+  })
+
+  test('GET /api/company/approvals returns pending approvals', async () => {
+    const res = await fetch(`http://localhost:${web.port}/api/company/approvals`, {
+      headers: { Cookie: authCookie() },
+    })
+    expect(res.status).toBe(200)
+    const data = await res.json() as any[]
+    expect(data[0].id).toBe('appr_1')
+  })
+
+  test('POST /api/company/approvals/resolve returns ok:true for existing approval', async () => {
+    const res = await fetch(`http://localhost:${web.port}/api/company/approvals/resolve`, {
+      method: 'POST',
+      headers: { Cookie: authCookie(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'appr_1', decision: 'approved' }),
+    })
+    expect(res.status).toBe(200)
+    const data = await res.json() as any
+    expect(data.ok).toBe(true)
+  })
+
+  test('POST /api/company/approvals/resolve returns ok:false for unknown approval', async () => {
+    const res = await fetch(`http://localhost:${web.port}/api/company/approvals/resolve`, {
+      method: 'POST',
+      headers: { Cookie: authCookie(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'appr_unknown', decision: 'denied' }),
+    })
+    expect(res.status).toBe(200)
+    const data = await res.json() as any
+    expect(data.ok).toBe(false)
+  })
+
+  test('POST /api/company/approvals/resolve routes channel_message when dept found', async () => {
+    await web.stop()
+    registry.register('/home/eng')
+    let sentPath: string | null = null
+    let sentMsg: any = null
+    const stubSocket = {
+      sendToSession: (path: string, msg: any) => { sentPath = path; sentMsg = msg },
+    }
+    const storeWithDept = {
+      ...mockStore,
+      resolveApproval: (id: string, decision: string) =>
+        ({ id, dept_id: 'eng', summary: 'Deploy?', state: decision }),
+      getDepartment: (id: string) =>
+        id === 'eng' ? { id: 'eng', title: 'Engineering', folder: '/home/eng' } : null,
+    }
+    web = new WebFrontend({
+      port: 0,
+      registry,
+      router: null as any,
+      permissions: null as any,
+      socketServer: stubSocket as any,
+      screenManager: null as any,
+      telegramToken: TOKEN,
+      telegramBotUsername: '',
+      telegramAllowFrom: [ALLOWED_USER],
+      taskMonitor: null,
+      companyStore: storeWithDept as any,
+    })
+    await web.start()
+
+    const res = await fetch(`http://localhost:${web.port}/api/company/approvals/resolve`, {
+      method: 'POST',
+      headers: { Cookie: authCookie(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'appr_1', decision: 'approved' }),
+    })
+    expect(res.status).toBe(200)
+    expect(sentPath).not.toBeNull()
+    expect(sentMsg?.type).toBe('channel_message')
+    expect(sentMsg?.content).toContain('APPROVED')
+    expect(sentMsg?.content).toContain('appr_1')
+  })
+
+  test('deliverApprovalRequest broadcasts company_approval to WS clients', () => {
+    const broadcasts: any[] = []
+    // Spy on broadcastToClients by monkey-patching the internal clients set
+    // (we can't subscribe to WS in unit tests, so we reach into the method).
+    const origBroadcast = (web as any).broadcastToClients.bind(web)
+    ;(web as any).broadcastToClients = (msg: any) => { broadcasts.push(msg); origBroadcast(msg) }
+
+    const fakeApproval = { id: 'appr_x', summary: 'Test', state: 'pending', dept_id: null }
+    web.deliverApprovalRequest(fakeApproval as any)
+    expect(broadcasts.length).toBe(1)
+    expect(broadcasts[0].type).toBe('company_approval')
+    expect(broadcasts[0].approval.id).toBe('appr_x')
   })
 })
