@@ -891,6 +891,167 @@
     body[data-theme="light"] .autopilot-escalate-card .esc-reason { color: #78350f; }
     body[data-theme="light"] .autopilot-escalate-card .esc-question { background: rgba(0,0,0,0.06); border-left-color: #d97706; }
 
+    /* ─── Company section ─── */
+    #company-panel {
+      display: none;
+      flex: 1;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    #company-panel.visible { display: flex; }
+
+    #company-tabs {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid var(--border);
+      background: var(--sidebar);
+      padding: 0 16px;
+    }
+    .company-tab {
+      padding: 10px 16px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-muted);
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      transition: color 0.1s, border-color 0.1s;
+    }
+    .company-tab:hover { color: var(--text); }
+    .company-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    .company-tab-badge {
+      display: inline-block;
+      background: var(--accent);
+      color: #fff;
+      border-radius: 10px;
+      padding: 0px 5px;
+      font-size: 10px;
+      min-width: 16px;
+      text-align: center;
+      margin-left: 5px;
+      vertical-align: middle;
+    }
+
+    .company-subpanel {
+      display: none;
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .company-subpanel.active { display: flex; }
+
+    /* Board status columns */
+    .company-board-group {
+      margin-bottom: 16px;
+    }
+    .company-board-group-heading {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+      padding: 0 2px;
+    }
+    .company-board-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 12px;
+      margin-bottom: 4px;
+    }
+    body[data-theme="light"] .company-board-row { background: rgba(0,0,0,0.02); }
+    .company-board-dept {
+      font-size: 10px;
+      color: var(--text-muted);
+      background: var(--border);
+      border-radius: 4px;
+      padding: 1px 6px;
+      flex-shrink: 0;
+    }
+    .company-board-title { flex: 1; color: var(--text); }
+    .company-board-project { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
+
+    /* Approvals */
+    .company-approval-card {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      background: rgba(255,255,255,0.02);
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+    body[data-theme="light"] .company-approval-card { background: rgba(0,0,0,0.02); }
+    .company-approval-body { flex: 1; min-width: 0; }
+    .company-approval-kind {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--accent);
+      margin-bottom: 3px;
+    }
+    .company-approval-summary { font-size: 13px; color: var(--text); margin-bottom: 4px; }
+    .company-approval-meta { font-size: 11px; color: var(--text-muted); }
+    .company-approval-actions { display: flex; gap: 6px; flex-shrink: 0; }
+    .company-btn-approve {
+      background: #1a3a1a; color: #4caf50; border: 1px solid #4caf50;
+      padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;
+    }
+    .company-btn-approve:hover { background: #2a5a2a; }
+    .company-btn-deny {
+      background: #3a1a1a; color: #f44336; border: 1px solid #f44336;
+      padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;
+    }
+    .company-btn-deny:hover { background: #5a2a2a; }
+
+    /* Departments */
+    .company-dept-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 12px;
+    }
+    body[data-theme="light"] .company-dept-row { background: rgba(0,0,0,0.02); }
+    .company-dept-title { font-weight: 600; font-size: 13px; flex: 1; }
+    .company-dept-id { font-size: 10px; color: var(--text-muted); font-family: ui-monospace, monospace; }
+    .company-dept-status {
+      font-size: 10px; font-weight: 600; text-transform: uppercase;
+      padding: 2px 7px; border-radius: 10px; background: var(--border);
+      color: var(--text-muted); flex-shrink: 0;
+    }
+    .company-dept-status.active { background: #1a3a1a; color: #4caf50; }
+    .company-dept-reports { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
+
+    .company-empty {
+      color: var(--text-muted);
+      font-size: 13px;
+      padding: 32px 0;
+      text-align: center;
+      opacity: 0.6;
+    }
+
+    .company-loading {
+      color: var(--text-muted);
+      font-size: 12px;
+      padding: 16px 0;
+      opacity: 0.6;
+    }
+
     /* Mobile */
     @media (max-width: 768px) {
       #sidebar {
@@ -924,6 +1085,7 @@
     <div id="sidebar-header">
       <span id="hub-title">Claude Code Hub</span>
       <button id="spawn-btn" class="icon-btn primary" title="Spawn a new session" onclick="promptSpawn()">+</button>
+      <button id="company-btn" class="icon-btn" title="Company — board, approvals, departments" onclick="toggleCompanyPanel()">🏢</button>
       <button id="settings-btn" class="icon-btn" title="Autopilot personalities" onclick="openPersonalitiesPanel()">P</button>
       <button id="theme-btn" class="icon-btn" title="Cycle theme (dark)" onclick="cycleTheme()">🎨</button>
     </div>
@@ -951,6 +1113,26 @@
         <pre id="peek-content" style="margin:0; padding:14px; overflow:auto; font-family:ui-monospace, SFMono-Regular, monospace; font-size:12px; line-height:1.4; white-space:pre; color:var(--text); flex:1;">Loading…</pre>
       </div>
     </div>
+    <!-- Company panel — toggled by the 🏢 button; hides the chat view -->
+    <div id="company-panel">
+      <div id="company-tabs">
+        <button class="company-tab active" data-tab="board" onclick="switchCompanyTab('board')">Board</button>
+        <button class="company-tab" data-tab="approvals" onclick="switchCompanyTab('approvals')">Approvals<span id="company-approvals-badge" class="company-tab-badge" style="display:none"></span></button>
+        <button class="company-tab" data-tab="departments" onclick="switchCompanyTab('departments')">Departments</button>
+        <div style="flex:1"></div>
+        <button class="company-tab" style="color:var(--text-muted);" onclick="refreshCompanyPanel()" title="Refresh">↻</button>
+      </div>
+      <div id="company-board" class="company-subpanel active">
+        <div class="company-loading">Loading board…</div>
+      </div>
+      <div id="company-approvals" class="company-subpanel">
+        <div class="company-loading">Loading approvals…</div>
+      </div>
+      <div id="company-departments" class="company-subpanel">
+        <div class="company-loading">Loading departments…</div>
+      </div>
+    </div>
+
     <div id="messages">
       <div id="no-session" style="color: var(--text-muted); margin: auto; opacity: 0.5;">Select a session to start chatting</div>
     </div>
@@ -1161,6 +1343,19 @@
         }
       } else if (msg.type === 'autopilot:escalate') {
         showAutopilotEscalationCard(msg)
+      } else if (msg.type === 'company_approval') {
+        // A new or updated approval arrived — refresh approvals panel and update badge.
+        // If the company panel is visible, reload live; otherwise just bump the badge
+        // so the user notices when they open it.
+        if (_companyVisible) {
+          loadCompanyApprovals()
+          // Also refresh board in case the approval changed a task status
+          loadCompanyBoard()
+        } else {
+          // Increment badge count so user sees a notification
+          _companyApprovalCount += 1
+          updateApprovalBadge()
+        }
       }
     }
 
@@ -2772,6 +2967,319 @@
       localStorage.removeItem('hub_user')
       if (ws) ws.close()
       showLogin()
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // Company section — board / approvals / departments
+    // ═══════════════════════════════════════════════════════
+
+    let _companyVisible = false
+    let _companyActiveTab = 'board'
+    // Track pending approval count for badge
+    let _companyApprovalCount = 0
+
+    function toggleCompanyPanel() {
+      _companyVisible = !_companyVisible
+      const panel = document.getElementById('company-panel')
+      const messages = document.getElementById('messages')
+      const compose = document.getElementById('compose-area')
+      const btn = document.getElementById('company-btn')
+
+      if (_companyVisible) {
+        panel.classList.add('visible')
+        messages.style.display = 'none'
+        if (compose) compose.style.display = 'none'
+        if (btn) btn.style.background = 'color-mix(in srgb, var(--accent) 20%, transparent)'
+        refreshCompanyPanel()
+      } else {
+        panel.classList.remove('visible')
+        messages.style.display = ''
+        // Only restore compose-area if a session is active
+        if (compose && activeSession) compose.style.display = ''
+        if (btn) btn.style.background = ''
+      }
+    }
+
+    function switchCompanyTab(tab) {
+      _companyActiveTab = tab
+      document.querySelectorAll('.company-tab').forEach(el => {
+        el.classList.toggle('active', el.dataset.tab === tab)
+      })
+      document.querySelectorAll('.company-subpanel').forEach(el => {
+        el.classList.toggle('active', el.id === 'company-' + tab)
+      })
+    }
+
+    function refreshCompanyPanel() {
+      loadCompanyBoard()
+      loadCompanyApprovals()
+      loadCompanyDepartments()
+    }
+
+    // ── Board ──────────────────────────────────────────────
+    const BOARD_STATUS_ORDER = ['inbox', 'assigned', 'in_progress', 'blocked', 'needs_approval', 'done']
+    const BOARD_STATUS_LABELS = {
+      inbox: 'Inbox',
+      assigned: 'Assigned',
+      in_progress: 'In Progress',
+      blocked: 'Blocked',
+      needs_approval: 'Needs Approval',
+      done: 'Done',
+    }
+
+    async function loadCompanyBoard() {
+      const el = document.getElementById('company-board')
+      el.innerHTML = '<div class="company-loading">Loading board…</div>'
+      try {
+        const res = await fetch('/api/company/board', { credentials: 'same-origin' })
+        if (!res.ok) {
+          el.innerHTML = `<div class="company-empty">Failed to load board (${res.status})</div>`
+          return
+        }
+        const tasks = await res.json()
+        renderCompanyBoard(el, Array.isArray(tasks) ? tasks : [])
+      } catch (err) {
+        el.innerHTML = `<div class="company-empty">Error: ${escapeHtml(String(err))}</div>`
+      }
+    }
+
+    function renderCompanyBoard(el, tasks) {
+      el.innerHTML = ''
+      if (tasks.length === 0) {
+        el.innerHTML = '<div class="company-empty">Board is empty.</div>'
+        return
+      }
+
+      // Group by status, preserving defined order
+      const groups = {}
+      for (const status of BOARD_STATUS_ORDER) groups[status] = []
+      for (const task of tasks) {
+        const s = task.status || 'inbox'
+        if (!groups[s]) groups[s] = []
+        groups[s].push(task)
+      }
+
+      for (const status of BOARD_STATUS_ORDER) {
+        const items = groups[status]
+        if (!items || items.length === 0) continue
+
+        const group = document.createElement('div')
+        group.className = 'company-board-group'
+
+        const heading = document.createElement('div')
+        heading.className = 'company-board-group-heading'
+        heading.textContent = (BOARD_STATUS_LABELS[status] || status).toUpperCase() + ` (${items.length})`
+        group.appendChild(heading)
+
+        for (const task of items) {
+          const row = document.createElement('div')
+          row.className = 'company-board-row'
+
+          const dept = document.createElement('span')
+          dept.className = 'company-board-dept'
+          dept.textContent = task.dept_id || '—'
+
+          const title = document.createElement('span')
+          title.className = 'company-board-title'
+          title.textContent = task.title || '(untitled)'
+
+          const proj = document.createElement('span')
+          proj.className = 'company-board-project'
+          if (task.project) proj.textContent = task.project
+
+          row.appendChild(dept)
+          row.appendChild(title)
+          row.appendChild(proj)
+          group.appendChild(row)
+        }
+
+        el.appendChild(group)
+      }
+    }
+
+    // ── Approvals ──────────────────────────────────────────
+    async function loadCompanyApprovals() {
+      const el = document.getElementById('company-approvals')
+      el.innerHTML = '<div class="company-loading">Loading approvals…</div>'
+      try {
+        const res = await fetch('/api/company/approvals', { credentials: 'same-origin' })
+        if (!res.ok) {
+          el.innerHTML = `<div class="company-empty">Failed to load approvals (${res.status})</div>`
+          return
+        }
+        const approvals = await res.json()
+        const list = Array.isArray(approvals) ? approvals : []
+        _companyApprovalCount = list.length
+        updateApprovalBadge()
+        renderCompanyApprovals(el, list)
+      } catch (err) {
+        el.innerHTML = `<div class="company-empty">Error: ${escapeHtml(String(err))}</div>`
+      }
+    }
+
+    function updateApprovalBadge() {
+      const badge = document.getElementById('company-approvals-badge')
+      if (!badge) return
+      if (_companyApprovalCount > 0) {
+        badge.textContent = String(_companyApprovalCount)
+        badge.style.display = ''
+      } else {
+        badge.style.display = 'none'
+      }
+    }
+
+    function renderCompanyApprovals(el, approvals) {
+      el.innerHTML = ''
+      if (approvals.length === 0) {
+        el.innerHTML = '<div class="company-empty">No pending approvals.</div>'
+        return
+      }
+
+      for (const approval of approvals) {
+        const card = document.createElement('div')
+        card.className = 'company-approval-card'
+        card.dataset.id = approval.id
+
+        const body = document.createElement('div')
+        body.className = 'company-approval-body'
+
+        const kind = document.createElement('div')
+        kind.className = 'company-approval-kind'
+        kind.textContent = approval.kind || 'approval'
+
+        const summary = document.createElement('div')
+        summary.className = 'company-approval-summary'
+        summary.textContent = approval.summary || ''
+
+        const meta = document.createElement('div')
+        meta.className = 'company-approval-meta'
+        const parts = []
+        if (approval.dept_id) parts.push(`dept: ${approval.dept_id}`)
+        if (approval.requested_at) {
+          try {
+            parts.push(new Date(approval.requested_at).toLocaleString())
+          } catch {}
+        }
+        meta.textContent = parts.join('  ·  ')
+
+        body.appendChild(kind)
+        body.appendChild(summary)
+        body.appendChild(meta)
+
+        const actions = document.createElement('div')
+        actions.className = 'company-approval-actions'
+
+        const approveBtn = document.createElement('button')
+        approveBtn.className = 'company-btn-approve'
+        approveBtn.textContent = 'Approve'
+        approveBtn.onclick = () => resolveApproval(approval.id, 'approved', card)
+
+        const denyBtn = document.createElement('button')
+        denyBtn.className = 'company-btn-deny'
+        denyBtn.textContent = 'Deny'
+        denyBtn.onclick = () => resolveApproval(approval.id, 'denied', card)
+
+        actions.appendChild(approveBtn)
+        actions.appendChild(denyBtn)
+
+        card.appendChild(body)
+        card.appendChild(actions)
+        el.appendChild(card)
+      }
+    }
+
+    async function resolveApproval(id, decision, cardEl) {
+      // Disable buttons immediately to prevent double-click
+      if (cardEl) {
+        cardEl.querySelectorAll('button').forEach(b => { b.disabled = true; b.style.opacity = '0.5' })
+      }
+      try {
+        const res = await fetch('/api/company/approvals/resolve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ id, decision }),
+        })
+        if (res.ok) {
+          if (cardEl) cardEl.remove()
+          _companyApprovalCount = Math.max(0, _companyApprovalCount - 1)
+          updateApprovalBadge()
+          // If the panel is now empty, show the empty state
+          const el = document.getElementById('company-approvals')
+          if (el && el.querySelectorAll('.company-approval-card').length === 0) {
+            el.innerHTML = '<div class="company-empty">No pending approvals.</div>'
+          }
+        } else {
+          const txt = await res.text()
+          alert('Resolve failed: ' + txt)
+          // Re-enable buttons on failure
+          if (cardEl) {
+            cardEl.querySelectorAll('button').forEach(b => { b.disabled = false; b.style.opacity = '' })
+          }
+        }
+      } catch (err) {
+        alert('Resolve failed: ' + err)
+        if (cardEl) {
+          cardEl.querySelectorAll('button').forEach(b => { b.disabled = false; b.style.opacity = '' })
+        }
+      }
+    }
+
+    // ── Departments ────────────────────────────────────────
+    async function loadCompanyDepartments() {
+      const el = document.getElementById('company-departments')
+      el.innerHTML = '<div class="company-loading">Loading departments…</div>'
+      try {
+        const res = await fetch('/api/company/departments', { credentials: 'same-origin' })
+        if (!res.ok) {
+          el.innerHTML = `<div class="company-empty">Failed to load departments (${res.status})</div>`
+          return
+        }
+        const depts = await res.json()
+        renderCompanyDepartments(el, Array.isArray(depts) ? depts : [])
+      } catch (err) {
+        el.innerHTML = `<div class="company-empty">Error: ${escapeHtml(String(err))}</div>`
+      }
+    }
+
+    function renderCompanyDepartments(el, depts) {
+      el.innerHTML = ''
+      if (depts.length === 0) {
+        el.innerHTML = '<div class="company-empty">No departments found.</div>'
+        return
+      }
+
+      for (const dept of depts) {
+        const row = document.createElement('div')
+        row.className = 'company-dept-row'
+
+        const titleWrap = document.createElement('div')
+        titleWrap.style.cssText = 'flex:1;min-width:0;'
+
+        const title = document.createElement('div')
+        title.className = 'company-dept-title'
+        title.textContent = dept.title || dept.id || '(unnamed)'
+
+        const idEl = document.createElement('div')
+        idEl.className = 'company-dept-id'
+        idEl.textContent = dept.id || ''
+
+        titleWrap.appendChild(title)
+        titleWrap.appendChild(idEl)
+
+        const status = document.createElement('span')
+        status.className = 'company-dept-status' + ((dept.status === 'active' || dept.status === 'running') ? ' active' : '')
+        status.textContent = dept.status || '—'
+
+        const reports = document.createElement('span')
+        reports.className = 'company-dept-reports'
+        if (dept.reports_to) reports.textContent = '↑ ' + dept.reports_to
+
+        row.appendChild(titleWrap)
+        row.appendChild(status)
+        row.appendChild(reports)
+        el.appendChild(row)
+      }
     }
 
     // Init
