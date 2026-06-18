@@ -105,8 +105,8 @@ test('loadHubConfig reads autopilot section', () => {
   }
 })
 
-test('loadHubConfig reads rubika section', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'cfg-rubika-'))
+test('loadHubConfig ignores removed third-party channel fields', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cfg-legacy-channel-'))
   try {
     writeFileSync(join(dir, 'config.json'), JSON.stringify({
       webPort: 3000,
@@ -114,18 +114,18 @@ test('loadHubConfig reads rubika section', () => {
       defaultUploadDir: '.',
       telegramToken: '',
       telegramAllowFrom: [],
-      rubikaToken: 'rubika-token',
-      rubikaBotUsername: 'channelhub_bot',
-      rubikaAllowFrom: ['sender-1'],
-      rubikaApiBase: 'https://rubika.example/api',
-      rubikaWebhookBase: 'https://hub.example',
+      legacyChannelToken: 'legacy-token',
+      legacyChannelUsername: 'Operant_bot',
+      legacyChannelAllowFrom: ['sender-1'],
+      legacyChannelApiBase: 'https://legacy.example/api',
+      legacyChannelWebhookBase: 'https://hub.example',
     }))
     const cfg = loadHubConfig(dir)
-    expect(cfg.rubikaToken).toBe('rubika-token')
-    expect(cfg.rubikaBotUsername).toBe('channelhub_bot')
-    expect(cfg.rubikaAllowFrom).toEqual(['sender-1'])
-    expect(cfg.rubikaApiBase).toBe('https://rubika.example/api')
-    expect(cfg.rubikaWebhookBase).toBe('https://hub.example')
+    expect('legacyChannelToken' in cfg).toBe(false)
+    expect('legacyChannelUsername' in cfg).toBe(false)
+    expect('legacyChannelAllowFrom' in cfg).toBe(false)
+    expect('legacyChannelApiBase' in cfg).toBe(false)
+    expect('legacyChannelWebhookBase' in cfg).toBe(false)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

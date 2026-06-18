@@ -7,7 +7,7 @@
 ۱. در روبیکا یا تلگرام، یک Claude session جدید spawn کنید با مسیر این فولدر:
 
 ```
-/spawn interview /home/channelhub/interview-agent
+/spawn interview /home/operant/interview-agent
 ```
 
 ۲. Claude به‌طور خودکار `CLAUDE.md` را می‌خواند و نقش دستیار مصاحبه را می‌گیرد.
@@ -42,7 +42,7 @@ interview-agent/
 
 - فایل کاندیدا را در `candidates/` بازبینی کنید
 - اگر کاندیدا قابل قبول است، تست‌های عملی (بخش ۴.۱ تا ۴.۶ راهنمای استخدام) را برگزار کنید
-- راهنمای کامل استخدام: `/home/channelhub/docs/hiring-guide-fa.md`
+- راهنمای کامل استخدام: `/home/operant/docs/hiring-guide-fa.md`
 
 ## ویرایش سوالات
 

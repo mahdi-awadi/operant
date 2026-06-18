@@ -1,7 +1,7 @@
 // src/browser-controller.ts
 //
 // Owns the lifecycle of a single headless Chromium subprocess that
-// channelhub uses as the shared CDP target for chrome-devtools-mcp.
+// operant uses as the shared CDP target for chrome-devtools-mcp.
 // Auto-starts at daemon boot, restarts on crash with exponential
 // backoff, escalates after repeated failures.
 

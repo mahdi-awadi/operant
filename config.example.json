@@ -2,9 +2,6 @@
   "webPort": 3000,
   "telegramToken": "",
   "telegramAllowFrom": [],
-  "rubikaToken": "",
-  "rubikaAllowFrom": [],
-  "rubikaWebhookBase": "",
   "defaultTrust": "ask",
   "defaultUploadDir": "."
 }

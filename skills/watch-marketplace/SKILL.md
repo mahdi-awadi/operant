@@ -1,12 +1,12 @@
 ---
 name: watch-marketplace
-description: Poll the Anthropic plugin marketplace manifest until "channelhub" appears, then notify the user. Use when waiting for the security review to land — the submission portal shows "Published" before the public manifest is updated.
+description: Poll the Anthropic plugin marketplace manifest until "operant" appears, then notify the user. Use when waiting for the security review to land — the submission portal shows "Published" before the public manifest is updated.
 ---
 
-# Watch the official marketplace for channelhub
+# Watch the official marketplace for operant
 
 The plugin submission shows "Published" in the Anthropic submissions portal,
-but the install command keeps failing because Anthropic must add `channelhub`
+but the install command keeps failing because Anthropic must add `operant`
 to the public manifest at
 `anthropics/claude-plugins-official/.claude-plugin/marketplace.json`.
 
@@ -17,7 +17,7 @@ This skill is the polling loop that catches the moment that lands.
 The user invokes:
 
 ```
-/loop 30m channelhub:watch-marketplace
+/loop 30m operant:watch-marketplace
 ```
 
 (`/loop` is the built-in superpowers skill. `30m` is plenty — manifest deploys
@@ -32,19 +32,19 @@ gh api repos/anthropics/claude-plugins-official/contents/.claude-plugin/marketpl
 import json, sys, datetime
 m = json.load(sys.stdin)
 plugins = m.get('plugins', [])
-hit = next((p for p in plugins if p.get('name') == 'channelhub'), None)
+hit = next((p for p in plugins if p.get('name') == 'operant'), None)
 print('CHECKED', datetime.datetime.now().isoformat(timespec='seconds'),
-      'plugins:', len(plugins), 'channelhub:', 'YES' if hit else 'NO')
+      'plugins:', len(plugins), 'operant:', 'YES' if hit else 'NO')
 if hit: print(json.dumps(hit, indent=2))
 "
 ```
 
 Branch on the result:
 
-- **Plugin not yet listed** — print one line: `still waiting (N plugins, no channelhub yet)`. Reschedule.
+- **Plugin not yet listed** — print one line: `still waiting (N plugins, no operant yet)`. Reschedule.
 - **Plugin listed!** — STOP the loop. Tell the user clearly:
   - The exact entry from the manifest (source path, category)
-  - The install command they can now run: `/plugin install channelhub@claude-plugins-official`
+  - The install command they can now run: `/plugin install operant@claude-plugins-official`
   - That `README.md` and `install.sh` should now be reverted from the
     `--dangerously-load-development-channels` workaround back to the proper
     install path (a follow-up commit for them).

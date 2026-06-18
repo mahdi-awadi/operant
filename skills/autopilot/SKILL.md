@@ -1,11 +1,11 @@
 ---
 name: autopilot
-description: Set up autopilot mode for a channelhub project. Use when the user wants to configure how their project answers questions on their behalf — specifically which preferences the proxy should honor.
+description: Set up autopilot mode for a operant project. Use when the user wants to configure how their project answers questions on their behalf — specifically which preferences the proxy should honor.
 ---
 
 # Autopilot Mode
 
-When a channelhub session is in autopilot mode, the daemon fires `/btw` inside
+When a operant session is in autopilot mode, the daemon fires `/btw` inside
 the session on every user-facing question. The proxy answers using the
 session's own conversation context plus the preferences in `autopilot.md`.
 

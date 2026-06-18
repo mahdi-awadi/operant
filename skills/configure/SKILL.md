@@ -33,7 +33,7 @@ Add to `~/.claude.json`:
   "mcpServers": {
     "hub": {
       "command": "bun",
-      "args": ["run", "/path/to/channelhub/src/shim.ts"]
+      "args": ["run", "/path/to/operant/src/shim.ts"]
     }
   }
 }

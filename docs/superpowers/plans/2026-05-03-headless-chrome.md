@@ -78,7 +78,7 @@ function makeFetchStub(responses: Map<string, () => Response | Promise<Response>
 
 - [ ] **Step 1: Add `playwright` to dependencies**
 
-Edit `/home/channelhub/package.json` — add `"playwright": "^1.48.0"` to `dependencies`. Then:
+Edit `/home/operant/package.json` — add `"playwright": "^1.48.0"` to `dependencies`. Then:
 
 ```bash
 bun install
@@ -111,13 +111,13 @@ Expected: FAIL — module not found.
 
 - [ ] **Step 3: Create the skeleton class**
 
-`/home/channelhub/src/browser-controller.ts`:
+`/home/operant/src/browser-controller.ts`:
 
 ```ts
 // src/browser-controller.ts
 //
 // Owns the lifecycle of a single headless Chromium subprocess that
-// channelhub uses as the shared CDP target for chrome-devtools-mcp.
+// operant uses as the shared CDP target for chrome-devtools-mcp.
 // Auto-starts at daemon boot, restarts on crash with exponential
 // backoff, escalates after repeated failures.
 
@@ -703,7 +703,7 @@ git commit -m "feat(chrome): clear stale SingletonLock at start"
 
 - [ ] **Step 1: Failing test**
 
-Append to `/home/channelhub/tests/config.test.ts`:
+Append to `/home/operant/tests/config.test.ts`:
 
 ```ts
 test('loadHubConfig honors chromeEnabled, chromePort, chromeExecutablePath defaults', () => {
@@ -731,7 +731,7 @@ Run: expect FAIL — fields not on the type.
 
 - [ ] **Step 2: Add config fields**
 
-In `/home/channelhub/src/types.ts`, extend `HubConfig`:
+In `/home/operant/src/types.ts`, extend `HubConfig`:
 
 ```ts
 export type HubConfig = {
@@ -742,7 +742,7 @@ export type HubConfig = {
 }
 ```
 
-In `/home/channelhub/src/config.ts`, in the `loadHubConfig` (or equivalent) result object, pass through the fields:
+In `/home/operant/src/config.ts`, in the `loadHubConfig` (or equivalent) result object, pass through the fields:
 
 ```ts
 chromeEnabled: raw.chromeEnabled,
@@ -849,25 +849,25 @@ git commit -m "feat(chrome): wire BrowserController into daemon start/stop"
 
 - [ ] **Step 1: Add a "Browser (headless Chrome)" section**
 
-Append (or insert in the appropriate spot) the following after the existing "Frontends" section in `/home/channelhub/README.md`:
+Append (or insert in the appropriate spot) the following after the existing "Frontends" section in `/home/operant/README.md`:
 
 ```markdown
 ## Browser (headless Chrome)
 
-ChannelHub auto-spawns a headless Chrome on `127.0.0.1:9222` so Claude
+Operant auto-spawns a headless Chrome on `127.0.0.1:9222` so Claude
 sessions can drive a browser via Google's
 [`chrome-devtools-mcp`](https://github.com/ChromeDevTools/chrome-devtools-mcp).
 
 **One-time setup:**
 
 ```bash
-# In the channelhub repo:
+# In the operant repo:
 bunx playwright install chromium
 
 # Add chrome-devtools-mcp to your ~/.claude.json mcpServers:
 {
   "mcpServers": {
-    "hub": { "command": "bun", "args": ["run", "/path/to/channelhub/src/shim.ts"] },
+    "hub": { "command": "bun", "args": ["run", "/path/to/operant/src/shim.ts"] },
     "chrome": {
       "command": "npx",
       "args": ["-y", "chrome-devtools-mcp", "--browserURL", "http://127.0.0.1:9222"]
@@ -1010,7 +1010,7 @@ git commit -m "ci(chrome): opt-in browser E2E workflow"
 - [ ] **Step 1: Install chromium (one-time)**
 
 ```bash
-cd /home/channelhub
+cd /home/operant
 bunx playwright install chromium
 ```
 

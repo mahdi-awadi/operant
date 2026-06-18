@@ -1,9 +1,9 @@
 ---
 name: restart-daemon
-description: Restart the channelhub hub-daemon tmux session cleanly and verify it came back up. Use when the user asks to restart the daemon, when code changes need to take effect, or when sessions are showing as disconnected and you suspect the daemon is wedged.
+description: Restart the operant hub-daemon tmux session cleanly and verify it came back up. Use when the user asks to restart the daemon, when code changes need to take effect, or when sessions are showing as disconnected and you suspect the daemon is wedged.
 ---
 
-# Restart the channelhub daemon
+# Restart the operant daemon
 
 The hub daemon runs in a tmux session named `hub-daemon`. After any change
 to `src/daemon.ts`, `src/socket-server.ts`, `src/permission-engine.ts`,

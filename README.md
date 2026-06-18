@@ -1,18 +1,17 @@
-# ChannelHub
+# Operant
 
-> ⚠️ **Beta Software** — ChannelHub is in active development. Expect bugs, breaking changes, and rough edges. Bug reports and contributions are welcome. Do not rely on it for critical workflows yet.
+> ⚠️ **Beta Software** — Operant is in active development. Expect bugs, breaking changes, and rough edges. Bug reports and contributions are welcome. Do not rely on it for critical workflows yet.
 
-A multi-session channel plugin for [Claude Code](https://claude.ai/code) that lets you manage all your Claude sessions from one place — Telegram, Rubika, web dashboard, or CLI.
+A multi-session channel plugin for [Claude Code](https://claude.ai/code) that lets you manage all your Claude sessions from one place — Telegram, web dashboard, or CLI.
 
 **The problem:** Claude Code channels are 1:1 — one bot per session. If you run multiple projects, you need multiple bots or keep switching.
 
-**The solution:** ChannelHub runs a single daemon that accepts connections from all your Claude sessions. Send messages, approve permissions, upload files, and spawn agent teams — from one Telegram bot, Rubika bot, or web dashboard.
+**The solution:** Operant runs a single daemon that accepts connections from all your Claude sessions. Send messages, approve permissions, upload files, and spawn agent teams — from one Telegram bot or web dashboard.
 
 ## Features
 
 - **Multi-session management** — all Claude sessions visible in one dashboard
 - **Telegram bot** — send messages, approve permissions, upload photos/documents from your phone
-- **Rubika bot** — text-message routing through a webhook-based MVP frontend
 - **Web dashboard** — real-time chat, permission prompts, session status, file upload
 - **Permission relay** — approve/deny tool use from Telegram or web (native MCP channel protocol)
 - **Agent teams** — spawn teams of Claude instances with shared task coordination
@@ -23,7 +22,7 @@ A multi-session channel plugin for [Claude Code](https://claude.ai/code) that le
 ## How It Works
 
 ```
-You (Telegram / Rubika / Web / CLI)
+You (Telegram / Web / CLI)
        ↓
 Hub Daemon (manages everything)
   ├── Socket Server (Unix socket)
@@ -31,7 +30,6 @@ Hub Daemon (manages everything)
   │     ↕ shim ↔ Claude session B
   │     ↕ shim ↔ Claude session C
   ├── Telegram Bot
-  ├── Rubika Bot
   ├── Web Dashboard
   └── Permission Engine
 ```
@@ -51,23 +49,22 @@ Before installing, make sure you have:
 - **git** — to clone the repository
 - **jq** (recommended) — for automatic config updates
 - **A Telegram bot token** (optional) — create one with [@BotFather](https://t.me/BotFather) if you want the Telegram frontend
-- **A Rubika bot token** (optional) — set `rubikaToken`, `rubikaAllowFrom`, and `rubikaWebhookBase` if you want the Rubika frontend
 
 ## Quick Install
 
 One-liner that handles everything:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mahdi-awadi/channelhub/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/mahdi-awadi/operant/main/install.sh | bash
 ```
 
 This will:
 1. Check prerequisites (install Bun if missing)
-2. Clone ChannelHub to `~/.channelhub`
+2. Clone Operant to `~/.operant`
 3. Install dependencies
 4. Create config template at `~/.claude/channels/hub/config.json`
 5. Register the MCP server in `~/.claude.json`
-6. Install the `channelhub` command to `~/.local/bin`
+6. Install the `operant` command to `~/.local/bin`
 
 ### Configure
 
@@ -78,9 +75,6 @@ Edit `~/.claude/channels/hub/config.json` and add your Telegram token and user I
   "webPort": 3000,
   "telegramToken": "<bot-token-from-botfather>",
   "telegramAllowFrom": ["<your-telegram-user-id>"],
-  "rubikaToken": "",
-  "rubikaAllowFrom": [],
-  "rubikaWebhookBase": "",
   "defaultTrust": "ask",
   "defaultUploadDir": "."
 }
@@ -91,9 +85,9 @@ Get your Telegram user ID by messaging [@userinfobot](https://t.me/userinfobot).
 ### Start
 
 ```bash
-sudo systemctl start channelhub        # Start the daemon
-sudo systemctl status channelhub       # Check if it's running
-tail -f /var/log/channelhub.log        # View daemon logs
+sudo systemctl start operant        # Start the daemon
+sudo systemctl status operant       # Check if it's running
+tail -f /var/log/operant.log        # View daemon logs
 ```
 
 ### Connect Claude Code
@@ -109,15 +103,15 @@ Your session appears in the dashboard at `http://localhost:3000` immediately.
 ### CLI Commands
 
 ```bash
-sudo systemctl start channelhub     # Start daemon
-sudo systemctl stop channelhub      # Stop daemon
-sudo systemctl restart channelhub   # Restart daemon
-sudo systemctl status channelhub    # Status
-tail -f /var/log/channelhub.log     # Tail daemon logs
-channelhub list                     # List sessions
-channelhub send <name> "message"
-channelhub spawn <name> <path>
-channelhub trust <name> auto
+sudo systemctl start operant     # Start daemon
+sudo systemctl stop operant      # Stop daemon
+sudo systemctl restart operant   # Restart daemon
+sudo systemctl status operant    # Status
+tail -f /var/log/operant.log     # Tail daemon logs
+operant list                     # List sessions
+operant send <name> "message"
+operant spawn <name> <path>
+operant trust <name> auto
 ```
 
 ## Manual Install
@@ -125,8 +119,8 @@ channelhub trust <name> auto
 If you prefer to install manually instead of the one-liner:
 
 ```bash
-git clone https://github.com/mahdi-awadi/channelhub.git ~/.channelhub
-cd ~/.channelhub
+git clone https://github.com/mahdi-awadi/operant.git ~/.operant
+cd ~/.operant
 bun install
 
 # Create config
@@ -135,12 +129,12 @@ cp config.example.json ~/.claude/channels/hub/config.json
 $EDITOR ~/.claude/channels/hub/config.json
 
 # Register MCP server — add to ~/.claude.json mcpServers:
-# "hub": { "command": "bun", "args": ["run", "~/.channelhub/src/shim.ts"] }
+# "hub": { "command": "bun", "args": ["run", "~/.operant/src/shim.ts"] }
 
-# Start daemon (systemd; see /etc/systemd/system/channelhub.service)
-sudo systemctl enable --now channelhub
-sudo systemctl status channelhub
-# Logs: /var/log/channelhub.log
+# Start daemon (systemd; see /etc/systemd/system/operant.service)
+sudo systemctl enable --now operant
+sudo systemctl status operant
+# Logs: /var/log/operant.log
 ```
 
 ## Telegram Bot Commands
@@ -159,25 +153,12 @@ sudo systemctl status channelhub
 | `/all <message>` | Broadcast to all sessions |
 | `/verify <name>` | Run the session's verification commands (tests, typecheck, lint) |
 | `/autopilot <name> [on\|off]` | Toggle proxy-answer autopilot mode |
-| `/btw <question>` | Ask a side question to the active session via the `/btw` overlay (also available on Rubika) |
+| `/btw <question>` | Ask a side question to the active session via the `/btw` overlay |
 
 **Message routing:**
 - Plain text goes to your active session
 - `/<session-name> message` targets a specific session
 - Send a photo or document to upload it to the active session's project folder
-
-## Rubika Bot
-
-Rubika support is currently a text-only webhook MVP.
-
-- Configure `rubikaToken` with your Rubika bot token.
-- Set `rubikaAllowFrom` to the Rubika `sender_id` values allowed to use the bot. Empty means deny all.
-- Set `rubikaWebhookBase` to the public HTTPS origin that can reach the web frontend, for example `https://hub.example.com`.
-- The daemon registers `receiveUpdate` with Rubika at `/api/rubika/webhook/<secret>`.
-- Inbound text from an allowed sender routes to that sender's active session, defaulting to the first active session.
-- Claude replies are sent with a `[session]` prefix after an allowed sender has messaged the bot once, which lets ChannelHub learn Rubika's `chat_id`.
-
-Rubika does not yet support ChannelHub commands, permission buttons, autopilot draft buttons, file uploads, or session switching UI.
 
 ### Verification
 
@@ -203,20 +184,20 @@ Access at `http://localhost:<webPort>` (or via reverse proxy).
 
 ## Browser (headless Chrome)
 
-ChannelHub auto-spawns a headless Chrome on `127.0.0.1:9222` so Claude
+Operant auto-spawns a headless Chrome on `127.0.0.1:9222` so Claude
 sessions can drive a browser via Google's
 [`chrome-devtools-mcp`](https://github.com/ChromeDevTools/chrome-devtools-mcp).
 
 **One-time setup:**
 
 ```bash
-# In the channelhub repo:
+# In the operant repo:
 bunx playwright install chromium
 
 # Add chrome-devtools-mcp to your ~/.claude.json mcpServers:
 {
   "mcpServers": {
-    "hub": { "command": "bun", "args": ["run", "/path/to/channelhub/src/shim.ts"] },
+    "hub": { "command": "bun", "args": ["run", "/path/to/operant/src/shim.ts"] },
     "chrome": {
       "command": "npx",
       "args": ["-y", "chrome-devtools-mcp", "--browserURL", "http://127.0.0.1:9222"]
@@ -267,10 +248,6 @@ The hub monitors `~/.claude/tasks/` for agent team task files and displays progr
 | `webPort` | number | 3000 | Web dashboard and API port |
 | `telegramToken` | string | `""` | Bot token from [@BotFather](https://t.me/BotFather) |
 | `telegramAllowFrom` | string[] | `[]` | Telegram user IDs allowed. **Empty = deny all.** The Telegram frontend refuses to start and web auth rejects every login when this list is empty. |
-| `rubikaToken` | string | `""` | Rubika bot token. Empty disables the Rubika frontend. |
-| `rubikaAllowFrom` | string[] | `[]` | Rubika sender IDs allowed. **Empty = deny all.** The Rubika frontend refuses to start when a token is configured without allowed senders. |
-| `rubikaWebhookBase` | string | `""` | Public HTTPS origin where Rubika can POST webhook updates. |
-| `rubikaApiBase` | string | `https://botapi.rubika.ir/v3` | Optional Rubika Bot API base override. |
 | `defaultTrust` | `"ask"` \| `"auto-approve"` | `"ask"` | Default permission mode for new sessions |
 | `defaultUploadDir` | string | `"."` | Upload directory relative to project root |
 | `browseRoot` | string | `$HOME` | Scope for the spawn dialog's directory picker. Set to `"/home"` when the daemon runs as `root` with projects under `/home/*`. |
@@ -298,7 +275,7 @@ HUB_URL=http://localhost:3000 bun run src/cli.ts <command>
 
 ## Security Model
 
-ChannelHub runs as **you** on your own machine and treats anyone who can authenticate as having your shell. Accordingly:
+Operant runs as **you** on your own machine and treats anyone who can authenticate as having your shell. Accordingly:
 
 - **The web server binds to `127.0.0.1` only.** It is not reachable from the LAN. Remote access must go through a reverse proxy or tunnel (see below).
 - **Authentication is cookie-based.** Logging in via the Telegram Login Widget verifies an HMAC and sets an `HttpOnly`, `SameSite=Strict` session cookie signed with your bot token. Every `/api/*` request and WebSocket upgrade requires that cookie; unauthenticated requests return `401`.
@@ -325,7 +302,6 @@ Configure your bot's domain in @BotFather (`/setdomain`) so the Telegram Login W
 - [tmux](https://github.com/tmux/tmux) (for daemon and session management)
 - [Claude Code](https://claude.ai/code) with claude.ai login
 - A Telegram bot token (optional, for Telegram frontend)
-- A Rubika bot token (optional, for Rubika frontend)
 
 ## Autopilot Mode
 
@@ -356,9 +332,9 @@ bun run src/cli.ts    # CLI tool
 
 ## Plugin Status
 
-> **ChannelHub is not yet on the approved marketplace.** During the research preview, custom channels must use `--dangerously-load-development-channels server:hub` to run. This flag bypasses the allowlist check for your specific server entry. Permission relay and all other channel features work normally.
+> **Operant is not yet on the approved marketplace.** During the research preview, custom channels must use `--dangerously-load-development-channels server:hub` to run. This flag bypasses the allowlist check for your specific server entry. Permission relay and all other channel features work normally.
 
-The project is structured as a Claude Code channel plugin and ready to submit to the [official marketplace](https://platform.claude.com/plugins/submit). Once approved, users will be able to install it with `/plugin install channelhub@marketplace` and use `--channels plugin:channelhub@marketplace` without the development flag.
+The project is structured as a Claude Code channel plugin and ready to submit to the [official marketplace](https://platform.claude.com/plugins/submit). Once approved, users will be able to install it with `/plugin install operant@marketplace` and use `--channels plugin:operant@marketplace` without the development flag.
 
 ## License
 

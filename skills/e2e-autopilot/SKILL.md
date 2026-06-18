@@ -56,7 +56,7 @@ You should see `hub: session connected: ${TEST_DIR}:0`.
 
 The `/api/autopilot` endpoint requires a web cookie. For a test, write
 directly to the persisted state and restart the daemon (see
-`channelhub:restart-daemon`):
+`operant:restart-daemon`):
 
 ```bash
 python3 -c "
@@ -74,7 +74,7 @@ with open(p,'w') as f: json.dump(m,f,indent=2)
 "
 ```
 
-Then invoke the `channelhub:restart-daemon` skill.
+Then invoke the `operant:restart-daemon` skill.
 
 ## Run a test prompt
 

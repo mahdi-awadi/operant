@@ -1,13 +1,13 @@
 ---
 name: lookup-docs
-description: Fetch current documentation for libraries used in channelhub (Bun, grammy, MCP SDK, Playwright, bun:sqlite, etc.). Prefer Context7 when installed; fall back to WebFetch against the canonical doc site. Use when the user asks "how does X API work" or you're about to call an unfamiliar library method.
+description: Fetch current documentation for libraries used in operant (Bun, grammy, MCP SDK, Playwright, bun:sqlite, etc.). Prefer Context7 when installed; fall back to WebFetch against the canonical doc site. Use when the user asks "how does X API work" or you're about to call an unfamiliar library method.
 ---
 
 # Look up library documentation
 
 ## Why this exists
 
-Channelhub leans on libraries that move faster than the model's training cut.
+Operant leans on libraries that move faster than the model's training cut.
 Today's debugging hit at least three "is this current?" moments:
 
 - `bun:sqlite` API — added relatively recently, semantics drift

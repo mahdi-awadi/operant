@@ -4,7 +4,7 @@
 
 **Goal:** Add profiles, smart permission classification, drift detection with rules/facts/channel instructions, and subprocess-based verification — all deterministic, no LLM in critical path.
 
-**Architecture:** Profiles are reusable session config bundles stored in `~/.claude/channels/hub/profiles.json`. Sessions reference a profile by name and store only overrides. Permission classification runs pure regex (no LLM). Drift detection is regex-only and advisory (notifies user, never auto-injects). Verification runs subprocess commands triggered by a sentinel phrase. Sidecar Claude (`claude --print`) is opt-in and limited to rare tasks.
+**Architecture:** Profiles are reusable session config bundles stored in `~/.claude/channels/hub/profiles.json`. Sessions reference a profile by name and store only overrides. Permission classification runs pure regex (no LLM). Drift detection is regex-only and advisory (notifies user, never auto-injects). Verification runs subprocess commands triggered by a sentinel phrase. Any sidecar helper is opt-in and limited to rare tasks.
 
 **Tech Stack:** Bun, TypeScript (existing). Zero new runtime dependencies — pure Node/Bun stdlib for the new functionality.
 
@@ -30,7 +30,7 @@ src/
   profiles.ts            # NEW — Profile type, load/save, apply, resolve, built-ins, injection
   analysis.ts            # NEW — classify() and detectDrift() pure functions
   verification.ts        # NEW — subprocess runner, project probing, sentinel detection
-  sidecar.ts             # NEW — optional claude --print wrapper (1d only)
+  sidecar.ts             # NEW — optional sidecar helper (1d only)
   permission-engine.ts   # EXTEND — use classifier, honor new trust levels
   message-router.ts      # EXTEND — inject context via profiles module
   session-registry.ts    # EXTEND — profile reference + overrides resolution
@@ -3767,7 +3767,7 @@ describe('sidecar', () => {
 Create `src/sidecar.ts`:
 
 ```typescript
-// src/sidecar.ts — optional, opt-in claude --print wrapper
+// src/sidecar.ts — optional, opt-in sidecar helper
 import { spawn } from 'child_process'
 import { execSync } from 'child_process'
 
@@ -3838,7 +3838,7 @@ bun test tests/sidecar.test.ts 2>&1 | tail -5
 
 ```bash
 git add src/sidecar.ts tests/sidecar.test.ts
-git commit -m "feat(sidecar): optional claude --print wrapper for summarization"
+git commit -m "feat(sidecar): optional summarization helper"
 ```
 
 ---

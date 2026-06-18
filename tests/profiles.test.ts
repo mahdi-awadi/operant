@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
 import { mkdirSync, rmSync } from 'fs'
 import { join } from 'path'
-import { loadProfiles, saveProfiles, getProfile, BUILTIN_PROFILES, applyProfile, resolveSession, injectContext } from '../src/profiles'
+import { loadProfiles, saveProfiles, getProfile, BUILTIN_PROFILES, DEFAULT_CHANNEL_INSTRUCTIONS, applyProfile, resolveSession, injectContext } from '../src/profiles'
 import type { Profile } from '../src/types'
 
 const TEST_DIR = join(import.meta.dir, '.test-profiles')
@@ -198,12 +198,8 @@ describe('profiles', () => {
       expect(result).not.toContain('You are replying on Telegram mobile')
     })
 
-    test('prepends channel instructions for rubika', () => {
-      const effective = resolveSession({}, [])
-      const result = injectContext('fix the bug', 'rubika', effective)
-      expect(result).toContain('[Channel:')
-      expect(result).toContain('Rubika')
-      expect(result).toContain('fix the bug')
+    test('default channel instructions only include supported frontends', () => {
+      expect(Object.keys(DEFAULT_CHANNEL_INSTRUCTIONS).sort()).toEqual(['cli', 'telegram', 'web'])
     })
   })
 })

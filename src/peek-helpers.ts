@@ -1,5 +1,5 @@
 // src/peek-helpers.ts
-// Shared helpers for the /peek command across Telegram, Rubika, and Web
+// Shared helpers for the /peek command across Telegram and Web
 // frontends. Pure functions only — no I/O.
 
 // Strip ANSI escape codes (CSI + OSC + misc single-char) so terminal capture

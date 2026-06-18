@@ -16,6 +16,7 @@ d('BrowserController (real Chrome)', () => {
     const probe = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response('') })
     const port = probe.port
     probe.stop()
+    if (port === undefined) throw new Error('failed to allocate browser test port')
 
     const ctrl = new BrowserController({ port, profileDir: tmp, executablePath: exec })
     try {

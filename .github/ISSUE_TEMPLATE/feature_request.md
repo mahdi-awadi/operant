@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Suggest an idea for ChannelHub
+about: Suggest an idea for Operant
 title: '[FEATURE] '
 labels: enhancement
 ---

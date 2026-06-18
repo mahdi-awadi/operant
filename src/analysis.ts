@@ -15,8 +15,8 @@ const SILENT_TOOLS = new Set([
   // Hub's own channel egress — these ARE the reply mechanism, never gate them.
   'mcp__hub__reply',
   'mcp__hub__edit_message',
-  'mcp__channelhub__reply',
-  'mcp__channelhub__edit_message',
+  'mcp__operant__reply',
+  'mcp__operant__edit_message',
 ])
 
 // Dangerous command patterns — conservative, high-confidence only

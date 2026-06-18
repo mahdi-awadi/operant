@@ -5,7 +5,7 @@ Multi-session Claude Code channel plugin with Web dashboard, Telegram bot, and C
 ## Architecture
 
 ```
-Hub Daemon (long-running, systemd: channelhub.service)
+Hub Daemon (long-running, systemd: operant.service)
   ├── Socket Server (Unix: ~/.claude/channels/hub/hub.sock)
   │     ↕ shim processes (one per Claude Code session)
   ├── Web Dashboard (configurable port, Telegram login)
@@ -15,7 +15,7 @@ Hub Daemon (long-running, systemd: channelhub.service)
 ```
 
 Two layers:
-- **Daemon** — single process managing everything. Runs as a systemd service (`channelhub.service`); logs to `/var/log/channelhub.log`.
+- **Daemon** — single process managing everything. Runs as a systemd service (`operant.service`); logs to `/var/log/operant.log`.
 - **Shim** — tiny MCP bridge per Claude session. Claude launches it via `--channels server:hub`
 
 ## Quick Start
@@ -35,7 +35,7 @@ EOF
 ```
 
 ### 2. Start the daemon
-The daemon runs as a systemd service. Unit file lives at `/etc/systemd/system/channelhub.service`:
+The daemon runs as a systemd service. Unit file lives at `/etc/systemd/system/operant.service`:
 
 ```ini
 [Unit]
@@ -45,13 +45,13 @@ After=network.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/home/channelhub
-ExecStart=/root/.bun/bin/bun run /home/channelhub/src/daemon.ts
+WorkingDirectory=/home/operant
+ExecStart=/root/.bun/bin/bun run /home/operant/src/daemon.ts
 Restart=always
 RestartSec=2
 KillMode=process
-StandardOutput=append:/var/log/channelhub.log
-StandardError=append:/var/log/channelhub.log
+StandardOutput=append:/var/log/operant.log
+StandardError=append:/var/log/operant.log
 Environment=PATH=/root/.bun/bin:/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Environment=HOME=/root
 
@@ -61,10 +61,10 @@ WantedBy=multi-user.target
 
 Manage it with:
 ```bash
-systemctl start channelhub        # start
-systemctl restart channelhub      # bounce after code changes
-systemctl status channelhub       # check state
-tail -f /var/log/channelhub.log   # tail logs
+systemctl start operant        # start
+systemctl restart operant      # bounce after code changes
+systemctl status operant       # check state
+tail -f /var/log/operant.log   # tail logs
 ```
 
 ### 3. Connect Claude Code (from any project)
@@ -76,7 +76,7 @@ claude --dangerously-load-development-channels server:hub
 The `server:hub` name is configured in `~/.claude.json` under `mcpServers.hub`.
 
 ### Attach to spawned sessions
-Daemon logs go to `/var/log/channelhub.log` (not tmux). Spawned Claude sessions still run in tmux:
+Daemon logs go to `/var/log/operant.log` (not tmux). Spawned Claude sessions still run in tmux:
 ```bash
 tmux attach -t hub-<session-name> # spawned session
 ```
@@ -172,7 +172,7 @@ Supports `CLAUDE_PLUGIN_DATA` env var for plugin-managed data persistence.
   "mcpServers": {
     "hub": {
       "command": "bun",
-      "args": ["run", "/path/to/channelhub/src/shim.ts"]
+      "args": ["run", "/path/to/operant/src/shim.ts"]
     }
   }
 }
@@ -238,7 +238,7 @@ tests/
 - **Reconnect reuses slots** — disconnected sessions are reclaimed, no duplicates.
 - **Telegram `allowFrom`** controls both bot access and web login.
 - **Web login** via Telegram Login Widget, verified server-side with HMAC-SHA256.
-- **Daemon runs as systemd service** (`channelhub.service`) — auto-restarts on failure, logs to `/var/log/channelhub.log`. Bounce with `systemctl restart channelhub` after code changes.
+- **Daemon runs as systemd service** (`operant.service`) — auto-restarts on failure, logs to `/var/log/operant.log`. Bounce with `systemctl restart operant` after code changes.
 - **Prompt tags** appended as `[Instructions: ...]` to messages.
 - **Spawn auto-confirms** dev channels warning via `tmux send-keys Enter` (only needed until plugin is approved).
 - **Verification runner** — `src/verification.ts` spawns `bash -c "<cmd>"` per profile-defined command with a 120s timeout, CWD set to the session's project path, `CI=true` in env. Single concurrent run per session; silent on success; 20-line tail on failure.
@@ -248,11 +248,11 @@ tests/
 
 ```bash
 bun test                       # Run all tests
-bun run src/daemon.ts          # Start daemon manually (in production: systemctl restart channelhub)
+bun run src/daemon.ts          # Start daemon manually (in production: systemctl restart operant)
 bun run src/shim.ts            # Shim (launched by Claude, not manually)
 bun run src/cli.ts             # CLI tool
-systemctl restart channelhub   # Bounce daemon to pick up code changes
-tail -f /var/log/channelhub.log
+systemctl restart operant   # Bounce daemon to pick up code changes
+tail -f /var/log/operant.log
 ```
 
 ## Tech Stack

@@ -1,6 +1,6 @@
 ---
 name: e2e-web
-description: Run Playwright browser tests against the channelhub web dashboard. Use when validating UI changes (kebab menu, autopilot toggle, escalation card, settings panels) — the SPA has zero coverage from bun:test alone.
+description: Run Playwright browser tests against the operant web dashboard. Use when validating UI changes (kebab menu, autopilot toggle, escalation card, settings panels) — the SPA has zero coverage from bun:test alone.
 ---
 
 # Browser-level E2E for the dashboard

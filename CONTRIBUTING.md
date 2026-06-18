@@ -1,6 +1,6 @@
-# Contributing to ChannelHub
+# Contributing to Operant
 
-Thanks for your interest in contributing! This document describes the workflow for working on ChannelHub.
+Thanks for your interest in contributing! This document describes the workflow for working on Operant.
 
 ## Branches
 
@@ -85,7 +85,7 @@ Open an issue with:
 - Your OS and Bun version
 - Steps to reproduce
 - Expected vs actual behavior
-- Relevant daemon logs (`~/.channelhub/` tmux session)
+- Relevant daemon logs (`~/.operant/` tmux session)
 
 ## Security
 

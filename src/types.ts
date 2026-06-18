@@ -9,7 +9,7 @@ export type SessionStatus = 'active' | 'disconnected' | 'respawning'
 
 export type Category = 'silent' | 'logged' | 'review' | 'dangerous'
 
-export type FrontendSource = 'telegram' | 'web' | 'cli' | 'rubika'
+export type FrontendSource = 'telegram' | 'web' | 'cli'
 
 export type ChannelOverrides = Partial<Record<FrontendSource, string>>
 
@@ -87,16 +87,6 @@ export type HubConfig = {
   telegramToken: string
   telegramBotUsername?: string
   telegramAllowFrom: string[]
-  // Rubika is Telegram-shaped at the product level (Iranian messenger) but the
-  // bot wire format diverges. Token from Rubika's @BotFather; allowFrom is a
-  // list of Rubika sender_ids permitted to talk to this bot. Empty = deny-all
-  // (matches the telegramAllowFrom safety policy).
-  rubikaToken?: string
-  rubikaBotUsername?: string               // cosmetic — used in logs and future @-prefix command parsing (mirrors telegramBotUsername)
-  rubikaAllowFrom?: string[]
-  rubikaApiBase?: string                   // default "https://botapi.rubika.ir/v3"
-  rubikaWebhookBase?: string               // public origin where Rubika should POST updates, e.g. "https://hub.tech-gate.online"
-  rubikaPollingMs?: number                 // getUpdates polling interval ms; undefined = default 2000; set to 0 to disable
   defaultTrust: TrustLevel
   defaultUploadDir: string
   autopilot?: Partial<AutopilotDefaults>   // optional overrides of DEFAULT_AUTOPILOT_DEFAULTS
@@ -153,5 +143,3 @@ export function migrateTrustLevel(value: string): TrustLevel {
   }
   return 'ask' // default fallback
 }
-
-export type { RubikaInlineMessageBody } from './frontends/rubika'

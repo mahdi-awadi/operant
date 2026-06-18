@@ -1,5 +1,5 @@
 // playwright.config.ts
-// Browser-level tests for the channelhub web dashboard. Each test boots an
+// Browser-level tests for the operant web dashboard. Each test boots an
 // isolated WebFrontend on a random port (see tests/e2e/test-server.ts), so
 // runs are hermetic — no daemon, no real Claude, no shared state.
 //

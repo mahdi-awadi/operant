@@ -190,4 +190,4 @@ When scoring at the end, use the hiring guide criteria:
 
 ## Reference
 
-The full hiring guide lives at `/home/channelhub/docs/hiring-guide-fa.md`. The 18 conversational questions in `questions.md` are extracted from sections 3.1–3.4 of that guide. Sections 4.1–4.4 (practical tests) are **not** part of this conversational flow — they're done separately with materials in front of the candidate.
+The full hiring guide lives at `/home/operant/docs/hiring-guide-fa.md`. The 18 conversational questions in `questions.md` are extracted from sections 3.1–3.4 of that guide. Sections 4.1–4.4 (practical tests) are **not** part of this conversational flow — they're done separately with materials in front of the candidate.

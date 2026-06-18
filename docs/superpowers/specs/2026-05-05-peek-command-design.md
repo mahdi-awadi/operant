@@ -5,7 +5,7 @@
 
 ## Problem
 
-The hub frontends (Telegram, Rubika, Web) only see what flows through the MCP channel — Claude's actual terminal UI (slash commands, Ink overlays, autopilot output, /btw responses, error banners) is invisible. The user needs a way to peek at the live tmux pane from any frontend.
+The hub frontends (Telegram and Web) only see what flows through the MCP channel — Claude's actual terminal UI (slash commands, Ink overlays, autopilot output, /btw responses, error banners) is invisible. The user needs a way to peek at the live tmux pane from any frontend.
 
 ## Solution
 
@@ -13,7 +13,7 @@ Add a /peek operation that runs `tmux capture-pane` against a hub session and re
 
 ### Surface per frontend
 
-- **Telegram + Rubika:** chat command `/peek [name] [lines]`. With no name, uses the per-user active session. Default 80 lines, max 500.
+- **Telegram:** chat command `/peek [name] [lines]`. With no name, uses the per-user active session. Default 80 lines, max 500.
 - **Web:** button in the chat header (next to the existing "tmux attach" copy chip). Click fetches `GET /api/peek/<name>?lines=80` and shows the captured pane in a modal `<pre>` block.
 
 ### Backend
@@ -30,7 +30,7 @@ Implementation: `tmux capture-pane -t <name> -p -S -<lines>`.
 
 ### Output truncation
 
-Telegram message limit is 4096 chars; Rubika is similar. Truncate captured text to ~3500 chars from the tail (most recent). Web has no message limit but caps at 500 lines for display sanity.
+Telegram message limit is 4096 chars. Truncate captured text to ~3500 chars from the tail (most recent). Web has no message limit but caps at 500 lines for display sanity.
 
 ### Errors
 
@@ -41,19 +41,16 @@ Telegram message limit is 4096 chars; Rubika is similar. Truncate captured text 
 ### Auth
 
 - Telegram: same allowlist as other commands (existing middleware).
-- Rubika: same access policy as other commands.
 - Web: Telegram-login session required (existing middleware); the `/api/peek` route checks session before invoking ScreenManager.
 
 ## Files
 
 - `src/screen-manager.ts` — add `capturePaneWithScrollback`.
 - `src/frontends/telegram.ts` — register `/peek` command.
-- `src/frontends/rubika.ts` — register `/peek` command in command dispatcher.
 - `src/frontends/web.ts` — add `GET /api/peek/:name`.
 - `src/frontends/web-client.html` — add Peek button + modal.
 - `tests/screen-manager.test.ts` (new) or extend existing tests — cover the helper.
 - `tests/frontends/telegram.test.ts` — `/peek` command parsing.
-- `tests/frontends/rubika.test.ts` — `/peek` command parsing.
 - `tests/frontends/web.test.ts` — `/api/peek` route.
 
 ## Out of scope

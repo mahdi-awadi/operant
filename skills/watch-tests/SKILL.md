@@ -10,7 +10,7 @@ Two flavors. Pick based on what's changing.
 ## Fast loop — bun:test only (default)
 
 ```
-/loop 5m channelhub:watch-tests
+/loop 5m operant:watch-tests
 ```
 
 Each tick:
@@ -28,7 +28,7 @@ bun test 2>&1 | tail -5
 For UI work where you want both layers verified:
 
 ```
-/loop 15m channelhub:watch-tests with-e2e
+/loop 15m operant:watch-tests with-e2e
 ```
 
 Each tick:

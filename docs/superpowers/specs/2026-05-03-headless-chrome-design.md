@@ -6,7 +6,7 @@
 
 ## 1. Goal
 
-Add a daemon-managed headless Chrome instance to channelhub so Claude
+Add a daemon-managed headless Chrome instance to operant so Claude
 sessions can drive a browser (navigate, click, screenshot, evaluate, network
 inspect, perf trace) via Google's [`chrome-devtools-mcp`][cdm]. Chrome runs
 co-located with the daemon, exposes its CDP endpoint on `127.0.0.1:9222`,
@@ -27,7 +27,7 @@ In:
 - Persistent profile at `~/.claude/channels/hub/chrome-profile/` (cookies,
   IndexedDB, logged-in state survive crashes and daemon restarts). Incognito
   tabs available via chrome-devtools-mcp's existing isolation flag — no
-  channelhub plumbing needed.
+  operant plumbing needed.
 - README setup section: install Playwright's bundled Chromium with
   `bunx playwright install chromium`; example `~/.claude.json` mcpServers
   entry for the `chrome` server.
@@ -142,7 +142,7 @@ The README documents adding this block to `~/.claude.json`:
 ```json
 {
   "mcpServers": {
-    "hub": { "command": "bun", "args": ["run", "/path/to/channelhub/src/shim.ts"] },
+    "hub": { "command": "bun", "args": ["run", "/path/to/operant/src/shim.ts"] },
     "chrome": {
       "command": "npx",
       "args": ["-y", "chrome-devtools-mcp", "--browserURL", "http://127.0.0.1:9222"]
@@ -215,7 +215,6 @@ SIGINT/SIGTERM on daemon
        saveSessions(...)
        webFrontend.stop()
        telegramFrontend.stop()
-       rubikaFrontend.stop()
        browser.stop()        ← new
   → browser.stop() sends SIGTERM → waits 5s → SIGKILL if needed
 ```

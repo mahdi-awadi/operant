@@ -91,7 +91,7 @@ function startStubMcpServer(): void {
   // Keeps Claude happy (the MCP server it configured exists) but does not
   // connect to the daemon — so this Claude instance is invisible to the hub.
   const mcp = new Server(
-    { name: 'channelhub', version: '0.1.0' },
+    { name: 'operant', version: '0.1.0' },
     { capabilities: { tools: {}, experimental: { 'claude/channel': {} } } },
   )
   mcp.connect(new StdioServerTransport()).catch(() => {})
@@ -127,7 +127,7 @@ function main() {
   const pendingToolCalls = new Map<string, (result: ReturnType<typeof buildMcpToolResult>) => void>()
 
   const mcp = new Server(
-    { name: 'channelhub', version: '0.1.0' },
+    { name: 'operant', version: '0.1.0' },
     {
       capabilities: {
         tools: {},
@@ -178,13 +178,13 @@ function main() {
       {
         name: 'list_sessions',
         description:
-          'List all channelhub sessions currently registered in the hub. Use this BEFORE send_to_session to discover the exact display names of peer sessions — the user often refers to teammates by shorthand (e.g. "team 2" or "leader") that does not match the registry. Returns each session\'s name, status (active/disconnected/respawning), folder path, teamIndex, and a self flag marking the calling session. Takes no arguments.',
+          'List all operant sessions currently registered in the hub. Use this BEFORE send_to_session to discover the exact display names of peer sessions — the user often refers to teammates by shorthand (e.g. "team 2" or "leader") that does not match the registry. Returns each session\'s name, status (active/disconnected/respawning), folder path, teamIndex, and a self flag marking the calling session. Takes no arguments.',
         inputSchema: { type: 'object', properties: {} },
       },
       {
         name: 'send_to_session',
         description:
-          'Send a message to ANOTHER channelhub session in the registry. Use this to delegate work to a teammate (peer hub session in the same or different folder) WITHOUT going through the user. The recipient must be identified by EXACT registry name — call list_sessions first if the user used a shorthand or you are unsure of the precise name. Returns ok=true if the recipient was found and active, or ok=false with a reason otherwise.',
+          'Send a message to ANOTHER operant session in the registry. Use this to delegate work to a teammate (peer hub session in the same or different folder) WITHOUT going through the user. The recipient must be identified by EXACT registry name — call list_sessions first if the user used a shorthand or you are unsure of the precise name. Returns ok=true if the recipient was found and active, or ok=false with a reason otherwise.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -253,7 +253,7 @@ function main() {
         process.exit(1)
         break
       case 'channel_message': {
-        const annotated = `${msg.content}\n\n[hub] You must respond using the channelhub reply tool — do NOT just type your answer. Plain text in this terminal is not visible to the user; only the reply tool routes back to the frontend.`
+        const annotated = `${msg.content}\n\n[hub] You must respond using the operant reply tool — do NOT just type your answer. Plain text in this terminal is not visible to the user; only the reply tool routes back to the frontend.`
         mcp.notification({
           method: 'notifications/claude/channel',
           params: { content: annotated, meta: msg.meta },

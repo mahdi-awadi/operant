@@ -2,17 +2,17 @@
 
 **Status:** Draft
 **Date:** 2026-04-24
-**Author:** Mahdi (with Claude, brainstorming via channelhub session)
+**Author:** Mahdi (with Claude, brainstorming via operant session)
 
 ## Goal
 
-Let a channelhub session run unattended. When the main Claude asks the user a decision question ("Option A or Option B?"), an in-process AI proxy picks the answer on the user's behalf — based on the session's own conversation context — and delivers it back to the main session through the existing MCP channel pipe. The user is only pinged for decisions that are irreversible, out of scope, or explicitly escalated.
+Let a operant session run unattended. When the main Claude asks the user a decision question ("Option A or Option B?"), an in-process AI proxy picks the answer on the user's behalf — based on the session's own conversation context — and delivers it back to the main session through the existing MCP channel pipe. The user is only pinged for decisions that are irreversible, out of scope, or explicitly escalated.
 
 The user keeps a subscription-funded loop running end-to-end without being in the chair.
 
 ## Why this design
 
-The main session has already accumulated the richest possible understanding of the project — it has read files, made edits, run tests, and conversed about trade-offs. Any external proxy (a fresh `claude -p`, a separate delegate session, an Anthropic SDK call) has to rebuild that context from scratch.
+The main session has already accumulated the richest possible understanding of the project — it has read files, made edits, run tests, and conversed about trade-offs. Any external proxy (a separate delegate session or Anthropic SDK call) has to rebuild that context from scratch.
 
 Claude Code ships a built-in primitive that exactly matches the job: `/btw`. It is an in-process, single-turn, tool-less forked API call that reuses the current session's conversation messages (`forkContextMessages`) without mutating history or cache. It is the right brain for the job.
 
@@ -48,7 +48,7 @@ The daemon falls back to pinging the user on Telegram/Web when:
 - The `/btw` call times out, the overlay fails to parse, or tmux capture fails twice in a row
 - The session has been in autopilot for longer than `autopilot.maxDurationMinutes` without a human checkpoint
 
-When escalated, the session's badge flips to 🟡 and a standard channelhub message prompt is sent to the user. The user's answer flows through the existing pipe unchanged.
+When escalated, the session's badge flips to 🟡 and a standard operant message prompt is sent to the user. The user's answer flows through the existing pipe unchanged.
 
 ### Veto window (optional, on by default)
 

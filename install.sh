@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# ChannelHub installer — gold standard one-liner install
+# Operant installer — gold standard one-liner install
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/mahdi-awadi/channelhub/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/mahdi-awadi/operant/main/install.sh | bash
 # Or:
 #   ./install.sh
 
@@ -16,8 +16,8 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 # Config
-REPO="mahdi-awadi/channelhub"
-INSTALL_DIR="${CHANNELHUB_DIR:-$HOME/.channelhub}"
+REPO="mahdi-awadi/operant"
+INSTALL_DIR="${OPERANT_DIR:-$HOME/.operant}"
 CONFIG_DIR="${CLAUDE_PLUGIN_DATA:-$HOME/.claude/channels/hub}"
 CLAUDE_CONFIG="$HOME/.claude.json"
 
@@ -29,7 +29,7 @@ die() { err "$*"; exit 1; }
 
 # ─── Header ──────────────────────────────────────────────────────────────────
 echo ""
-echo -e "${BOLD}ChannelHub Installer${NC}"
+echo -e "${BOLD}Operant Installer${NC}"
 echo "Multi-session channel plugin for Claude Code"
 echo ""
 
@@ -75,7 +75,7 @@ ok "tmux: $(tmux -V)"
 # 5. Check Claude Code
 if ! command -v claude >/dev/null 2>&1; then
   warn "Claude Code CLI not found. Install from: https://claude.ai/code"
-  echo "  (You can still install ChannelHub; set up Claude later)"
+  echo "  (You can still install Operant; set up Claude later)"
 fi
 
 # 6. Check jq (optional, used for config edits)
@@ -90,7 +90,7 @@ fi
 echo ""
 
 # ─── Clone / Update ──────────────────────────────────────────────────────────
-log "Installing ChannelHub to $INSTALL_DIR"
+log "Installing Operant to $INSTALL_DIR"
 
 if [ -d "$INSTALL_DIR/.git" ]; then
   ok "Existing install found, updating..."
@@ -163,20 +163,20 @@ EOF
 fi
 
 # ─── Install CLI ─────────────────────────────────────────────────────────────
-log "Installing channelhub command"
+log "Installing operant command"
 BIN_DIR="$HOME/.local/bin"
 mkdir -p "$BIN_DIR"
 
-cat > "$BIN_DIR/channelhub" << EOF
+cat > "$BIN_DIR/operant" << EOF
 #!/usr/bin/env bash
-# ChannelHub CLI wrapper
+# Operant CLI wrapper
 INSTALL_DIR="$INSTALL_DIR"
 
 case "\${1:-}" in
   start)
     tmux kill-session -t hub-daemon 2>/dev/null || true
     tmux new-session -d -s hub-daemon "bun run \$INSTALL_DIR/src/daemon.ts"
-    echo "ChannelHub daemon started (tmux session: hub-daemon)"
+    echo "Operant daemon started (tmux session: hub-daemon)"
     ;;
   stop)
     tmux kill-session -t hub-daemon 2>/dev/null && echo "Stopped" || echo "Not running"
@@ -202,7 +202,7 @@ case "\${1:-}" in
     ;;
   update)
     cd "\$INSTALL_DIR" && git pull && bun install --no-summary
-    echo "Updated. Run 'channelhub restart' to apply."
+    echo "Updated. Run 'operant restart' to apply."
     ;;
   *)
     # Pass through to the hub CLI tool
@@ -210,8 +210,8 @@ case "\${1:-}" in
     ;;
 esac
 EOF
-chmod +x "$BIN_DIR/channelhub"
-ok "Installed: $BIN_DIR/channelhub"
+chmod +x "$BIN_DIR/operant"
+ok "Installed: $BIN_DIR/operant"
 
 # Check if BIN_DIR is in PATH
 if ! echo "$PATH" | grep -q "$BIN_DIR"; then
@@ -222,7 +222,7 @@ fi
 
 # ─── Done ────────────────────────────────────────────────────────────────────
 echo ""
-echo -e "${GREEN}${BOLD}✓ ChannelHub installed successfully${NC}"
+echo -e "${GREEN}${BOLD}✓ Operant installed successfully${NC}"
 echo ""
 echo -e "${BOLD}Next steps:${NC}"
 echo ""
@@ -232,7 +232,7 @@ echo "     - Get your user ID from @userinfobot"
 echo "     - Edit: $CONFIG_DIR/config.json"
 echo ""
 echo "  2. Start the daemon:"
-echo "     ${BLUE}channelhub start${NC}"
+echo "     ${BLUE}operant start${NC}"
 echo ""
 echo "  3. Connect Claude Code (from any project):"
 echo "     ${BLUE}claude --dangerously-load-development-channels server:hub${NC}"
@@ -241,11 +241,11 @@ echo "  4. Open the web dashboard:"
 echo "     ${BLUE}http://localhost:3000${NC}"
 echo ""
 echo -e "${BOLD}Commands:${NC}"
-echo "  channelhub start    # Start daemon"
-echo "  channelhub stop     # Stop daemon"
-echo "  channelhub status   # Check status"
-echo "  channelhub attach   # View daemon logs"
-echo "  channelhub update   # Update to latest"
-echo "  channelhub list     # List sessions"
+echo "  operant start    # Start daemon"
+echo "  operant stop     # Stop daemon"
+echo "  operant status   # Check status"
+echo "  operant attach   # View daemon logs"
+echo "  operant update   # Update to latest"
+echo "  operant list     # List sessions"
 echo ""
 echo "Documentation: https://github.com/$REPO"

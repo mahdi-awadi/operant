@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build autopilot mode for channelhub sessions — when Claude sends a decision question, the daemon fires `/btw <wrapped-question>` into the session's tmux pane, parses the answer from the Ink overlay, and routes it back through the existing channel pipe so the session resumes without a human in the loop.
+**Goal:** Build autopilot mode for operant sessions — when Claude sends a decision question, the daemon fires `/btw <wrapped-question>` into the session's tmux pane, parses the answer from the Ink overlay, and routes it back through the existing channel pipe so the session resumes without a human in the loop.
 
 **Architecture:** A new `AutopilotRunner` module watches for outgoing user-facing replies from autopilot-enabled sessions, fires programmatic `/btw` via `tmux send-keys`, polls `tmux capture-pane` until the overlay settles, parses the indented answer block, dismisses with `Esc`, and delivers the result via `socketServer.sendToSession` (MCP channel notification). Risk-keyword filter and `ESCALATE:` token drop-through the proxy and escalate to the user on Telegram/Web. Optional veto window shows the draft to the user before auto-sending.
 
-**Tech Stack:** Bun, TypeScript, Bun's `$` shell template for tmux, `bun:test` for testing, existing channelhub modules (SessionRegistry, ScreenManager, SocketServer, MessageRouter).
+**Tech Stack:** Bun, TypeScript, Bun's `$` shell template for tmux, `bun:test` for testing, existing operant modules (SessionRegistry, ScreenManager, SocketServer, MessageRouter).
 
 ---
 
@@ -1794,12 +1794,12 @@ Add to "Key Design Decisions":
 ```markdown
 ---
 name: autopilot
-description: Set up autopilot mode for a channelhub project. Use when the user wants to configure how their project answers questions on their behalf — specifically which preferences the proxy should honor.
+description: Set up autopilot mode for a operant project. Use when the user wants to configure how their project answers questions on their behalf — specifically which preferences the proxy should honor.
 ---
 
 # Autopilot Mode
 
-When a channelhub session is in autopilot mode, the daemon fires `/btw` inside
+When a operant session is in autopilot mode, the daemon fires `/btw` inside
 the session on every user-facing question. The proxy answers using the
 session's own conversation context plus the preferences in `autopilot.md`.
 

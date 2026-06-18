@@ -9,7 +9,7 @@ labels: bug
 A clear description of what the bug is.
 
 ## Steps to Reproduce
-1. Start daemon with `channelhub start`
+1. Start daemon with `operant start`
 2. Connect Claude with `...`
 3. Send message '...'
 4. See error
@@ -24,7 +24,7 @@ What actually happens.
 - OS: [e.g. Ubuntu 22.04, macOS 14]
 - Bun version: [`bun --version`]
 - Claude Code version: [`claude --version`]
-- ChannelHub commit: [`git -C ~/.channelhub rev-parse HEAD`]
+- Operant commit: [`git -C ~/.operant rev-parse HEAD`]
 
 ## Logs
 ```

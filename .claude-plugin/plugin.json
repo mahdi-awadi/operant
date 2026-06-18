@@ -1,15 +1,15 @@
 {
-  "name": "channelhub",
+  "name": "operant",
   "description": "Multi-session channel plugin for Claude Code — manage all your sessions from Telegram, web dashboard, or CLI with permission relay and agent teams support.",
   "version": "0.1.0-beta.2",
   "author": {
     "name": "Mahdi Awadi"
   },
-  "homepage": "https://github.com/mahdi-awadi/channelhub",
-  "repository": "https://github.com/mahdi-awadi/channelhub",
+  "homepage": "https://github.com/mahdi-awadi/operant",
+  "repository": "https://github.com/mahdi-awadi/operant",
   "license": "Apache-2.0",
   "keywords": [
-    "channelhub",
+    "operant",
     "multi-session",
     "telegram",
     "dashboard",

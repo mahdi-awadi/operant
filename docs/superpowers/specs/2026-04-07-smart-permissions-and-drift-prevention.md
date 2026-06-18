@@ -10,7 +10,7 @@ Profiles make it possible to define "how we work on production backend" once and
 
 ## Problems Solved
 
-1. **Approval fatigue** — Channelhub currently forwards every tool permission prompt. Work halts for trivial things like `Read` or `Glob` that should be auto-allowed.
+1. **Approval fatigue** — Operant currently forwards every tool permission prompt. Work halts for trivial things like `Read` or `Glob` that should be auto-allowed.
 
 2. **Claude drift** — Claude loses focus on project rules during long sessions. `CLAUDE.md` is read once then forgotten. Reminders have to be manually re-stated.
 
@@ -22,9 +22,9 @@ Profiles make it possible to define "how we work on production backend" once and
 
 ## Architectural Principle: Deterministic First, Sidecar Rarely
 
-Channelhub does classification and drift detection with **deterministic code** (static maps, regex, subprocess calls) — never with an LLM in the critical path. The user's Claude subscription has rate limits, and running an LLM on every permission check or every Claude reply would burn through them in a few hours of normal use.
+Operant does classification and drift detection with **deterministic code** (static maps, regex, subprocess calls) — never with an LLM in the critical path. The user's Claude subscription has rate limits, and running an LLM on every permission check or every Claude reply would burn through them in a few hours of normal use.
 
-`claude --print` (the "sidecar") is available as an **optional helper** for specific high-value tasks that run infrequently:
+A separate sidecar process can be added later as an **optional helper** for specific high-value tasks that run infrequently:
 
 - Summarizing long verification output (only on failure, only if opt-in)
 - Manual user-triggered commands like `/ask-claude summarize this session`
@@ -35,11 +35,11 @@ Sidecar is **off by default**. Profiles that want it set `sidecarEnabled: true`.
 |------|---------------|-----------|
 | **Main Claude** | Full Claude Code session over MCP channel | User's actual work — persistent, context-aware |
 | **Deterministic engine** | Static maps, regex, subprocess, templated messages | All classification, drift detection, rule injection, corrections, verification |
-| **Sidecar Claude** | `claude --print` subprocess | Opt-in, rare — long output summarization, manual commands |
+| **Sidecar helper** | Separate subprocess | Opt-in, rare — long output summarization, manual commands |
 
 ### Why no sidecar in critical path
 
-- **Latency**: `claude --print` spawns a fresh process each call (2–5s cold start + processing time). Putting it before every permission response would make the system feel broken.
+- **Latency**: a fresh sidecar process has cold-start and processing overhead. Putting it before every permission response would make the system feel broken.
 - **Token cost**: At ~550 tokens per drift check × 20 replies/hour × 10 sessions = 110k tokens/hour. That's a rate-limit-exceeding amount for any serious use.
 - **Reliability**: Regex and static lists are predictable. LLM output varies, has edge cases, can be wrong.
 - **Correctness without it**: Regex + "escalate on doubt" is safer than LLM classification, because uncertain cases go to the user rather than being auto-allowed.
@@ -121,7 +121,7 @@ Ship with four battle-tested profiles users can pick immediately:
 
 ### Spawn integration
 
-Web spawn dialog gains a profile dropdown. Telegram `/spawn` gains an optional `--profile <name>` flag. CLI `channelhub spawn` gains the same flag. No profile selected means "blank session with defaults", which is the current behavior.
+Web spawn dialog gains a profile dropdown. Telegram `/spawn` gains an optional `--profile <name>` flag. CLI `operant spawn` gains the same flag. No profile selected means "blank session with defaults", which is the current behavior.
 
 ### Sharing
 
@@ -188,7 +188,7 @@ No cache is needed since classification is pure-function regex matching — runn
 
 ### Injection Engine
 
-On every outbound message from a user to a session, channelhub prepends three context blocks in order:
+On every outbound message from a user to a session, operant prepends three context blocks in order:
 
 ```
 [Channel: {frontend-specific instructions}]
@@ -217,7 +217,7 @@ Profiles can override these via `channelOverrides` field.
 
 ### Auto-fetch Fallback
 
-If Claude still emits bare file paths despite channel instructions, channelhub scans replies for "saved to:", "written to:", "spec saved:" patterns followed by a file path. If the file exists, is under 50KB, and has a safe extension (md, json, yaml, ts, js, py, go, rs, txt), channelhub sends a follow-up channel message with the content as a code block. One auto-fetch per reply maximum.
+If Claude still emits bare file paths despite channel instructions, operant scans replies for "saved to:", "written to:", "spec saved:" patterns followed by a file path. If the file exists, is under 50KB, and has a safe extension (md, json, yaml, ts, js, py, go, rs, txt), operant sends a follow-up channel message with the content as a code block. One auto-fetch per reply maximum.
 
 ### Rules (behavioral constraints)
 
@@ -239,13 +239,13 @@ Facts are injected on every inbound message alongside rules.
 
 ### Drift Detection (advisory only)
 
-After every reply Claude sends back through the channel, channelhub runs a regex-only drift scan. **No LLM, no auto-correction into the session** — detection is advisory and goes to the user, not back into Claude.
+After every reply Claude sends back through the channel, operant runs a regex-only drift scan. **No LLM, no auto-correction into the session** — detection is advisory and goes to the user, not back into Claude.
 
 **Regex anti-patterns** scan the reply for suspicious phrases:
 - `\bquick\s+fix\b`, `\blet\s+me\s+just\b`, `\b(for|right)\s+now\b`, `\bI'?ll\s+(ignore|skip)\b`, `\bcommenting?\s+out\b`, `\bhack\b`, `\bTODO\b`, `\bFIXME\b`, `\bstub(bed)?\s+out\b`
 
 **On match**:
-- Channelhub sends a **notification to the user** (Telegram or web dashboard):
+- Operant sends a **notification to the user** (Telegram or web dashboard):
   > ⚠️ Possible drift in `awafi`: Claude's reply contains "quick fix". Your rule says "no shortcuts". [View reply] [Ignore] [Send correction]
 - User decides whether to intervene
 - User can click "Send correction" to push a templated reminder back into the session
@@ -270,7 +270,7 @@ Claude's habit of saying "done" without running tests is solved with determinist
 
 ### Trigger: Sentinel Phrase (not natural language)
 
-Channelhub looks for an exact sentinel phrase in Claude's reply — not natural language. Default: `✅ COMPLETE`. Claude is told to emit this phrase via channel instructions only when work is genuinely done and ready for verification:
+Operant looks for an exact sentinel phrase in Claude's reply — not natural language. Default: `✅ COMPLETE`. Claude is told to emit this phrase via channel instructions only when work is genuinely done and ready for verification:
 
 > *Channel instruction:* "When you have fully completed a task and want the hub to run verification commands, end your reply with `✅ COMPLETE` on its own line. Don't use this phrase casually — only when the work is ready to be validated."
 
@@ -307,7 +307,7 @@ FAIL src/auth.test.ts
 Please fix and run verification again.
 ```
 
-If the output is over 2000 chars, channelhub truncates it to the first and last 1000 chars with an ellipsis marker in between:
+If the output is over 2000 chars, operant truncates it to the first and last 1000 chars with an ellipsis marker in between:
 
 ```
 $ npm test
@@ -327,12 +327,12 @@ Claude sees the failure as a new user message and iterates. Verification runs ag
 
 ### Proactive "no tests run" warning
 
-Channelhub tracks whether Claude invoked Bash with a test command during the session. If Claude claims "done" without ever running a test, channelhub intervenes:
+Operant tracks whether Claude invoked Bash with a test command during the session. If Claude claims "done" without ever running a test, operant intervenes:
 > ⚠️ You said done, but you haven't run any tests in this session. Running verification now...
 
 ### Project-type auto-detection (with probing)
 
-When creating a profile, channelhub pre-populates `verification.commands` by **probing** what actually exists — not just matching filenames. Detection rules:
+When creating a profile, operant pre-populates `verification.commands` by **probing** what actually exists — not just matching filenames. Detection rules:
 
 | Detected file | Probe | Commands added |
 |---------------|-------|----------------|
@@ -392,7 +392,7 @@ src/
   profiles.ts            # NEW — Profile type, load/save, apply/resolve, rules/facts/channel injection
   analysis.ts            # NEW — classifier (L1/L2 regex) + drift detector (regex) — pure functions
   verification.ts        # NEW — subprocess verification runner + project probing
-  sidecar.ts             # NEW — optional `claude --print` wrapper, opt-in only
+  sidecar.ts             # NEW — optional sidecar helper, opt-in only
   permission-engine.ts   # EXTEND — use classifier, honor new trust levels
   message-router.ts      # EXTEND — inject context via profiles module
   session-registry.ts    # EXTEND — profile reference + overrides resolution

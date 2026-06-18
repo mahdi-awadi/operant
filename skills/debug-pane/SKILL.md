@@ -1,9 +1,9 @@
 ---
 name: debug-pane
-description: Snapshot a channelhub session's tmux pane PLUS its recent autopilot errors and registry state in one structured dump. Use when the user reports an autopilot/permission/spawn problem on a specific session, or when you need fast forensic context before forming a hypothesis.
+description: Snapshot a operant session's tmux pane PLUS its recent autopilot errors and registry state in one structured dump. Use when the user reports an autopilot/permission/spawn problem on a specific session, or when you need fast forensic context before forming a hypothesis.
 ---
 
-# Debug a channelhub session
+# Debug a operant session
 
 Replaces the manual 4-tool dance (`tmux capture-pane`, `sqlite3`, `grep
 sessions.json`, `grep daemon log`) with one structured collection step. Use
