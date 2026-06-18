@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add agent teams support to Claude Code Hub — multiple sessions per folder form a team (first=lead, rest=teammates), with grouped sidebar UI, task monitoring, and spawn dialog with team checkbox.
+**Goal:** Add agent teams support to Claude Code Operant — multiple sessions per folder form a team (first=lead, rest=teammates), with grouped sidebar UI, task monitoring, and spawn dialog with team checkbox.
 
 **Architecture:** The session registry changes from path-keyed to sessionId-keyed (`path:index`). The socket server allows multiple connections from the same folder, assigning incrementing indices. A new TaskMonitor module watches `~/.claude/tasks/` for agent team task files. The web UI groups teammates under their lead in the sidebar, and the spawn dialog gets a team checkbox.
 
@@ -311,7 +311,7 @@ bun test tests/screen-manager.test.ts
 
 Add constant:
 ```typescript
-const CLAUDE_TEAM_CMD = 'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 claude --dangerously-load-development-channels server:hub'
+const CLAUDE_TEAM_CMD = 'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 claude --dangerously-load-development-channels server:operant'
 ```
 
 Add method:
@@ -319,7 +319,7 @@ Add method:
 async spawnTeam(name: string, projectPath: string, size: number): Promise<void> {
   // Spawn lead first
   const leadName = name
-  const leadSession = `hub-${leadName}`
+  const leadSession = `operant-${leadName}`
   try { await $`tmux kill-session -t ${leadSession}`.quiet() } catch {}
   await $`tmux new-session -d -s ${leadSession} -c ${projectPath} ${CLAUDE_TEAM_CMD}`.quiet()
   this.managed.set(leadName, { sessionName: leadSession, projectPath, respawnEnabled: true })
@@ -331,7 +331,7 @@ async spawnTeam(name: string, projectPath: string, size: number): Promise<void> 
   // Spawn teammates
   for (let i = 2; i <= size; i++) {
     const tmName = `${name}-${i}`
-    const tmSession = `hub-${tmName}`
+    const tmSession = `operant-${tmName}`
     try { await $`tmux kill-session -t ${tmSession}`.quiet() } catch {}
     await $`tmux new-session -d -s ${tmSession} -c ${projectPath} ${CLAUDE_TEAM_CMD}`.quiet()
     this.managed.set(tmName, { sessionName: tmSession, projectPath, respawnEnabled: true })
@@ -350,7 +350,7 @@ async addTeammate(leadName: string): Promise<string | null> {
   while (this.managed.has(`${leadName}-${index}`)) index++
 
   const tmName = `${leadName}-${index}`
-  const tmSession = `hub-${tmName}`
+  const tmSession = `operant-${tmName}`
   try { await $`tmux kill-session -t ${tmSession}`.quiet() } catch {}
   await $`tmux new-session -d -s ${tmSession} -c ${leadEntry.projectPath} ${CLAUDE_TEAM_CMD}`.quiet()
   this.managed.set(tmName, { sessionName: tmSession, projectPath: leadEntry.projectPath, respawnEnabled: true })
@@ -971,7 +971,7 @@ taskMonitor,
 
 ```typescript
 async function shutdown(): Promise<void> {
-  process.stderr.write('hub: shutting down...\n')
+  process.stderr.write('operant: shutting down...\n')
   taskMonitor.stopPolling()
   saveSessions(registry.toSaveFormat())
   // ... rest unchanged

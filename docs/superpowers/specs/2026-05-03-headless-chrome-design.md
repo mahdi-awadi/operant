@@ -24,7 +24,7 @@ In:
   repeated failures, clean shutdown.
 - Daemon wires the controller into start/stop alongside the other
   components. `chromeEnabled: false` in config short-circuits everything.
-- Persistent profile at `~/.claude/channels/hub/chrome-profile/` (cookies,
+- Persistent profile at `~/.claude/channels/operant/chrome-profile/` (cookies,
   IndexedDB, logged-in state survive crashes and daemon restarts). Incognito
   tabs available via chrome-devtools-mcp's existing isolation flag — no
   operant plumbing needed.
@@ -46,7 +46,7 @@ Out:
 - Public DevTools tunnel through Traefik. CDP port stays bound to
   `127.0.0.1`. SSH-tunnel if you ever need DevTools UI from the laptop.
 - Auto-editing the user's `~/.claude.json`. The README documents the
-  required block; the user adds it manually (matches how the `hub` MCP
+  required block; the user adds it manually (matches how the `operant` MCP
   is registered today).
 - Building our own MCP server for Chrome control. We use chrome-devtools-mcp
   as-is — it already exposes ~30 well-tested tools.
@@ -121,11 +121,11 @@ Internal state: `proc`, `restartTimer`, `shutdown` flag, `crashCount`,
 ```ts
 const browser = new BrowserController({
   port: config.chromePort ?? 9222,
-  profileDir: join(HUB_DIR, 'chrome-profile'),
+  profileDir: join(OPERANT_DIR, 'chrome-profile'),
   executablePath: config.chromeExecutablePath ?? findPlaywrightChromium(),
 })
 if (config.chromeEnabled !== false) {
-  browser.start().catch(err => process.stderr.write(`hub: chrome failed to start: ${err}\n`))
+  browser.start().catch(err => process.stderr.write(`operant: chrome failed to start: ${err}\n`))
 }
 // in shutdown(): await browser.stop()
 ```
@@ -142,7 +142,7 @@ The README documents adding this block to `~/.claude.json`:
 ```json
 {
   "mcpServers": {
-    "hub": { "command": "bun", "args": ["run", "/path/to/operant/src/shim.ts"] },
+    "operant": { "command": "bun", "args": ["run", "/path/to/operant/src/shim.ts"] },
     "chrome": {
       "command": "npx",
       "args": ["-y", "chrome-devtools-mcp", "--browserURL", "http://127.0.0.1:9222"]
@@ -259,7 +259,7 @@ Failure after rename escalates.
 ### 6.4 Config knobs
 
 ```ts
-type HubConfig = {
+type OperantConfig = {
   // ...existing fields...
   chromeEnabled?: boolean        // default: true
   chromePort?: number            // default: 9222
@@ -277,7 +277,7 @@ unless explicitly disabled.
 | Failure | Response |
 |---|---|
 | Chromium binary missing | `start()` throws `ChromeBinaryNotFound`; daemon logs the install command and continues. |
-| Port already in use | `Bun.spawn` raises; log + continue; CLI subcommand `hub-ctl chrome status` (out of scope v1) would diagnose. |
+| Port already in use | `Bun.spawn` raises; log + continue; CLI subcommand `operant-ctl chrome status` (out of scope v1) would diagnose. |
 | Chrome spawns but `/json/version` unreachable | `waitUntilUp(10s)` rejects → kill `proc` → log + continue. |
 | Crash while running | Backoff restart; escalate after 5 crashes within 60s. |
 | Profile-dir corruption | One-time rename + fresh start; escalate if still failing. |
@@ -294,12 +294,12 @@ unless explicitly disabled.
 ### 7.3 Logging conventions
 
 ```
-hub: chrome started (pid=XXXXX, port=9222)
-hub: chrome exited (code=137 signal=SIGKILL) — restarting in 1s
-hub: chrome failed to start: <err>
-hub: chrome disabled — chromium binary not found (run "bunx playwright install chromium")
-hub: chrome escalated after 5 crashes
-hub: chrome stopped
+operant: chrome started (pid=XXXXX, port=9222)
+operant: chrome exited (code=137 signal=SIGKILL) — restarting in 1s
+operant: chrome failed to start: <err>
+operant: chrome disabled — chromium binary not found (run "bunx playwright install chromium")
+operant: chrome escalated after 5 crashes
+operant: chrome stopped
 ```
 
 ### 7.4 Concurrency
@@ -342,14 +342,14 @@ test('real Chrome starts, /json/version reachable, stop() kills it', async () =>
 ### 8.3 Manual smoke checklist (PR description)
 
 - [ ] `bunx playwright install chromium` succeeds
-- [ ] Daemon log shows `hub: chrome started (pid=…, port=9222)`
+- [ ] Daemon log shows `operant: chrome started (pid=…, port=9222)`
 - [ ] `curl -s http://127.0.0.1:9222/json/version | jq .Browser` returns
       `HeadlessChrome/<ver>`
 - [ ] After adding the `chrome` mcpServers block to `~/.claude.json` and
       restarting a session, Claude can call `chrome.navigate` /
       `chrome.screenshot`
 - [ ] `kill <chrome-pid>` shows backoff restart in daemon log
-- [ ] `tmux kill-session -t hub-daemon` kills Chrome (no orphan process)
+- [ ] `tmux kill-session -t operant-daemon` kills Chrome (no orphan process)
 
 ### 8.4 CI
 

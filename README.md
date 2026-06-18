@@ -24,7 +24,7 @@ A multi-session channel plugin for [Claude Code](https://claude.ai/code) that le
 ```
 You (Telegram / Web / CLI)
        ↓
-Hub Daemon (manages everything)
+Operant Daemon (manages everything)
   ├── Socket Server (Unix socket)
   │     ↕ shim ↔ Claude session A
   │     ↕ shim ↔ Claude session B
@@ -34,7 +34,7 @@ Hub Daemon (manages everything)
   └── Permission Engine
 ```
 
-Each Claude session runs with `--channels server:hub`. The hub's **shim** (MCP server) bridges Claude's stdio to the daemon via Unix socket. The daemon routes messages between your frontends and all connected sessions.
+Each Claude session runs with `--channels server:operant`. The operant's **shim** (MCP server) bridges Claude's stdio to the daemon via Unix socket. The daemon routes messages between your frontends and all connected sessions.
 
 ## Prerequisites
 
@@ -62,13 +62,13 @@ This will:
 1. Check prerequisites (install Bun if missing)
 2. Clone Operant to `~/.operant`
 3. Install dependencies
-4. Create config template at `~/.claude/channels/hub/config.json`
+4. Create config template at `~/.claude/channels/operant/config.json`
 5. Register the MCP server in `~/.claude.json`
 6. Install the `operant` command to `~/.local/bin`
 
 ### Configure
 
-Edit `~/.claude/channels/hub/config.json` and add your Telegram token and user ID:
+Edit `~/.claude/channels/operant/config.json` and add your Telegram token and user ID:
 
 ```json
 {
@@ -95,7 +95,7 @@ tail -f /var/log/operant.log        # View daemon logs
 In any project folder:
 
 ```bash
-claude --dangerously-load-development-channels server:hub
+claude --dangerously-load-development-channels server:operant
 ```
 
 Your session appears in the dashboard at `http://localhost:3000` immediately.
@@ -124,12 +124,12 @@ cd ~/.operant
 bun install
 
 # Create config
-mkdir -p ~/.claude/channels/hub
-cp config.example.json ~/.claude/channels/hub/config.json
-$EDITOR ~/.claude/channels/hub/config.json
+mkdir -p ~/.claude/channels/operant
+cp config.example.json ~/.claude/channels/operant/config.json
+$EDITOR ~/.claude/channels/operant/config.json
 
 # Register MCP server — add to ~/.claude.json mcpServers:
-# "hub": { "command": "bun", "args": ["run", "~/.operant/src/shim.ts"] }
+# "operant": { "command": "bun", "args": ["run", "~/.operant/src/shim.ts"] }
 
 # Start daemon (systemd; see /etc/systemd/system/operant.service)
 sudo systemctl enable --now operant
@@ -197,7 +197,7 @@ bunx playwright install chromium
 # Add chrome-devtools-mcp to your ~/.claude.json mcpServers:
 {
   "mcpServers": {
-    "hub": { "command": "bun", "args": ["run", "/path/to/operant/src/shim.ts"] },
+    "operant": { "command": "bun", "args": ["run", "/path/to/operant/src/shim.ts"] },
     "chrome": {
       "command": "npx",
       "args": ["-y", "chrome-devtools-mcp", "--browserURL", "http://127.0.0.1:9222"]
@@ -209,13 +209,13 @@ bunx playwright install chromium
 When the daemon starts, you'll see:
 
 ```
-hub: chrome started (pid=…, port=9222)
+operant: chrome started (pid=…, port=9222)
 ```
 
 **Disable it** by setting `chromeEnabled: false` in
-`~/.claude/channels/hub/config.json`. **Override the port** with
+`~/.claude/channels/operant/config.json`. **Override the port** with
 `chromePort` or the binary path with `chromeExecutablePath`. The
-persistent profile lives at `~/.claude/channels/hub/chrome-profile/`
+persistent profile lives at `~/.claude/channels/operant/chrome-profile/`
 (cookies and logins survive restarts; share carefully across
 sessions).
 
@@ -224,8 +224,8 @@ sessions).
 When Claude wants to run a tool (Bash, Write, etc.), the permission prompt appears in both the terminal AND your Telegram/web dashboard. You can approve from either place — first response wins.
 
 ```
-Claude wants to use Bash → permission_request → Hub → Telegram/Web
-You click Allow → Hub → Claude proceeds
+Claude wants to use Bash → permission_request → Operant → Telegram/Web
+You click Allow → Operant → Claude proceeds
 ```
 
 - **Trusted sessions** (`auto-approve`): auto-allowed, you never see the prompt
@@ -239,7 +239,7 @@ Spawn multiple Claude instances that work together:
 - **Telegram:** `/spawn myproject /home/user/project 3` (1 lead + 2 teammates)
 - **Add teammates later:** `[+]` button in web, or `/team myproject add` in Telegram
 
-The hub monitors `~/.claude/tasks/` for agent team task files and displays progress.
+The operant monitors `~/.claude/tasks/` for agent team task files and displays progress.
 
 ## Configuration
 
@@ -252,12 +252,12 @@ The hub monitors `~/.claude/tasks/` for agent team task files and displays progr
 | `defaultUploadDir` | string | `"."` | Upload directory relative to project root |
 | `browseRoot` | string | `$HOME` | Scope for the spawn dialog's directory picker. Set to `"/home"` when the daemon runs as `root` with projects under `/home/*`. |
 
-Config file: `~/.claude/channels/hub/config.json`
+Config file: `~/.claude/channels/operant/config.json`
 
 ## CLI
 
 ```bash
-HUB_URL=http://localhost:3000 bun run src/cli.ts <command>
+OPERANT_URL=http://localhost:3000 bun run src/cli.ts <command>
 ```
 
 | Command | Example |
@@ -282,7 +282,7 @@ Operant runs as **you** on your own machine and treats anyone who can authentica
 - **`telegramAllowFrom` is deny-by-default.** Leaving the list empty disables both the Telegram frontend (refuses to start) and web login. There is no "allow everyone" mode.
 - **The Unix socket is `0600`** and restricted to your UID, so other local users cannot impersonate a shim.
 - **Uploads are sanitized and scoped** — filenames are stripped of path separators and unsafe characters; the resolved destination must stay inside the session's project directory.
-- **Auto-fetched file contents** (when Claude says "saved to /path/..." and the hub forwards the file body to your Telegram/web) are scoped to each session's project root. Prompt-injection cannot make the daemon read `~/.ssh/` or `/etc/`.
+- **Auto-fetched file contents** (when Claude says "saved to /path/..." and the daemon forwards the file body to your Telegram/web) are scoped to each session's project root. Prompt-injection cannot make the daemon read `~/.ssh/` or `/etc/`.
 
 ## Exposing the Web Dashboard
 
@@ -332,7 +332,7 @@ bun run src/cli.ts    # CLI tool
 
 ## Plugin Status
 
-> **Operant is not yet on the approved marketplace.** During the research preview, custom channels must use `--dangerously-load-development-channels server:hub` to run. This flag bypasses the allowlist check for your specific server entry. Permission relay and all other channel features work normally.
+> **Operant is not yet on the approved marketplace.** During the research preview, custom channels must use `--dangerously-load-development-channels server:operant` to run. This flag bypasses the allowlist check for your specific server entry. Permission relay and all other channel features work normally.
 
 The project is structured as a Claude Code channel plugin and ready to submit to the [official marketplace](https://platform.claude.com/plugins/submit). Once approved, users will be able to install it with `/plugin install operant@marketplace` and use `--channels plugin:operant@marketplace` without the development flag.
 

@@ -5,11 +5,11 @@
 
 ## Problem
 
-The hub frontends (Telegram and Web) only see what flows through the MCP channel — Claude's actual terminal UI (slash commands, Ink overlays, autopilot output, /btw responses, error banners) is invisible. The user needs a way to peek at the live tmux pane from any frontend.
+The operant frontends (Telegram and Web) only see what flows through the MCP channel — Claude's actual terminal UI (slash commands, Ink overlays, autopilot output, /btw responses, error banners) is invisible. The user needs a way to peek at the live tmux pane from any frontend.
 
 ## Solution
 
-Add a /peek operation that runs `tmux capture-pane` against a hub session and returns the captured text.
+Add a /peek operation that runs `tmux capture-pane` against a operant session and returns the captured text.
 
 ### Surface per frontend
 
@@ -35,7 +35,7 @@ Telegram message limit is 4096 chars. Truncate captured text to ~3500 chars from
 ### Errors
 
 - `/peek` (no name) + no active session → "No active session. Use /list."
-- `/peek <name>` + no tmux session named `hub-<name>` → "No tmux session for <name>."
+- `/peek <name>` + no tmux session named `operant-<name>` → "No tmux session for <name>."
 - Any tmux error → "Could not capture pane: <err>"
 
 ### Auth

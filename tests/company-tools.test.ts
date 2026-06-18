@@ -1,13 +1,13 @@
 // tests/company-tools.test.ts
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { openHubDb } from '../src/hub-db'
+import { openOperantDb } from '../src/operant-db'
 import { CompanyStore } from '../src/company/store'
 import { handleCompanyTool, COMPANY_TOOL_DEFS } from '../src/company/tools'
 import { mkdtempSync, rmSync } from 'fs'; import { tmpdir } from 'os'; import { join } from 'path'
 
 describe('company tools', () => {
   let dir: string, close: () => void, store: CompanyStore
-  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'co-tools-')); const h = openHubDb(dir); close = h.close; store = new CompanyStore(h.db) })
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'co-tools-')); const h = openOperantDb(dir); close = h.close; store = new CompanyStore(h.db) })
   afterEach(() => { close(); rmSync(dir, { recursive: true, force: true }) })
 
   test('defs cover the 8 tools', () => {

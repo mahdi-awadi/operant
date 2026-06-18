@@ -4,7 +4,7 @@
 
 **Goal:** Add profiles, smart permission classification, drift detection with rules/facts/channel instructions, and subprocess-based verification — all deterministic, no LLM in critical path.
 
-**Architecture:** Profiles are reusable session config bundles stored in `~/.claude/channels/hub/profiles.json`. Sessions reference a profile by name and store only overrides. Permission classification runs pure regex (no LLM). Drift detection is regex-only and advisory (notifies user, never auto-injects). Verification runs subprocess commands triggered by a sentinel phrase. Any sidecar helper is opt-in and limited to rare tasks.
+**Architecture:** Profiles are reusable session config bundles stored in `~/.claude/channels/operant/profiles.json`. Sessions reference a profile by name and store only overrides. Permission classification runs pure regex (no LLM). Drift detection is regex-only and advisory (notifies user, never auto-injects). Verification runs subprocess commands triggered by a sentinel phrase. Any sidecar helper is opt-in and limited to rare tasks.
 
 **Tech Stack:** Bun, TypeScript (existing). Zero new runtime dependencies — pure Node/Bun stdlib for the new functionality.
 
@@ -99,7 +99,7 @@ If `bun test` reports errors about `auto-approve` in `src/session-registry.ts` o
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/agent/claude-code-hub
+cd /home/agent/claude-code-operant
 git add src/types.ts src/session-registry.ts
 git commit -m "feat(types): add 4-value TrustLevel with migration helper"
 ```
@@ -161,7 +161,7 @@ export type SessionConfig = {
 - [ ] **Step 2: Verify compile**
 
 ```bash
-cd /home/agent/claude-code-hub
+cd /home/agent/claude-code-operant
 bunx tsc --noEmit 2>&1 | tail -10
 ```
 
@@ -530,12 +530,12 @@ git commit -m "feat(profiles): applyProfile and resolveSession with override mer
 
 ---
 
-## Task 5: Extend config.ts with HUB_DIR for profiles
+## Task 5: Extend config.ts with OPERANT_DIR for profiles
 
 **Files:**
 - Modify: `src/config.ts`
 
-- [ ] **Step 1: Export loadProfilesForHub helper**
+- [ ] **Step 1: Export loadProfilesForOperant helper**
 
 Read existing `src/config.ts`, then append:
 
@@ -543,12 +543,12 @@ Read existing `src/config.ts`, then append:
 import { loadProfiles as loadProfilesFromModule, saveProfiles as saveProfilesFromModule } from './profiles'
 import type { Profile } from './types'
 
-export function loadProfilesForHub(): Profile[] {
-  return loadProfilesFromModule(HUB_DIR)
+export function loadProfilesForOperant(): Profile[] {
+  return loadProfilesFromModule(OPERANT_DIR)
 }
 
-export function saveProfilesForHub(profiles: Profile[]): void {
-  saveProfilesFromModule(profiles, HUB_DIR)
+export function saveProfilesForOperant(profiles: Profile[]): void {
+  saveProfilesFromModule(profiles, OPERANT_DIR)
 }
 ```
 
@@ -562,7 +562,7 @@ bunx tsc --noEmit 2>&1 | tail -5
 
 ```bash
 git add src/config.ts
-git commit -m "feat(config): expose loadProfilesForHub/saveProfilesForHub"
+git commit -m "feat(config): expose loadProfilesForOperant/saveProfilesForOperant"
 ```
 
 ---
@@ -577,15 +577,15 @@ git commit -m "feat(config): expose loadProfilesForHub/saveProfilesForHub"
 In `src/daemon.ts`, near the top imports:
 
 ```typescript
-import { loadProfilesForHub, saveProfilesForHub } from './config'
+import { loadProfilesForOperant, saveProfilesForOperant } from './config'
 import type { Profile } from './types'
 ```
 
 After `loadSessions()` line, add:
 
 ```typescript
-let profiles: Profile[] = loadProfilesForHub()
-process.stderr.write(`hub: loaded ${profiles.length} profiles\n`)
+let profiles: Profile[] = loadProfilesForOperant()
+process.stderr.write(`operant: loaded ${profiles.length} profiles\n`)
 ```
 
 Expose a getter for other modules:
@@ -596,7 +596,7 @@ export function getProfiles(): Profile[] {
 }
 
 export function reloadProfiles(): void {
-  profiles = loadProfilesForHub()
+  profiles = loadProfilesForOperant()
 }
 ```
 
@@ -702,7 +702,7 @@ In `src/frontends/telegram.ts`, add imports at top:
 
 ```typescript
 import { getProfile } from '../profiles'
-import { loadProfilesForHub, saveProfilesForHub } from '../config'
+import { loadProfilesForOperant, saveProfilesForOperant } from '../config'
 import type { Profile } from '../types'
 ```
 
@@ -711,7 +711,7 @@ In `registerHandlers()`, add:
 ```typescript
 bot.command('profiles', async (ctx) => {
   if (!this.isAllowed(ctx)) return
-  const profiles = loadProfilesForHub()
+  const profiles = loadProfilesForOperant()
   if (profiles.length === 0) {
     await ctx.reply('No profiles defined.')
     return
@@ -731,7 +731,7 @@ bot.command('profile', async (ctx) => {
     return
   }
   const action = args[0]
-  const profiles = loadProfilesForHub()
+  const profiles = loadProfilesForOperant()
 
   if (action === 'create' && args[1]) {
     const name = args[1]
@@ -747,7 +747,7 @@ bot.command('profile', async (ctx) => {
       facts: [],
       prefix: '',
     }
-    saveProfilesForHub([...profiles, newProfile])
+    saveProfilesForOperant([...profiles, newProfile])
     await ctx.reply(`✅ Created profile "${name}" — edit rules/facts with /rules and /fact`)
     return
   }
@@ -755,7 +755,7 @@ bot.command('profile', async (ctx) => {
   if (action === 'delete' && args[1]) {
     const name = args[1]
     const filtered = profiles.filter(p => p.name !== name)
-    saveProfilesForHub(filtered)
+    saveProfilesForOperant(filtered)
     await ctx.reply(`🗑 Deleted profile "${name}"`)
     return
   }
@@ -782,11 +782,11 @@ bot.command('profile', async (ctx) => {
 - [ ] **Step 2: Restart daemon and test manually**
 
 ```bash
-tmux kill-session -t hub-daemon 2>/dev/null
-cd /home/agent/claude-code-hub
-bun run src/daemon.ts </dev/null >/tmp/hub.log 2>&1 &
+tmux kill-session -t operant-daemon 2>/dev/null
+cd /home/agent/claude-code-operant
+bun run src/daemon.ts </dev/null >/tmp/operant.log 2>&1 &
 sleep 3
-cat /tmp/hub.log
+cat /tmp/operant.log
 ```
 
 - [ ] **Step 3: Run tests**
@@ -840,7 +840,7 @@ bot.command('spawn', async (ctx) => {
 
   // Validate profile exists if specified
   if (profileName) {
-    const profiles = loadProfilesForHub()
+    const profiles = loadProfilesForOperant()
     if (!getProfile(profileName, profiles)) {
       await ctx.reply(`Profile "${profileName}" not found. Use /profiles to see available.`)
       return
@@ -1763,7 +1763,7 @@ In `src/daemon.ts`, find the `socketServer.on('permission_request', ...)` handle
 
 ```typescript
 socketServer.on('permission_request', (path: string, msg: any) => {
-  process.stderr.write(`hub: permission_request from ${path}: ${msg.toolName} (${msg.requestId})\n`)
+  process.stderr.write(`operant: permission_request from ${path}: ${msg.toolName} (${msg.requestId})\n`)
   const response = permissions.handle(path, {
     requestId: msg.requestId,
     toolName: msg.toolName,
@@ -2456,7 +2456,7 @@ bot.command('rules', async (ctx) => {
     return
   }
 
-  const profiles = loadProfilesForHub()
+  const profiles = loadProfilesForOperant()
 
   if (parts.length === 1) {
     // Show rules
@@ -2552,7 +2552,7 @@ bot.command('fact', async (ctx) => {
     await ctx.reply(`Session "${sessionName}" not found`)
     return
   }
-  const profiles = loadProfilesForHub()
+  const profiles = loadProfilesForOperant()
   const factText = parts.slice(1).join(' ')
   this.registry.addFact(path, factText, profiles)
   await ctx.reply(`✅ Added fact to ${sessionName}: "${factText}"`)
@@ -2578,7 +2578,7 @@ bot.command('facts', async (ctx) => {
     return
   }
 
-  const profiles = loadProfilesForHub()
+  const profiles = loadProfilesForOperant()
   const facts = this.registry.getEffectiveFacts(path, profiles)
   if (facts.length === 0) {
     await ctx.reply(`No facts for ${sessionName}`)
@@ -2835,13 +2835,13 @@ if (driftMatch) {
   if (action === 'remind') {
     const path = this.registry.findByName(sessionName)
     if (path) {
-      const profiles = loadProfilesForHub()
+      const profiles = loadProfilesForOperant()
       const rules = this.registry.getEffectiveRules(path, profiles)
       const reminder = `⚠️ Project rule reminder: ${rules.slice(0, 2).join('; ')}. Please re-do your last action without shortcuts, root-causing the issue instead.`
       this.socketServer.sendToSession(path, {
         type: 'channel_message',
         content: reminder,
-        meta: { source: 'hub', frontend: 'telegram', user: 'drift-check', session: sessionName },
+        meta: { source: 'operant', frontend: 'telegram', user: 'drift-check', session: sessionName },
       })
       await ctx.answerCallbackQuery({ text: 'Reminder sent' })
       await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {})
@@ -3588,14 +3588,14 @@ if (session && effective.verification && effective.verification.commands.length 
         socketServer.sendToSession(path, {
           type: 'channel_message',
           content: `Verification failed. You emitted the completion sentinel but:\n${truncated}\n\nPlease fix and re-verify.`,
-          meta: { source: 'hub', frontend: 'verification', user: 'verification', session: session.name },
+          meta: { source: 'operant', frontend: 'verification', user: 'verification', session: session.name },
         })
         // Also notify user
         telegramFrontend?.deliverToUser(session.name, failureMsg)
         webFrontend?.deliverToUser(session.name, failureMsg)
       }
     }).catch(err => {
-      process.stderr.write(`hub: verification error: ${err}\n`)
+      process.stderr.write(`operant: verification error: ${err}\n`)
     })
   }
 }
@@ -3645,7 +3645,7 @@ bot.command('verify', async (ctx) => {
     await ctx.reply(`Session "${sessionName}" not found`)
     return
   }
-  const profiles = loadProfilesForHub()
+  const profiles = loadProfilesForOperant()
   const session = this.registry.get(path)!
   const effective = resolveSession(
     { appliedProfile: session.appliedProfile, profileOverrides: session.profileOverrides },
@@ -3716,7 +3716,7 @@ if (action === 'create' && args[1]) {
     prefix: '',
     verification: detectedCommands.length > 0 ? { commands: detectedCommands } : undefined,
   }
-  saveProfilesForHub([...profiles, newProfile])
+  saveProfilesForOperant([...profiles, newProfile])
   const detectedMsg = detectedCommands.length > 0
     ? `\nAuto-detected verification: ${detectedCommands.join(', ')}`
     : ''
@@ -3931,7 +3931,7 @@ git commit -m "feat(profiles): verification config in careful and tdd builtins"
 - [ ] **Step 1: Run full suite**
 
 ```bash
-cd /home/agent/claude-code-hub
+cd /home/agent/claude-code-operant
 bun test 2>&1 | tail -10
 ```
 
@@ -4101,7 +4101,7 @@ git commit -m "test: phase 1 end-to-end integration test"
 After all tasks complete, run the full suite one last time:
 
 ```bash
-cd /home/agent/claude-code-hub
+cd /home/agent/claude-code-operant
 bun test 2>&1 | tail -10
 ```
 

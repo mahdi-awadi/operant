@@ -8,7 +8,7 @@ import type { ScreenManager, ResumeSpec } from '../screen-manager'
 import type { SocketServer } from '../socket-server'
 import type { TaskMonitor } from '../task-monitor'
 import { getProfile } from '../profiles'
-import { loadProfilesForHub, saveProfilesForHub, saveSessions } from '../config'
+import { loadProfilesForOperant, saveProfilesForOperant, saveSessions } from '../config'
 import type { VerificationRunner, VerificationResult } from '../verification'
 import type { VetoController } from '../veto-controller'
 import type { EscalationController } from '../escalation-controller'
@@ -243,7 +243,7 @@ export class TelegramFrontend {
   constructor(deps: TelegramFrontendDeps) {
     this.bot = new Bot(deps.token)
     this.bot.catch(err => {
-      process.stderr.write(`hub telegram: handler error: ${err.error}\n`)
+      process.stderr.write(`operant telegram: handler error: ${err.error}\n`)
     })
     this.registry = deps.registry
     this.router = deps.router
@@ -357,7 +357,7 @@ export class TelegramFrontend {
     // /profiles — list all profiles
     bot.command('profiles', async (ctx) => {
       if (!this.isAllowed(ctx)) return
-      const profiles = loadProfilesForHub()
+      const profiles = loadProfilesForOperant()
       if (profiles.length === 0) {
         await ctx.reply('No profiles defined.')
         return
@@ -378,7 +378,7 @@ export class TelegramFrontend {
         return
       }
       const action = args[0]
-      const profiles = loadProfilesForHub()
+      const profiles = loadProfilesForOperant()
 
       if (action === 'create' && args[1]) {
         const name = args[1]
@@ -394,7 +394,7 @@ export class TelegramFrontend {
           facts: [],
           prefix: '',
         }
-        saveProfilesForHub([...profiles, newProfile])
+        saveProfilesForOperant([...profiles, newProfile])
         await ctx.reply(`✅ Created profile "${name}"`)
         return
       }
@@ -402,7 +402,7 @@ export class TelegramFrontend {
       if (action === 'delete' && args[1]) {
         const name = args[1]
         const filtered = profiles.filter(p => p.name !== name)
-        saveProfilesForHub(filtered)
+        saveProfilesForOperant(filtered)
         await ctx.reply(`🗑 Deleted profile "${name}"`)
         return
       }
@@ -450,7 +450,7 @@ export class TelegramFrontend {
       const teamSize = sizeStr ? parseInt(sizeStr) : 1
 
       if (profileName) {
-        const profiles = loadProfilesForHub()
+        const profiles = loadProfilesForOperant()
         if (!getProfile(profileName, profiles)) {
           await ctx.reply(`Profile "${profileName}" not found. Use /profiles to see available.`)
           return
@@ -498,7 +498,7 @@ export class TelegramFrontend {
       const [name, projectPath] = args
 
       if (profileName) {
-        const profiles = loadProfilesForHub()
+        const profiles = loadProfilesForOperant()
         if (!getProfile(profileName, profiles)) {
           await ctx.reply(`Profile "${profileName}" not found. Use /profiles to see available.`)
           return
@@ -664,7 +664,7 @@ export class TelegramFrontend {
       if (enabled) {
         const runner = this.autopilotRunner
         const managed = this.screenManager?.getManagedByPath(this.registry.folderPath(path))
-        const tmuxName = managed?.sessionName ?? `hub-${name}`
+        const tmuxName = managed?.sessionName ?? `operant-${name}`
         if (runner) {
           const quick = await runner.quickProbe(tmuxName)
           if (!quick.ok) {
@@ -695,7 +695,7 @@ export class TelegramFrontend {
               this.deliverToUser(name, `✅ Autopilot ready — /btw confirmed reachable.`)
             }
           }).catch(err => {
-            process.stderr.write(`hub: telegram autopilot bg probe error for ${name}: ${err}\n`)
+            process.stderr.write(`operant: telegram autopilot bg probe error for ${name}: ${err}\n`)
           })
         }
       } else {
@@ -738,7 +738,7 @@ export class TelegramFrontend {
         return
       }
       const managed = this.screenManager?.getManagedByPath(this.registry.folderPath(path))
-      const tmuxName = managed?.sessionName ?? `hub-${activeSession}`
+      const tmuxName = managed?.sessionName ?? `operant-${activeSession}`
 
       const quick = await runner.quickProbe(tmuxName)
       if (!quick.ok) {
@@ -778,7 +778,7 @@ export class TelegramFrontend {
       }
       const path = this.registry.findByName(sessionName)
       const managed = path ? this.screenManager.getManagedByPath(this.registry.folderPath(path)) : undefined
-      const tmuxName = managed?.sessionName ?? `hub-${sessionName}`
+      const tmuxName = managed?.sessionName ?? `operant-${sessionName}`
       try {
         const raw = await this.screenManager.capturePaneWithScrollback(tmuxName, lines)
         const stripped = stripAnsi(raw).trimEnd()
@@ -811,7 +811,7 @@ export class TelegramFrontend {
         return
       }
 
-      const profiles = loadProfilesForHub()
+      const profiles = loadProfilesForOperant()
 
       if (parts.length === 1) {
         const rules = this.registry.getEffectiveRules(path, profiles)
@@ -850,7 +850,7 @@ export class TelegramFrontend {
         await ctx.reply(`Session "${sessionName}" not found`)
         return
       }
-      const profiles = loadProfilesForHub()
+      const profiles = loadProfilesForOperant()
       const factText = parts.slice(1).join(' ')
       this.registry.addFact(path, factText, profiles)
       await ctx.reply(`✅ Added fact to ${sessionName}: "${factText}"`)
@@ -921,7 +921,7 @@ export class TelegramFrontend {
         return
       }
 
-      const profiles = loadProfilesForHub()
+      const profiles = loadProfilesForOperant()
       const facts = this.registry.getEffectiveFacts(path, profiles)
       if (facts.length === 0) {
         await ctx.reply(`No facts for ${sessionName}`)
@@ -1029,7 +1029,7 @@ export class TelegramFrontend {
           }
           const path = this.registry.findByName(sessionName)
           if (path) {
-            const profiles = loadProfilesForHub()
+            const profiles = loadProfilesForOperant()
             const rules = this.registry.getEffectiveRules(path, profiles)
             const reminder =
               `⚠️ Project rule reminder: ${rules.slice(0, 2).join('; ')}. ` +
@@ -1037,7 +1037,7 @@ export class TelegramFrontend {
             this.socketServer.sendToSession(path, {
               type: 'channel_message',
               content: reminder,
-              meta: { source: 'hub', frontend: 'telegram', user: 'drift-check', session: sessionName },
+              meta: { source: 'operant', frontend: 'telegram', user: 'drift-check', session: sessionName },
             })
             await ctx.answerCallbackQuery({ text: 'Reminder sent' })
             await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {})
@@ -1129,7 +1129,7 @@ export class TelegramFrontend {
         this.socketServer.sendToSession(path, {
           type: 'channel_message',
           content: caption ? `${caption}\n\n[Photo uploaded: ${destPath}]` : `[Photo uploaded: ${destPath}]`,
-          meta: { source: 'hub', frontend: 'telegram', user: ctx.from!.username ?? String(ctx.from!.id), session: activeName, image_path: destPath },
+          meta: { source: 'operant', frontend: 'telegram', user: ctx.from!.username ?? String(ctx.from!.id), session: activeName, image_path: destPath },
         })
 
         await ctx.reply(`📷 Uploaded to ${activeName}:${session.uploadDir}/${fileName}`)
@@ -1188,7 +1188,7 @@ export class TelegramFrontend {
         this.socketServer.sendToSession(path, {
           type: 'channel_message',
           content: caption ? `${caption}\n\n[File uploaded: ${destPath}]` : `[File uploaded: ${destPath}]`,
-          meta: { source: 'hub', frontend: 'telegram', user: ctx.from!.username ?? String(ctx.from!.id), session: activeName },
+          meta: { source: 'operant', frontend: 'telegram', user: ctx.from!.username ?? String(ctx.from!.id), session: activeName },
         })
 
         await ctx.reply(`📄 Uploaded ${fileName} to ${activeName}:${session.uploadDir}/`)
@@ -1401,7 +1401,7 @@ export class TelegramFrontend {
     // also guards this; we enforce it here so the frontend is safe in isolation.
     if (this.allowFrom.length === 0) {
       process.stderr.write(
-        'hub telegram: telegramAllowFrom is empty — refusing to start. ' +
+        'operant telegram: telegramAllowFrom is empty — refusing to start. ' +
         'Add your Telegram user id to telegramAllowFrom in config.json.\n',
       )
       return
@@ -1442,9 +1442,9 @@ export class TelegramFrontend {
       await this.bot.api.setMyCommands(commands, { scope: { type: 'default' } })
       await this.bot.api.setMyCommands(commands, { scope: { type: 'all_private_chats' } })
       await this.bot.api.setChatMenuButton({ menu_button: { type: 'commands' } })
-      process.stderr.write(`hub telegram: registered ${commands.length} commands (default + all_private_chats)\n`)
+      process.stderr.write(`operant telegram: registered ${commands.length} commands (default + all_private_chats)\n`)
     } catch (err) {
-      process.stderr.write(`hub telegram: setMyCommands failed: ${err}\n`)
+      process.stderr.write(`operant telegram: setMyCommands failed: ${err}\n`)
     }
 
     // Retry with backoff on 409 Conflict (another bot instance polling)
@@ -1452,7 +1452,7 @@ export class TelegramFrontend {
       try {
         await this.bot.start({
           onStart: (info) => {
-            process.stderr.write(`hub telegram: polling as @${info.username}\n`)
+            process.stderr.write(`operant telegram: polling as @${info.username}\n`)
           },
         })
         return
@@ -1460,7 +1460,7 @@ export class TelegramFrontend {
         if (err instanceof GrammyError && err.error_code === 409) {
           const delay = Math.min(1000 * attempt, 15000)
           const detail = attempt === 1 ? ' — another instance may still be shutting down' : ''
-          process.stderr.write(`hub telegram: 409 Conflict${detail}, retrying in ${delay / 1000}s\n`)
+          process.stderr.write(`operant telegram: 409 Conflict${detail}, retrying in ${delay / 1000}s\n`)
           await new Promise(r => setTimeout(r, delay))
           continue
         }

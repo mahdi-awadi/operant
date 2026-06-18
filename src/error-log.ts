@@ -3,11 +3,11 @@
 // Lets the user inspect what /btw actually returned when an answer didn't
 // reach Claude — the captured pane is the smoking gun in most cases.
 //
-// Schema lives in src/hub-db.ts — this class only knows how to read/write
+// Schema lives in src/operant-db.ts — this class only knows how to read/write
 // the autopilot_errors table over a Database the caller already opened.
 
 import { Database } from 'bun:sqlite'
-import { openHubDb } from './hub-db'
+import { openOperantDb } from './operant-db'
 import { dirname } from 'path'
 
 export type ErrorStatus = 'parse_error' | 'timeout' | 'escalate' | 'risk' | 'other'
@@ -44,9 +44,9 @@ export class ErrorLog {
 
   constructor(dbOrPath: Database | string) {
     if (typeof dbOrPath === 'string') {
-      // Backward-compatible path-string form: spin up a hub-db in the
+      // Backward-compatible path-string form: spin up a operant-db in the
       // file's directory. Used by older tests that pass a path directly.
-      const handle = openHubDb(dirname(dbOrPath))
+      const handle = openOperantDb(dirname(dbOrPath))
       this.db = handle.db
       this.ownsDb = true
     } else {

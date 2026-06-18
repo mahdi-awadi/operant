@@ -68,7 +68,7 @@ export class BrowserController extends EventEmitter {
     this.startedAt = Date.now()
     await this.waitUntilUp(10_000)
     this.emit('started')
-    process.stderr.write(`hub: chrome started (pid=${this.proc.pid}, port=${this.deps.port})\n`)
+    process.stderr.write(`operant: chrome started (pid=${this.proc.pid}, port=${this.deps.port})\n`)
   }
 
   async stop(): Promise<void> {
@@ -89,7 +89,7 @@ export class BrowserController extends EventEmitter {
     await (proc as any).exited.catch(() => {})
     clearTimeout(killTimer)
     this.emit('stopped')
-    process.stderr.write('hub: chrome stopped\n')
+    process.stderr.write('operant: chrome stopped\n')
   }
 
   async restart(): Promise<void> {
@@ -118,19 +118,19 @@ export class BrowserController extends EventEmitter {
     if (Date.now() - this.startedAt > 60_000) this.crashCount = 0
 
     this.crashCount++
-    process.stderr.write(`hub: chrome exited (code=${code} signal=${signalCode}) — crash ${this.crashCount}\n`)
+    process.stderr.write(`operant: chrome exited (code=${code} signal=${signalCode}) — crash ${this.crashCount}\n`)
 
     if (this.crashCount > 5) {
-      process.stderr.write('hub: chrome escalated after 5 crashes\n')
+      process.stderr.write('operant: chrome escalated after 5 crashes\n')
       this.emit('chrome:escalated')
       return
     }
 
     const delay = Math.min(2 ** (this.crashCount - 1), 30) * 1000
-    process.stderr.write(`hub: chrome restarting in ${delay / 1000}s\n`)
+    process.stderr.write(`operant: chrome restarting in ${delay / 1000}s\n`)
     this.restartTimer = setTimeout(() => {
       this.restartTimer = null
-      this.start().catch(err => process.stderr.write(`hub: chrome restart failed: ${err}\n`))
+      this.start().catch(err => process.stderr.write(`operant: chrome restart failed: ${err}\n`))
     }, delay)
   }
 }

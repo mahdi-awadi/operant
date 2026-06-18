@@ -12,9 +12,9 @@ const SILENT_TOOLS = new Set([
   'WebFetch',
   'WebSearch',
   'NotebookRead',
-  // Hub's own channel egress — these ARE the reply mechanism, never gate them.
-  'mcp__hub__reply',
-  'mcp__hub__edit_message',
+  // Operant's own channel egress — these ARE the reply mechanism, never gate them.
+  'mcp__operant__reply',
+  'mcp__operant__edit_message',
   'mcp__operant__reply',
   'mcp__operant__edit_message',
 ])

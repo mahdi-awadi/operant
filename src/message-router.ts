@@ -33,7 +33,7 @@ export class MessageRouter {
 
     const content = session.prefix ? `${session.prefix} ${text}` : text
     const meta: Record<string, string> = {
-      source: 'hub',
+      source: 'operant',
       frontend,
       user,
       session: sessionName,

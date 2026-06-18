@@ -80,7 +80,7 @@ export type SessionState = SessionConfig & {
   connectedAt: number | null
 }
 
-export type HubConfig = {
+export type OperantConfig = {
   webPort: number
   webHost?: string
   browseRoot?: string

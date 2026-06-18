@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { openHubDb } from '../src/hub-db'
+import { openOperantDb } from '../src/operant-db'
 import { CompanyStore } from '../src/company/store'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
@@ -9,7 +9,7 @@ describe('CompanyStore departments', () => {
   let dir: string, close: () => void, store: CompanyStore
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'co-store-'))
-    const h = openHubDb(dir); close = h.close
+    const h = openOperantDb(dir); close = h.close
     store = new CompanyStore(h.db)
   })
   afterEach(() => { close(); rmSync(dir, { recursive: true, force: true }) })
@@ -18,7 +18,7 @@ describe('CompanyStore departments', () => {
     store.upsertDepartment({
       id: 'secretary', title: 'Chief of Staff', folder: '/home/company/desks/secretary',
       reports_to: 'mahdi', manages: ['dev'], profile_name: 'careful',
-      skills: ['brainstorming'], mcps: ['hub'], schedule_cron: '0 7 * * *',
+      skills: ['brainstorming'], mcps: ['operant'], schedule_cron: '0 7 * * *',
       budget_minutes_week: 240, approval_policy: 'ask', autonomy_level: 1,
       status: 'idle', active: true,
     })
@@ -35,14 +35,14 @@ describe('CompanyStore departments', () => {
     store.upsertDepartment({
       id: 'active-dept', title: 'Active Department', folder: '/home/company/desks/active',
       reports_to: 'mahdi', manages: ['dev'], profile_name: 'careful',
-      skills: ['brainstorming'], mcps: ['hub'], schedule_cron: '0 7 * * *',
+      skills: ['brainstorming'], mcps: ['operant'], schedule_cron: '0 7 * * *',
       budget_minutes_week: 240, approval_policy: 'ask', autonomy_level: 1,
       status: 'idle', active: true,
     })
     store.upsertDepartment({
       id: 'inactive-dept', title: 'Inactive Department', folder: '/home/company/desks/inactive',
       reports_to: 'mahdi', manages: ['qa'], profile_name: 'careful',
-      skills: ['testing'], mcps: ['hub'], schedule_cron: '0 8 * * *',
+      skills: ['testing'], mcps: ['operant'], schedule_cron: '0 8 * * *',
       budget_minutes_week: 120, approval_policy: 'ask', autonomy_level: 1,
       status: 'idle', active: false,
     })

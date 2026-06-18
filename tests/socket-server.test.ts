@@ -6,7 +6,7 @@ import { join } from 'path'
 import { rmSync } from 'fs'
 import { connect } from 'net'
 
-const TEST_SOCK = join(import.meta.dir, '.test-hub.sock')
+const TEST_SOCK = join(import.meta.dir, '.test-operant.sock')
 
 function sendLine(sock: ReturnType<typeof connect>, data: object): void {
   sock.write(JSON.stringify(data) + '\n')
@@ -99,8 +99,8 @@ describe('SocketServer', () => {
   })
 
   test('register with tmuxName uses the suffix as the session name', async () => {
-    // Spawn order: lead first into tmux `hub-myproject`, then teammates
-    // `hub-myproject-2` and `hub-myproject-3`. If they REGISTER out of order
+    // Spawn order: lead first into tmux `operant-myproject`, then teammates
+    // `operant-myproject-2` and `operant-myproject-3`. If they REGISTER out of order
     // (e.g. lead's auto-confirm got delayed), without tmuxName the registry
     // would assign names by registration order — wrong. With tmuxName, names
     // come from the actual tmux session suffix.
@@ -108,7 +108,7 @@ describe('SocketServer', () => {
     const sock1 = connect(TEST_SOCK)
     await new Promise<void>(r => sock1.on('connect', r))
     // First to register is teammate 2 (lead delayed)
-    sendLine(sock1, { type: 'register', cwd: '/home/user/myproject', tmuxName: 'hub-myproject-2' })
+    sendLine(sock1, { type: 'register', cwd: '/home/user/myproject', tmuxName: 'operant-myproject-2' })
     const data1 = await new Promise<string>(resolve => {
       sock1.once('data', (chunk) => resolve(chunk.toString()))
     })
@@ -117,7 +117,7 @@ describe('SocketServer', () => {
     const sock2 = connect(TEST_SOCK)
     await new Promise<void>(r => sock2.on('connect', r))
     // Then the lead finally registers
-    sendLine(sock2, { type: 'register', cwd: '/home/user/myproject', tmuxName: 'hub-myproject' })
+    sendLine(sock2, { type: 'register', cwd: '/home/user/myproject', tmuxName: 'operant-myproject' })
     const data2 = await new Promise<string>(resolve => {
       sock2.once('data', (chunk) => resolve(chunk.toString()))
     })

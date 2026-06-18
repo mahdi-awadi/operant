@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { openHubDb } from '../src/hub-db'
+import { openOperantDb } from '../src/operant-db'
 import { CompanyStore } from '../src/company/store'
 import { loadOrg } from '../src/company/org-loader'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'fs'; import { tmpdir } from 'os'; import { join } from 'path'
@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'fs'; import { tmp
 describe('loadOrg', () => {
   let dir: string, close: () => void, store: CompanyStore, company: string
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'co-org-')); const h = openHubDb(dir); close = h.close; store = new CompanyStore(h.db)
+    dir = mkdtempSync(join(tmpdir(), 'co-org-')); const h = openOperantDb(dir); close = h.close; store = new CompanyStore(h.db)
     company = join(dir, 'company'); mkdirSync(join(company, 'seats'), { recursive: true })
     writeFileSync(join(company, 'seats', 'secretary.yaml'),
 `id: secretary
@@ -17,7 +17,7 @@ reports_to: mahdi
 manages: [dev]
 profile: careful
 skills: [brainstorming, writing-plans]
-mcps: [hub]
+mcps: [operant]
 schedule_cron: "0 7 * * *"
 budget_minutes_week: 240
 approval_policy: ask

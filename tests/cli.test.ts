@@ -73,13 +73,13 @@ describe('CLI autopilot command (integration)', () => {
 
   test('autopilot with no args prints usage and exits non-zero', async () => {
     // Use a port that nothing listens on so fetch won't accidentally succeed
-    const result = await runCli(['autopilot'], { HUB_URL: 'http://localhost:19999' })
+    const result = await runCli(['autopilot'], { OPERANT_URL: 'http://localhost:19999' })
     expect(result.stderr).toContain('Usage: autopilot <name> on|off')
     expect(result.exitCode).not.toBe(0)
   })
 
   test('autopilot with invalid mode prints usage and exits non-zero', async () => {
-    const result = await runCli(['autopilot', 'mysess', 'maybe'], { HUB_URL: 'http://localhost:19999' })
+    const result = await runCli(['autopilot', 'mysess', 'maybe'], { OPERANT_URL: 'http://localhost:19999' })
     expect(result.stderr).toContain('Usage: autopilot <name> on|off')
     expect(result.exitCode).not.toBe(0)
   })
@@ -102,7 +102,7 @@ describe('CLI autopilot command (integration)', () => {
 
     try {
       const result = await runCli(['autopilot', 'mysess', 'on'], {
-        HUB_URL: `http://localhost:${server.port}`,
+        OPERANT_URL: `http://localhost:${server.port}`,
       })
       expect(result.exitCode).toBe(0)
       expect(result.stdout).toContain('autopilot on for mysess')
@@ -129,7 +129,7 @@ describe('CLI autopilot command (integration)', () => {
 
     try {
       const result = await runCli(['autopilot', 'mysess', 'off'], {
-        HUB_URL: `http://localhost:${server.port}`,
+        OPERANT_URL: `http://localhost:${server.port}`,
       })
       expect(result.exitCode).toBe(0)
       expect(result.stdout).toContain('autopilot off for mysess')
@@ -152,7 +152,7 @@ describe('CLI autopilot command (integration)', () => {
 
     try {
       const result = await runCli(['autopilot', 'mysess', 'on'], {
-        HUB_URL: `http://localhost:${server.port}`,
+        OPERANT_URL: `http://localhost:${server.port}`,
       })
       expect(result.exitCode).not.toBe(0)
       expect(result.stderr).toContain('autopilot request failed')

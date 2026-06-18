@@ -2,11 +2,11 @@ import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 import { DEFAULT_AUTOPILOT_DEFAULTS } from './types'
-import type { HubConfig, SessionConfig, TrustLevel, AutopilotDefaults } from './types'
+import type { OperantConfig, SessionConfig, TrustLevel, AutopilotDefaults } from './types'
 
-export const HUB_DIR = process.env.CLAUDE_PLUGIN_DATA
-  ?? process.env.HUB_DIR
-  ?? join(homedir(), '.claude', 'channels', 'hub')
+export const OPERANT_DIR = process.env.CLAUDE_PLUGIN_DATA
+  ?? process.env.OPERANT_DIR
+  ?? join(homedir(), '.claude', 'channels', 'operant')
 
 function ensureDir(dir: string): void {
   mkdirSync(dir, { recursive: true, mode: 0o700 })
@@ -32,7 +32,7 @@ function writeJson(path: string, data: unknown): void {
 // the gaps), so a real environment value always takes precedence over the
 // file. Loaded by the daemon itself rather than systemd EnvironmentFile,
 // which SELinux blocks PID 1 from reading under $HOME.
-export function loadDotEnv(dir: string = HUB_DIR): void {
+export function loadDotEnv(dir: string = OPERANT_DIR): void {
   let text: string
   try {
     text = readFileSync(join(dir, '.env'), 'utf8')
@@ -53,12 +53,12 @@ export function loadDotEnv(dir: string = HUB_DIR): void {
   }
 }
 
-export function loadHubConfig(dir: string = HUB_DIR): HubConfig {
+export function loadOperantConfig(dir: string = OPERANT_DIR): OperantConfig {
   // Precedence: environment (incl. <dir>/.env) > config.json > default.
   // Secrets (TELEGRAM_TOKEN) and host/port live in the environment; structured
   // settings (telegramAllowFrom, autopilot) stay in config.json.
   loadDotEnv(dir)
-  const raw = readJson<Partial<HubConfig>>(join(dir, 'config.json')) ?? {}
+  const raw = readJson<Partial<OperantConfig>>(join(dir, 'config.json')) ?? {}
   const envPort = process.env.WEB_PORT
   const webPort = envPort && !Number.isNaN(Number(envPort)) ? Number(envPort) : (raw.webPort ?? 3000)
   return {
@@ -77,7 +77,7 @@ export function loadHubConfig(dir: string = HUB_DIR): HubConfig {
   }
 }
 
-export function resolveAutopilotDefaults(config: HubConfig): AutopilotDefaults {
+export function resolveAutopilotDefaults(config: OperantConfig): AutopilotDefaults {
   const override = config.autopilot ?? {}
   return {
     vetoWindowMs: override.vetoWindowMs ?? DEFAULT_AUTOPILOT_DEFAULTS.vetoWindowMs,
@@ -87,25 +87,25 @@ export function resolveAutopilotDefaults(config: HubConfig): AutopilotDefaults {
   }
 }
 
-export function saveHubConfig(config: HubConfig, dir: string = HUB_DIR): void {
+export function saveOperantConfig(config: OperantConfig, dir: string = OPERANT_DIR): void {
   writeJson(join(dir, 'config.json'), config)
 }
 
-export function loadSessions(dir: string = HUB_DIR): Record<string, SessionConfig> {
+export function loadSessions(dir: string = OPERANT_DIR): Record<string, SessionConfig> {
   return readJson<Record<string, SessionConfig>>(join(dir, 'sessions.json')) ?? {}
 }
 
-export function saveSessions(sessions: Record<string, SessionConfig>, dir: string = HUB_DIR): void {
+export function saveSessions(sessions: Record<string, SessionConfig>, dir: string = OPERANT_DIR): void {
   writeJson(join(dir, 'sessions.json'), sessions)
 }
 
 import { loadProfiles as loadProfilesFromModule, saveProfiles as saveProfilesFromModule } from './profiles'
 import type { Profile } from './types'
 
-export function loadProfilesForHub(): Profile[] {
-  return loadProfilesFromModule(HUB_DIR)
+export function loadProfilesForOperant(): Profile[] {
+  return loadProfilesFromModule(OPERANT_DIR)
 }
 
-export function saveProfilesForHub(profiles: Profile[]): void {
-  saveProfilesFromModule(profiles, HUB_DIR)
+export function saveProfilesForOperant(profiles: Profile[]): void {
+  saveProfilesFromModule(profiles, OPERANT_DIR)
 }

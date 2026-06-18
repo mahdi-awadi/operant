@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Claude Code Hub</title>
+  <title>Claude Code Operant</title>
   <!-- Markdown renderer + sanitizer for chat bubbles -->
   <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
@@ -102,7 +102,7 @@
       align-items: center;
       gap: 6px;
     }
-    #hub-title {
+    #operant-title {
       font-weight: 700;
       font-size: 13px;
       letter-spacing: 0.04em;
@@ -1059,7 +1059,7 @@
         min-width: 56px;
       }
       #sidebar-header { padding: 10px 6px; justify-content: center; flex-wrap: wrap; gap: 4px; }
-      #hub-title { display: none; }
+      #operant-title { display: none; }
       #theme-btn { display: none; }
       #sidebar-footer { padding: 6px; justify-content: center; }
       #sidebar-footer #footer-user { display: none; }
@@ -1076,14 +1076,14 @@
   <div id="drop-overlay">Drop file to upload</div>
 
   <div id="login-screen" style="display:none; position:fixed; inset:0; background:var(--bg); flex-direction:column; align-items:center; justify-content:center; gap:24px; z-index:200;">
-    <div style="font-size:24px; font-weight:700; color:var(--accent);">Claude Code Hub</div>
+    <div style="font-size:24px; font-weight:700; color:var(--accent);">Claude Code Operant</div>
     <div style="color:var(--text-muted); font-size:14px;">Sign in with Telegram to continue</div>
     <div id="telegram-widget-container"></div>
   </div>
 
   <div id="sidebar">
     <div id="sidebar-header">
-      <span id="hub-title">Claude Code Hub</span>
+      <span id="operant-title">Claude Code Operant</span>
       <button id="spawn-btn" class="icon-btn primary" title="Spawn a new session" onclick="promptSpawn()">+</button>
       <button id="company-btn" class="icon-btn" title="Company — board, approvals, departments" onclick="toggleCompanyPanel()">🏢</button>
       <button id="settings-btn" class="icon-btn" title="Autopilot personalities" onclick="openPersonalitiesPanel()">P</button>
@@ -1163,15 +1163,15 @@
       }
       const btn = document.getElementById('theme-btn')
       if (btn) btn.title = `Cycle theme (${name})`
-      localStorage.setItem('hub_theme', name)
+      localStorage.setItem('operant_theme', name)
     }
     function cycleTheme() {
-      const cur = localStorage.getItem('hub_theme') || 'dark'
+      const cur = localStorage.getItem('operant_theme') || 'dark'
       const next = THEMES[(THEMES.indexOf(cur) + 1) % THEMES.length]
       applyTheme(next)
     }
     // Apply saved theme immediately so first paint matches
-    applyTheme(localStorage.getItem('hub_theme') || 'dark')
+    applyTheme(localStorage.getItem('operant_theme') || 'dark')
 
     // Prompt tags — toggleable instructions appended to messages
     const defaultTags = [
@@ -1184,7 +1184,7 @@
     ]
 
     function loadTags() {
-      const saved = localStorage.getItem('hub_tags')
+      const saved = localStorage.getItem('operant_tags')
       if (saved) {
         try {
           const states = JSON.parse(saved)
@@ -1198,7 +1198,7 @@
     function saveTags() {
       const states = {}
       for (const tag of defaultTags) states[tag.id] = tag.active
-      localStorage.setItem('hub_tags', JSON.stringify(states))
+      localStorage.setItem('operant_tags', JSON.stringify(states))
     }
 
     function renderTags() {
@@ -2270,7 +2270,7 @@
         badge.textContent = session.trust === 'auto' ? 'auto' : session.trust
         badge.className = 'trust-badge' + (session.trust === 'auto' ? ' auto' : '')
         tmuxCmd.style.display = ''
-        tmuxCmd.textContent = `tmux attach -t hub-${name}`
+        tmuxCmd.textContent = `tmux attach -t operant-${name}`
         peekBtn.style.display = ''
       } else {
         badge.style.display = 'none'
@@ -2488,7 +2488,7 @@
     }
     function openPeekModal() {
       if (!activeSession) return
-      document.getElementById('peek-title').textContent = `tmux: hub-${activeSession}`
+      document.getElementById('peek-title').textContent = `tmux: operant-${activeSession}`
       document.getElementById('peek-content').textContent = 'Loading…'
       document.getElementById('peek-modal').style.display = 'flex'
       refreshPeek()
@@ -2897,7 +2897,7 @@
     let currentUser = null
 
     function checkAuth() {
-      const saved = localStorage.getItem('hub_user')
+      const saved = localStorage.getItem('operant_user')
       if (saved) {
         try {
           currentUser = JSON.parse(saved)
@@ -2955,7 +2955,7 @@
           return
         }
         currentUser = user
-        localStorage.setItem('hub_user', JSON.stringify(user))
+        localStorage.setItem('operant_user', JSON.stringify(user))
         showApp()
       } catch (err) {
         alert('Login failed: ' + err)
@@ -2964,7 +2964,7 @@
 
     function logout() {
       currentUser = null
-      localStorage.removeItem('hub_user')
+      localStorage.removeItem('operant_user')
       if (ws) ws.close()
       showLogin()
     }

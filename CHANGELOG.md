@@ -15,23 +15,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New backend endpoint `GET /api/sessions/:name/prior` returning up to 10 recent sessions with first-user-message preview and `mtime`, read from `~/.claude/projects/<encoded-cwd>/*.jsonl`.
 - `POST /api/spawn` gains an optional `resume: "continue" | { sessionId }` field; session IDs are validated against `^[0-9a-f-]{8,64}$`. Rejects `resume` when `teamSize > 1`.
 - `ScreenManager.spawn()` gains an optional 5th `resume` parameter. Auto-respawn (crash recovery) stays resume-free by design.
-- Web: `✕` button on disconnected session rows — `POST /api/remove` unregisters from the hub without tmux ops. Rejects active sessions with 409.
+- Web: `✕` button on disconnected session rows — `POST /api/remove` unregisters from the operant without tmux ops. Rejects active sessions with 409.
 - Telegram: `/remove <name>` command for disconnected sessions (mirror of the web UI).
 - Web: paste-to-upload for screenshots (`Ctrl+V` / `Cmd+V`) — pasted images attach to the next outgoing message.
 - `browseRoot` config option widens the `/api/browse` scope beyond `$HOME`. Operators running the daemon as `root` with projects under `/home` can set `"browseRoot": "/home"` to restore the directory picker. Defaults to `$HOME` — safe-by-default unchanged.
 - `/api/browse` response is now `{ root, dirs }` so the web client seeds the spawn dialog with the server's configured root instead of a hardcoded path.
-- Shim: automatic reconnect to the daemon with exponential backoff (1/2/4/8/16/30s). A daemon restart is now invisible to the end user; sessions re-register within seconds and go green again. Pending tool calls reject with `hub disconnected, retry` so Claude can decide to retry. `SIGTERM`/`SIGINT` suppresses reconnect for clean shutdown. ([spec](docs/superpowers/specs/2026-04-22-shim-auto-reconnect-design.md))
+- Shim: automatic reconnect to the daemon with exponential backoff (1/2/4/8/16/30s). A daemon restart is now invisible to the end user; sessions re-register within seconds and go green again. Pending tool calls reject with `operant disconnected, retry` so Claude can decide to retry. `SIGTERM`/`SIGINT` suppresses reconnect for clean shutdown. ([spec](docs/superpowers/specs/2026-04-22-shim-auto-reconnect-design.md))
 
 ## [0.1.0-beta.2] - 2026-04-21
 
 ### Security
 - **Breaking — web frontend now binds to `127.0.0.1` only.** The previous default of `0.0.0.0` exposed an unauthenticated API on the LAN. Use a reverse proxy (Nginx/Caddy/Tailscale/SSH tunnel) for remote access.
-- **Breaking — web API and WebSocket now require authentication.** Successful Telegram login sets a signed `HttpOnly`/`SameSite=Strict` `hub_session` cookie. Every `/api/*` call and WS upgrade validates the cookie and rejects with 401 otherwise. The Telegram Login Widget verification is no longer cosmetic.
+- **Breaking — web API and WebSocket now require authentication.** Successful Telegram login sets a signed `HttpOnly`/`SameSite=Strict` `operant_session` cookie. Every `/api/*` call and WS upgrade validates the cookie and rejects with 401 otherwise. The Telegram Login Widget verification is no longer cosmetic.
 - **Breaking — empty `telegramAllowFrom` is deny-all.** Previously it meant "allow every Telegram user," which made a mis-configured bot a public RCE primitive. The Telegram frontend now refuses to start and web login refuses every user when the list is empty.
 - `/api/browse` is scoped to subtrees of `$HOME`. Requests for paths outside return 403.
 - Upload filenames are sanitized (path separators and non-`[A-Za-z0-9._-]` chars stripped) and the resolved destination must stay inside the session's project root. Closes a traversal-write primitive in both Telegram and web upload handlers.
 - Auto-fetched file contents (when Claude emits a bare save path in a reply) are scoped to the session's project root. Prompt-injection can no longer cause the daemon to read `~/.ssh/` and forward to Telegram.
-- Unix socket (`~/.claude/channels/hub/hub.sock`) is `chmod 0600` after listen, preventing other local users on shared hosts from impersonating a shim.
+- Unix socket (`~/.claude/channels/operant/operant.sock`) is `chmod 0600` after listen, preventing other local users on shared hosts from impersonating a shim.
 - Telegram Login HMAC verification uses `crypto.timingSafeEqual` with try/catch for length mismatches.
 
 ### Added
@@ -56,7 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Photo/document upload via Telegram to project folders
 - Prompt tag toggles (Superpowers, TDD, Concise, etc.)
 - Directory browser in spawn dialog
-- Auto-detection of Claude agent teammates (skipped from hub registry)
+- Auto-detection of Claude agent teammates (skipped from operant registry)
 - Reconnect logic — sessions reuse disconnected slots, no ghost duplicates
 - `install.sh` one-liner installer with prerequisite checks
 - Plugin manifest (`plugin.json`) and marketplace manifest for Claude Code

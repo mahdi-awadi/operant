@@ -5,7 +5,7 @@
 
 import { WebFrontend, signSession } from '../../src/frontends/web'
 import { SessionRegistry } from '../../src/session-registry'
-import { openHubDb } from '../../src/hub-db'
+import { openOperantDb } from '../../src/operant-db'
 import { Personalities } from '../../src/personalities'
 import { Decisions } from '../../src/decisions'
 import { Messages } from '../../src/messages'
@@ -23,7 +23,7 @@ export type SeededSession = {
 export type StartedServer = {
   port: number
   url: string
-  cookie: string                      // "hub_session=<value>"
+  cookie: string                      // "operant_session=<value>"
   registry: SessionRegistry
   stop: () => Promise<void>
   registerSession: (path: string, overrides?: Partial<SessionConfig>) => void
@@ -42,14 +42,14 @@ export async function startTestServer(opts?: {
     registry.register(s.path, s.overrides)
   }
 
-  // Each test instance gets its own hub.sqlite in a fresh temp dir so DAOs
+  // Each test instance gets its own operant.sqlite in a fresh temp dir so DAOs
   // don't pollute each other or the user's real channel data.
-  const dbDir = mkdtempSync(join(tmpdir(), 'hub-e2e-'))
-  const hubDb = openHubDb(dbDir)
-  const errorLog = new ErrorLog(hubDb.db)
-  const personalities = new Personalities(hubDb.db)
-  const decisions = new Decisions(hubDb.db)
-  const messages = new Messages(hubDb.db)
+  const dbDir = mkdtempSync(join(tmpdir(), 'operant-e2e-'))
+  const operantDb = openOperantDb(dbDir)
+  const errorLog = new ErrorLog(operantDb.db)
+  const personalities = new Personalities(operantDb.db)
+  const decisions = new Decisions(operantDb.db)
+  const messages = new Messages(operantDb.db)
 
   // No-op router: lets endpoints that gate on `router != null` (e.g. /api/send)
   // run without spawning real shim processes. Tests that need to verify the
@@ -83,11 +83,11 @@ export async function startTestServer(opts?: {
   return {
     port,
     url: `http://127.0.0.1:${port}`,
-    cookie: `hub_session=${cookieValue}`,
+    cookie: `operant_session=${cookieValue}`,
     registry,
     stop: async () => {
       await web.stop()
-      hubDb.close()
+      operantDb.close()
       rmSync(dbDir, { recursive: true, force: true })
     },
     registerSession: (path, overrides) => registry.register(path, overrides),

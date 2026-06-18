@@ -26,7 +26,7 @@ describe('autopilot daemon integration shape', () => {
 `
     const sm = new FakeScreenManager(['', pane])
     const runner = new AutopilotRunner({ screenManager: sm as any, pollIntervalMs: 5, btwTimeoutMs: 500 })
-    const result = await runner.runBtw('hub-x', wrapped, {
+    const result = await runner.runBtw('operant-x', wrapped, {
       rawQuestion: 'Pick Node or Bun?',
       riskKeywords: ['production'],
     })

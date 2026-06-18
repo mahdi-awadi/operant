@@ -24,7 +24,7 @@ import type { CompanyStore, Approval } from '../company/store'
 import { saveSessions } from '../config'
 import { listPriorSessions } from '../claude-sessions'
 
-const COOKIE_NAME = 'hub_session'
+const COOKIE_NAME = 'operant_session'
 const COOKIE_MAX_AGE_SEC = 86400 // 24h
 
 // Mini-JWT-ish token: `<b64url(payload)>.<hex(hmac)>`. Payload is a JSON
@@ -183,7 +183,7 @@ export class WebFrontend {
         const url = new URL(req.url)
 
         // Auth: anything under /api except the Telegram login endpoint
-        // requires a valid hub_session cookie issued by handleTelegramAuth.
+        // requires a valid operant_session cookie issued by handleTelegramAuth.
         // Same for WebSocket upgrades. Static assets (/, favicon) are public.
         const isAuthEndpoint = url.pathname === '/api/auth/telegram'
         const isStatic =
@@ -596,7 +596,7 @@ export class WebFrontend {
       if (!file) return new Response('Missing file', { status: 400 })
 
       const { mkdirSync, writeFileSync } = await import('fs')
-      const tmpDir = join('/tmp', 'hub-uploads')
+      const tmpDir = join('/tmp', 'operant-uploads')
       mkdirSync(tmpDir, { recursive: true })
       const safeName = sanitizeFilename(file.name)
       const destPath = join(tmpDir, `${Date.now()}-${safeName}`)
@@ -758,7 +758,7 @@ export class WebFrontend {
       if (size > 1) {
         if (resumeSpec) return new Response('Resume not supported with teamSize > 1', { status: 400 })
         this.deps.screenManager.spawnTeam(name, path, size, instructions).catch(err => {
-          process.stderr.write(`hub: spawnTeam error: ${err}\n`)
+          process.stderr.write(`operant: spawnTeam error: ${err}\n`)
         })
       } else {
         await this.deps.screenManager.spawn(name, path, instructions, undefined, resumeSpec)
@@ -776,7 +776,7 @@ export class WebFrontend {
 
       // Either path: send Ctrl-C + `/exit` to the tmux session so Claude
       // actually exits. The new gracefulKill handles the unmanaged case
-      // (assumes tmux is `hub-<name>`) so the user's "Close session" click
+      // (assumes tmux is `operant-<name>`) so the user's "Close session" click
       // really does close it, not just unhook the daemon socket.
       await this.deps.screenManager?.gracefulKill(name)
 
@@ -980,7 +980,7 @@ export class WebFrontend {
       if (enabled) {
         const runner = this.deps.autopilotRunner
         const managed = this.deps.screenManager?.getManagedByPath(this.deps.registry.folderPath(path))
-        const tmuxName = managed?.sessionName ?? `hub-${name}`
+        const tmuxName = managed?.sessionName ?? `operant-${name}`
         if (runner) {
           // Synchronous fast check — pane state only, no /btw round-trip.
           const quick = await runner.quickProbe(tmuxName)
@@ -1012,7 +1012,7 @@ export class WebFrontend {
               this.deliverToUser(name, `✅ Autopilot ready — /btw confirmed reachable.`)
             }
           }).catch(err => {
-            process.stderr.write(`hub: autopilot bg probe error for ${name}: ${err}\n`)
+            process.stderr.write(`operant: autopilot bg probe error for ${name}: ${err}\n`)
           })
         }
       } else {
@@ -1079,7 +1079,7 @@ export class WebFrontend {
             editedAnswer: action === 'edit' ? edited : undefined,
           })
         } catch (err) {
-          process.stderr.write(`hub: decisions.recordFeedback failed: ${err}\n`)
+          process.stderr.write(`operant: decisions.recordFeedback failed: ${err}\n`)
         }
       }
 
@@ -1163,7 +1163,7 @@ export class WebFrontend {
           })
           this.deliverToUser(pending.sessionName, `🟡 Autopilot still can't answer (${result.status}). Type a reply.`)
         }
-      }).catch(err => process.stderr.write(`hub: escalate-proceed failed: ${err}\n`))
+      }).catch(err => process.stderr.write(`operant: escalate-proceed failed: ${err}\n`))
 
       return Response.json({ ok: true })
     } catch (err) {
@@ -1181,7 +1181,7 @@ export class WebFrontend {
       })
       return Response.json({ sessions })
     } catch (err) {
-      process.stderr.write(`hub: /api/sessions/${name}/prior error: ${err}\n`)
+      process.stderr.write(`operant: /api/sessions/${name}/prior error: ${err}\n`)
       return Response.json({ sessions: [], error: 'read-failed' }, { status: 200 })
     }
   }
@@ -1195,7 +1195,7 @@ export class WebFrontend {
       : 80
     const path = this.deps.registry.findByName(name)
     const managed = path ? this.deps.screenManager.getManagedByPath(this.deps.registry.folderPath(path)) : undefined
-    const tmuxName = managed?.sessionName ?? `hub-${name}`
+    const tmuxName = managed?.sessionName ?? `operant-${name}`
     try {
       const pane = await this.deps.screenManager.capturePaneWithScrollback(tmuxName, lines)
       return Response.json({ name, lines, pane })

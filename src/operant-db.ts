@@ -1,10 +1,10 @@
-// src/hub-db.ts
-// Single SQLite file backing the hub: autopilot errors + personalities +
+// src/operant-db.ts
+// Single SQLite file backing the operant: autopilot errors + personalities +
 // per-session personality assignment. Built to grow into decision history
 // and any other forensic / config state that doesn't belong in JSON.
 //
 // Migration policy: if an old errors.sqlite is found in the same directory
-// AND no hub.sqlite exists yet, we copy errors.sqlite → hub.sqlite, then
+// AND no operant.sqlite exists yet, we copy errors.sqlite → operant.sqlite, then
 // rename the old file to errors.sqlite.bak. The schema migrations run in
 // a single transaction afterwards so the new tables (personalities, etc.)
 // are added atomically.
@@ -14,7 +14,7 @@ import { existsSync, copyFileSync, renameSync, statSync } from 'fs'
 import { join } from 'path'
 import { COMPANY_SCHEMA_STATEMENTS } from './company/schema'
 
-export type HubDbHandle = {
+export type OperantDbHandle = {
   db: Database
   close(): void
 }
@@ -108,8 +108,8 @@ const SCHEMA_STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_messages_session_ts ON messages(session_name, ts DESC)`,
 ]
 
-export function openHubDb(dir: string): HubDbHandle {
-  const newPath = join(dir, 'hub.sqlite')
+export function openOperantDb(dir: string): OperantDbHandle {
+  const newPath = join(dir, 'operant.sqlite')
   const oldPath = join(dir, 'errors.sqlite')
 
   // Migration step — only if the new file does NOT yet exist AND the old

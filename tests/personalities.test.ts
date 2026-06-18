@@ -1,20 +1,20 @@
 // tests/personalities.test.ts
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
 import { Personalities, BUILTIN_NAMES } from '../src/personalities'
-import { openHubDb } from '../src/hub-db'
+import { openOperantDb } from '../src/operant-db'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import type { HubDbHandle } from '../src/hub-db'
+import type { OperantDbHandle } from '../src/operant-db'
 
 describe('Personalities', () => {
   let dir: string
-  let handle: HubDbHandle
+  let handle: OperantDbHandle
   let p: Personalities
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'hub-personalities-test-'))
-    handle = openHubDb(dir)
+    dir = mkdtempSync(join(tmpdir(), 'operant-personalities-test-'))
+    handle = openOperantDb(dir)
     p = new Personalities(handle.db)
   })
 

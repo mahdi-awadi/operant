@@ -24,7 +24,7 @@ test.afterEach(async () => {
   await srv.stop()
 })
 
-// Inject the auth cookie + the client-side hub_user gate before the
+// Inject the auth cookie + the client-side operant_user gate before the
 // browser fetches the dashboard. The dashboard uses BOTH: the cookie for
 // server-side auth on /api/* and the localStorage entry to decide whether
 // to render the app or the Telegram login screen.
@@ -39,7 +39,7 @@ async function authedPage(page: import('@playwright/test').Page) {
   }])
   // Pretend the user already completed Telegram login.
   await page.addInitScript(() => {
-    localStorage.setItem('hub_user', JSON.stringify({ id: 11111, first_name: 'Test' }))
+    localStorage.setItem('operant_user', JSON.stringify({ id: 11111, first_name: 'Test' }))
   })
   await page.goto(srv.url)
 }
@@ -180,7 +180,7 @@ test('chat history is persisted to the server and replayed on a hard refresh', a
   await page.reload()
   // Re-seed the localStorage gate after reload (cookie persists).
   await page.evaluate(() => {
-    localStorage.setItem('hub_user', JSON.stringify({ id: 11111, first_name: 'Test' }))
+    localStorage.setItem('operant_user', JSON.stringify({ id: 11111, first_name: 'Test' }))
   })
   await page.reload()
   await page.locator('.session-name', { hasText: 'alpha' }).click()

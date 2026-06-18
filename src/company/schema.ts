@@ -1,4 +1,4 @@
-// SQLite DDL for the shared "company brain". Appended to hub-db's migration loop.
+// SQLite DDL for the shared "company brain". Appended to operant-db's migration loop.
 export const COMPANY_SCHEMA_STATEMENTS: string[] = [
   `CREATE TABLE IF NOT EXISTS departments (
     id TEXT PRIMARY KEY,

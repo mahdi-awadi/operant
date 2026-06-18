@@ -1,31 +1,31 @@
-// tests/hub-db.test.ts
+// tests/operant-db.test.ts
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { openHubDb } from '../src/hub-db'
+import { openOperantDb } from '../src/operant-db'
 import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { Database } from 'bun:sqlite'
 
-describe('openHubDb', () => {
+describe('openOperantDb', () => {
   let dir: string
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'hub-db-test-'))
+    dir = mkdtempSync(join(tmpdir(), 'operant-db-test-'))
   })
 
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true })
   })
 
-  test('creates hub.sqlite with all expected tables on first run', () => {
-    const { db, close } = openHubDb(dir)
+  test('creates operant.sqlite with all expected tables on first run', () => {
+    const { db, close } = openOperantDb(dir)
     try {
       const tables = db.prepare(`SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`).all()
       const names = tables.map((r: any) => r.name)
       expect(names).toContain('autopilot_errors')
       expect(names).toContain('personalities')
       expect(names).toContain('project_personalities')
-      expect(existsSync(join(dir, 'hub.sqlite'))).toBe(true)
+      expect(existsSync(join(dir, 'operant.sqlite'))).toBe(true)
     } finally {
       close()
     }
@@ -53,7 +53,7 @@ describe('openHubDb', () => {
       .run(1000, 'pre-migration', '/p:0', 'timeout', 1)
     seed.close()
 
-    const { db, close } = openHubDb(dir)
+    const { db, close } = openOperantDb(dir)
     try {
       // Old rows are in the new file
       const rows = db.prepare(`SELECT * FROM autopilot_errors`).all()
@@ -68,9 +68,9 @@ describe('openHubDb', () => {
     }
   })
 
-  test('does not overwrite an existing hub.sqlite even if errors.sqlite is also present', () => {
-    // Existing hub.sqlite with a marker row
-    const newPath = join(dir, 'hub.sqlite')
+  test('does not overwrite an existing operant.sqlite even if errors.sqlite is also present', () => {
+    // Existing operant.sqlite with a marker row
+    const newPath = join(dir, 'operant.sqlite')
     const real = new Database(newPath, { create: true })
     real.exec(`CREATE TABLE marker (k TEXT)`)
     real.prepare(`INSERT INTO marker VALUES (?)`).run('keep-me')
@@ -79,7 +79,7 @@ describe('openHubDb', () => {
     // Spurious errors.sqlite (e.g., a half-finished migration leftover)
     writeFileSync(join(dir, 'errors.sqlite'), '') // empty file, definitely not valid SQLite
 
-    const { db, close } = openHubDb(dir)
+    const { db, close } = openOperantDb(dir)
     try {
       const v = db.prepare(`SELECT k FROM marker`).get() as any
       expect(v.k).toBe('keep-me')
@@ -92,11 +92,11 @@ describe('openHubDb', () => {
   })
 
   test('idempotent: re-opening adds nothing and changes nothing', () => {
-    let { db, close } = openHubDb(dir)
+    let { db, close } = openOperantDb(dir)
     db.prepare(`INSERT INTO autopilot_errors (ts, session_name, session_path, status, duration_ms) VALUES (?, ?, ?, ?, ?)`).run(1, 'a', '/a:0', 'timeout', 1)
     close()
 
-    const reopen = openHubDb(dir)
+    const reopen = openOperantDb(dir)
     try {
       const count = (reopen.db.prepare(`SELECT count(*) AS c FROM autopilot_errors`).get() as any).c
       expect(count).toBe(1)
@@ -109,7 +109,7 @@ describe('openHubDb', () => {
     // We can't observe the txn from outside, but we can verify all four
     // tables exist together — which would be impossible if a partial
     // schema-create were committed mid-flight.
-    const { db, close } = openHubDb(dir)
+    const { db, close } = openOperantDb(dir)
     try {
       const expected = ['autopilot_errors', 'personalities', 'project_personalities']
       for (const name of expected) {

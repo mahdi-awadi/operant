@@ -1,6 +1,6 @@
 // tests/company-daemon-toolcall.test.ts
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { openHubDb } from '../src/hub-db'
+import { openOperantDb } from '../src/operant-db'
 import { CompanyStore } from '../src/company/store'
 import { deptIdForPath } from '../src/daemon'
 import { mkdtempSync, rmSync } from 'fs'; import { tmpdir } from 'os'; import { join } from 'path'
@@ -8,7 +8,7 @@ import { mkdtempSync, rmSync } from 'fs'; import { tmpdir } from 'os'; import { 
 describe('deptIdForPath', () => {
   let dir: string, close: () => void, store: CompanyStore
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'co-dmn-')); const h = openHubDb(dir); close = h.close; store = new CompanyStore(h.db)
+    dir = mkdtempSync(join(tmpdir(), 'co-dmn-')); const h = openOperantDb(dir); close = h.close; store = new CompanyStore(h.db)
     store.upsertDepartment({ id: 'secretary', title: 'COS', folder: '/home/company/desks/secretary', reports_to: 'mahdi', manages: [], profile_name: 'careful', skills: [], mcps: [], schedule_cron: null, budget_minutes_week: 240, approval_policy: 'ask', autonomy_level: 1, status: 'idle', active: true })
   })
   afterEach(() => { close(); rmSync(dir, { recursive: true, force: true }) })

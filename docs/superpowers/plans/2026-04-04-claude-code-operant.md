@@ -1,8 +1,8 @@
-# Claude Code Hub Implementation Plan
+# Claude Code Operant Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a multi-session Claude Code hub with daemon + shim architecture, supporting Telegram, Web PWA, and CLI frontends.
+**Goal:** Build a multi-session Claude Code operant with daemon + shim architecture, supporting Telegram, Web PWA, and CLI frontends.
 
 **Architecture:** A long-running daemon listens on a Unix socket and manages session state, frontends, and screen processes. Tiny shim processes bridge each Claude Code session's stdio MCP connection to the daemon via the socket. Three frontends (Web, Telegram, CLI) share the same daemon API.
 
@@ -13,7 +13,7 @@
 ## File Structure
 
 ```
-claude-code-hub/
+claude-code-operant/
   package.json
   tsconfig.json
   src/
@@ -51,21 +51,21 @@ claude-code-hub/
 ## Task 1: Project Setup and Shared Types
 
 **Files:**
-- Create: `claude-code-hub/package.json`
-- Create: `claude-code-hub/tsconfig.json`
-- Create: `claude-code-hub/src/types.ts`
+- Create: `claude-code-operant/package.json`
+- Create: `claude-code-operant/tsconfig.json`
+- Create: `claude-code-operant/src/types.ts`
 
 - [ ] **Step 1: Create project directory**
 
 ```bash
-mkdir -p claude-code-hub/src/frontends claude-code-hub/tests/frontends
+mkdir -p claude-code-operant/src/frontends claude-code-operant/tests/frontends
 ```
 
 - [ ] **Step 2: Create package.json**
 
 ```json
 {
-  "name": "claude-code-hub",
+  "name": "claude-code-operant",
   "version": "0.1.0",
   "type": "module",
   "scripts": {
@@ -127,7 +127,7 @@ export type SessionState = SessionConfig & {
   connectedAt: number | null
 }
 
-export type HubConfig = {
+export type OperantConfig = {
   webPort: number
   telegramToken: string
   telegramAllowFrom: string[]
@@ -182,7 +182,7 @@ export type DaemonToShim =
 - [ ] **Step 5: Install dependencies**
 
 ```bash
-cd claude-code-hub && bun install
+cd claude-code-operant && bun install
 ```
 
 - [ ] **Step 6: Commit**
@@ -199,19 +199,19 @@ git commit -m "feat: project setup with shared types"
 ## Task 2: Config Module
 
 **Files:**
-- Create: `claude-code-hub/src/config.ts`
-- Create: `claude-code-hub/tests/config.test.ts`
+- Create: `claude-code-operant/src/config.ts`
+- Create: `claude-code-operant/tests/config.test.ts`
 
 - [ ] **Step 1: Write failing tests**
 
 ```typescript
 // tests/config.test.ts
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { loadHubConfig, saveHubConfig, loadSessions, saveSessions, HUB_DIR } from '../src/config'
+import { loadOperantConfig, saveOperantConfig, loadSessions, saveSessions, OPERANT_DIR } from '../src/config'
 import { mkdirSync, rmSync, existsSync } from 'fs'
 import { join } from 'path'
 
-const TEST_DIR = join(import.meta.dir, '.test-hub-config')
+const TEST_DIR = join(import.meta.dir, '.test-operant-config')
 
 describe('config', () => {
   beforeEach(() => {
@@ -222,8 +222,8 @@ describe('config', () => {
     rmSync(TEST_DIR, { recursive: true, force: true })
   })
 
-  test('loadHubConfig returns defaults when file missing', () => {
-    const config = loadHubConfig(TEST_DIR)
+  test('loadOperantConfig returns defaults when file missing', () => {
+    const config = loadOperantConfig(TEST_DIR)
     expect(config.webPort).toBe(3000)
     expect(config.defaultTrust).toBe('ask')
     expect(config.telegramToken).toBe('')
@@ -231,15 +231,15 @@ describe('config', () => {
     expect(config.defaultUploadDir).toBe('.')
   })
 
-  test('saveHubConfig and loadHubConfig roundtrip', () => {
+  test('saveOperantConfig and loadOperantConfig roundtrip', () => {
     const config = {
       webPort: 4000,
       telegramToken: '123:AAH',
       defaultTrust: 'auto-approve' as const,
       defaultUploadDir: 'uploads/',
     }
-    saveHubConfig(config, TEST_DIR)
-    const loaded = loadHubConfig(TEST_DIR)
+    saveOperantConfig(config, TEST_DIR)
+    const loaded = loadOperantConfig(TEST_DIR)
     expect(loaded).toEqual(config)
   })
 
@@ -263,9 +263,9 @@ describe('config', () => {
     expect(loaded).toEqual(sessions)
   })
 
-  test('saveHubConfig creates directory with mode 0o700', () => {
-    const config = loadHubConfig(TEST_DIR)
-    saveHubConfig(config, TEST_DIR)
+  test('saveOperantConfig creates directory with mode 0o700', () => {
+    const config = loadOperantConfig(TEST_DIR)
+    saveOperantConfig(config, TEST_DIR)
     expect(existsSync(TEST_DIR)).toBe(true)
   })
 })
@@ -274,7 +274,7 @@ describe('config', () => {
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-cd claude-code-hub && bun test tests/config.test.ts
+cd claude-code-operant && bun test tests/config.test.ts
 ```
 
 Expected: FAIL — module `../src/config` does not exist.
@@ -285,11 +285,11 @@ Expected: FAIL — module `../src/config` does not exist.
 // src/config.ts
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs'
 import { join, homedir } from 'path'
-import type { HubConfig, SessionConfig, TrustLevel } from './types'
+import type { OperantConfig, SessionConfig, TrustLevel } from './types'
 
-export const HUB_DIR = join(homedir(), '.claude', 'channels', 'hub')
+export const OPERANT_DIR = join(homedir(), '.claude', 'channels', 'operant')
 
-function defaultConfig(): HubConfig {
+function defaultConfig(): OperantConfig {
   return {
     webPort: 3000,
     telegramToken: '',
@@ -319,8 +319,8 @@ function writeJson(path: string, data: unknown): void {
   renameSync(tmp, path)
 }
 
-export function loadHubConfig(dir: string = HUB_DIR): HubConfig {
-  const raw = readJson<Partial<HubConfig>>(join(dir, 'config.json'))
+export function loadOperantConfig(dir: string = OPERANT_DIR): OperantConfig {
+  const raw = readJson<Partial<OperantConfig>>(join(dir, 'config.json'))
   if (!raw) return defaultConfig()
   return {
     webPort: raw.webPort ?? 3000,
@@ -331,15 +331,15 @@ export function loadHubConfig(dir: string = HUB_DIR): HubConfig {
   }
 }
 
-export function saveHubConfig(config: HubConfig, dir: string = HUB_DIR): void {
+export function saveOperantConfig(config: OperantConfig, dir: string = OPERANT_DIR): void {
   writeJson(join(dir, 'config.json'), config)
 }
 
-export function loadSessions(dir: string = HUB_DIR): Record<string, SessionConfig> {
+export function loadSessions(dir: string = OPERANT_DIR): Record<string, SessionConfig> {
   return readJson<Record<string, SessionConfig>>(join(dir, 'sessions.json')) ?? {}
 }
 
-export function saveSessions(sessions: Record<string, SessionConfig>, dir: string = HUB_DIR): void {
+export function saveSessions(sessions: Record<string, SessionConfig>, dir: string = OPERANT_DIR): void {
   writeJson(join(dir, 'sessions.json'), sessions)
 }
 ```
@@ -347,7 +347,7 @@ export function saveSessions(sessions: Record<string, SessionConfig>, dir: strin
 - [ ] **Step 4: Run tests to verify they pass**
 
 ```bash
-cd claude-code-hub && bun test tests/config.test.ts
+cd claude-code-operant && bun test tests/config.test.ts
 ```
 
 Expected: all 5 tests PASS.
@@ -355,7 +355,7 @@ Expected: all 5 tests PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-cd claude-code-hub && git add src/config.ts tests/config.test.ts && git commit -m "feat: config module with file I/O"
+cd claude-code-operant && git add src/config.ts tests/config.test.ts && git commit -m "feat: config module with file I/O"
 ```
 
 ---
@@ -363,8 +363,8 @@ cd claude-code-hub && git add src/config.ts tests/config.test.ts && git commit -
 ## Task 3: Session Registry
 
 **Files:**
-- Create: `claude-code-hub/src/session-registry.ts`
-- Create: `claude-code-hub/tests/session-registry.test.ts`
+- Create: `claude-code-operant/src/session-registry.ts`
+- Create: `claude-code-operant/tests/session-registry.test.ts`
 
 - [ ] **Step 1: Write failing tests**
 
@@ -463,7 +463,7 @@ describe('SessionRegistry', () => {
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-cd claude-code-hub && bun test tests/session-registry.test.ts
+cd claude-code-operant && bun test tests/session-registry.test.ts
 ```
 
 Expected: FAIL — module not found.
@@ -594,7 +594,7 @@ export class SessionRegistry {
 - [ ] **Step 4: Run tests to verify they pass**
 
 ```bash
-cd claude-code-hub && bun test tests/session-registry.test.ts
+cd claude-code-operant && bun test tests/session-registry.test.ts
 ```
 
 Expected: all 11 tests PASS.
@@ -602,7 +602,7 @@ Expected: all 11 tests PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-cd claude-code-hub && git add src/session-registry.ts tests/session-registry.test.ts && git commit -m "feat: session registry with name collision handling"
+cd claude-code-operant && git add src/session-registry.ts tests/session-registry.test.ts && git commit -m "feat: session registry with name collision handling"
 ```
 
 ---
@@ -610,8 +610,8 @@ cd claude-code-hub && git add src/session-registry.ts tests/session-registry.tes
 ## Task 4: Socket Server (Daemon Side)
 
 **Files:**
-- Create: `claude-code-hub/src/socket-server.ts`
-- Create: `claude-code-hub/tests/socket-server.test.ts`
+- Create: `claude-code-operant/src/socket-server.ts`
+- Create: `claude-code-operant/tests/socket-server.test.ts`
 
 - [ ] **Step 1: Write failing tests**
 
@@ -624,7 +624,7 @@ import { join } from 'path'
 import { rmSync } from 'fs'
 import { connect } from 'net'
 
-const TEST_SOCK = join(import.meta.dir, '.test-hub.sock')
+const TEST_SOCK = join(import.meta.dir, '.test-operant.sock')
 
 function sendLine(sock: ReturnType<typeof connect>, data: object): void {
   sock.write(JSON.stringify(data) + '\n')
@@ -706,7 +706,7 @@ describe('SocketServer', () => {
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-cd claude-code-hub && bun test tests/socket-server.test.ts
+cd claude-code-operant && bun test tests/socket-server.test.ts
 ```
 
 Expected: FAIL — module not found.
@@ -850,7 +850,7 @@ export class SocketServer extends EventEmitter {
 - [ ] **Step 4: Run tests to verify they pass**
 
 ```bash
-cd claude-code-hub && bun test tests/socket-server.test.ts
+cd claude-code-operant && bun test tests/socket-server.test.ts
 ```
 
 Expected: all 3 tests PASS.
@@ -858,7 +858,7 @@ Expected: all 3 tests PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-cd claude-code-hub && git add src/socket-server.ts tests/socket-server.test.ts && git commit -m "feat: Unix socket server for shim connections"
+cd claude-code-operant && git add src/socket-server.ts tests/socket-server.test.ts && git commit -m "feat: Unix socket server for shim connections"
 ```
 
 ---
@@ -866,8 +866,8 @@ cd claude-code-hub && git add src/socket-server.ts tests/socket-server.test.ts &
 ## Task 5: MCP Shim
 
 **Files:**
-- Create: `claude-code-hub/src/shim.ts`
-- Create: `claude-code-hub/tests/shim.test.ts`
+- Create: `claude-code-operant/src/shim.ts`
+- Create: `claude-code-operant/tests/shim.test.ts`
 
 - [ ] **Step 1: Write failing tests**
 
@@ -894,10 +894,10 @@ describe('shim helpers', () => {
   })
 
   test('buildMcpNotification creates channel notification', () => {
-    const notif = buildMcpNotification('hello', { source: 'hub', session: 'frontend' })
+    const notif = buildMcpNotification('hello', { source: 'operant', session: 'frontend' })
     expect(notif.method).toBe('notifications/claude/channel')
     expect(notif.params.content).toBe('hello')
-    expect(notif.params.meta.source).toBe('hub')
+    expect(notif.params.meta.source).toBe('operant')
   })
 })
 ```
@@ -905,7 +905,7 @@ describe('shim helpers', () => {
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-cd claude-code-hub && bun test tests/shim.test.ts
+cd claude-code-operant && bun test tests/shim.test.ts
 ```
 
 Expected: FAIL — module not found.
@@ -926,7 +926,7 @@ import { join } from 'path'
 import { homedir } from 'os'
 import type { DaemonToShim, ShimToDaemon } from './types'
 
-const SOCKET_PATH = process.env.HUB_SOCKET ?? join(homedir(), '.claude', 'channels', 'hub', 'hub.sock')
+const SOCKET_PATH = process.env.OPERANT_SOCKET ?? join(homedir(), '.claude', 'channels', 'operant', 'operant.sock')
 
 // Exported helpers for testing
 export function parseShimMessage(line: string): DaemonToShim {
@@ -958,7 +958,7 @@ function main() {
   let registered = false
 
   const mcp = new Server(
-    { name: 'claude-code-hub', version: '0.1.0' },
+    { name: 'claude-code-operant', version: '0.1.0' },
     {
       capabilities: {
         tools: {},
@@ -968,10 +968,10 @@ function main() {
         },
       },
       instructions: [
-        'This session is connected to Claude Code Hub — a multi-project management system.',
-        'Messages arrive from the hub frontends (Telegram, Web, CLI).',
+        'This session is connected to Claude Code Operant — a multi-project management system.',
+        'Messages arrive from the operant frontends (Telegram, Web, CLI).',
         'Reply with the reply tool — pass the text you want to send back.',
-        'The hub routes your replies to the user on whichever frontend they are using.',
+        'The operant routes your replies to the user on whichever frontend they are using.',
       ].join('\n'),
     },
   )
@@ -981,7 +981,7 @@ function main() {
     tools: [
       {
         name: 'reply',
-        description: 'Reply to the user via the hub. Text is routed to all connected frontends.',
+        description: 'Reply to the user via the operant. Text is routed to all connected frontends.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -1073,10 +1073,10 @@ function main() {
     switch (msg.type) {
       case 'registered':
         registered = true
-        process.stderr.write(`hub shim: registered as "${msg.sessionName}"\n`)
+        process.stderr.write(`operant shim: registered as "${msg.sessionName}"\n`)
         break
       case 'rejected':
-        process.stderr.write(`hub shim: rejected — ${msg.reason}\n`)
+        process.stderr.write(`operant shim: rejected — ${msg.reason}\n`)
         process.exit(1)
         break
       case 'channel_message':
@@ -1084,7 +1084,7 @@ function main() {
           method: 'notifications/claude/channel',
           params: { content: msg.content, meta: msg.meta },
         }).catch((err) => {
-          process.stderr.write(`hub shim: failed to deliver message: ${err}\n`)
+          process.stderr.write(`operant shim: failed to deliver message: ${err}\n`)
         })
         break
       case 'permission_response':
@@ -1092,7 +1092,7 @@ function main() {
           method: 'notifications/claude/channel/permission',
           params: { request_id: msg.requestId, behavior: msg.behavior },
         }).catch((err) => {
-          process.stderr.write(`hub shim: failed to relay permission: ${err}\n`)
+          process.stderr.write(`operant shim: failed to relay permission: ${err}\n`)
         })
         break
     }
@@ -1107,19 +1107,19 @@ function main() {
   })
 
   daemon.on('error', (err) => {
-    process.stderr.write(`hub shim: daemon connection error: ${err.message}\n`)
-    process.stderr.write(`hub shim: is the daemon running? Start with: bun run daemon\n`)
+    process.stderr.write(`operant shim: daemon connection error: ${err.message}\n`)
+    process.stderr.write(`operant shim: is the daemon running? Start with: bun run daemon\n`)
     process.exit(1)
   })
 
   daemon.on('close', () => {
-    process.stderr.write('hub shim: daemon disconnected\n')
+    process.stderr.write('operant shim: daemon disconnected\n')
     process.exit(0)
   })
 
   // Start MCP stdio transport
   mcp.connect(new StdioServerTransport()).catch((err) => {
-    process.stderr.write(`hub shim: MCP connect failed: ${err}\n`)
+    process.stderr.write(`operant shim: MCP connect failed: ${err}\n`)
     process.exit(1)
   })
 
@@ -1136,7 +1136,7 @@ function main() {
 - [ ] **Step 4: Run tests to verify they pass**
 
 ```bash
-cd claude-code-hub && bun test tests/shim.test.ts
+cd claude-code-operant && bun test tests/shim.test.ts
 ```
 
 Expected: all 3 tests PASS.
@@ -1144,7 +1144,7 @@ Expected: all 3 tests PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-cd claude-code-hub && git add src/shim.ts tests/shim.test.ts && git commit -m "feat: MCP shim bridging stdio to daemon socket"
+cd claude-code-operant && git add src/shim.ts tests/shim.test.ts && git commit -m "feat: MCP shim bridging stdio to daemon socket"
 ```
 
 ---
@@ -1152,8 +1152,8 @@ cd claude-code-hub && git add src/shim.ts tests/shim.test.ts && git commit -m "f
 ## Task 6: Permission Engine
 
 **Files:**
-- Create: `claude-code-hub/src/permission-engine.ts`
-- Create: `claude-code-hub/tests/permission-engine.test.ts`
+- Create: `claude-code-operant/src/permission-engine.ts`
+- Create: `claude-code-operant/tests/permission-engine.test.ts`
 
 - [ ] **Step 1: Write failing tests**
 
@@ -1223,7 +1223,7 @@ describe('PermissionEngine', () => {
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-cd claude-code-hub && bun test tests/permission-engine.test.ts
+cd claude-code-operant && bun test tests/permission-engine.test.ts
 ```
 
 Expected: FAIL — module not found.
@@ -1296,7 +1296,7 @@ export class PermissionEngine {
 - [ ] **Step 4: Run tests to verify they pass**
 
 ```bash
-cd claude-code-hub && bun test tests/permission-engine.test.ts
+cd claude-code-operant && bun test tests/permission-engine.test.ts
 ```
 
 Expected: all 4 tests PASS.
@@ -1304,7 +1304,7 @@ Expected: all 4 tests PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-cd claude-code-hub && git add src/permission-engine.ts tests/permission-engine.test.ts && git commit -m "feat: permission engine with auto-approve and ask modes"
+cd claude-code-operant && git add src/permission-engine.ts tests/permission-engine.test.ts && git commit -m "feat: permission engine with auto-approve and ask modes"
 ```
 
 ---
@@ -1312,8 +1312,8 @@ cd claude-code-hub && git add src/permission-engine.ts tests/permission-engine.t
 ## Task 7: Message Router
 
 **Files:**
-- Create: `claude-code-hub/src/message-router.ts`
-- Create: `claude-code-hub/tests/message-router.test.ts`
+- Create: `claude-code-operant/src/message-router.ts`
+- Create: `claude-code-operant/tests/message-router.test.ts`
 
 - [ ] **Step 1: Write failing tests**
 
@@ -1394,7 +1394,7 @@ describe('MessageRouter', () => {
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-cd claude-code-hub && bun test tests/message-router.test.ts
+cd claude-code-operant && bun test tests/message-router.test.ts
 ```
 
 Expected: FAIL — module not found.
@@ -1437,7 +1437,7 @@ export class MessageRouter {
 
     const content = session.prefix ? `${session.prefix} ${text}` : text
     const meta: Record<string, string> = {
-      source: 'hub',
+      source: 'operant',
       frontend,
       user,
       session: sessionName,
@@ -1476,7 +1476,7 @@ export class MessageRouter {
 - [ ] **Step 4: Run tests to verify they pass**
 
 ```bash
-cd claude-code-hub && bun test tests/message-router.test.ts
+cd claude-code-operant && bun test tests/message-router.test.ts
 ```
 
 Expected: all 8 tests PASS.
@@ -1484,7 +1484,7 @@ Expected: all 8 tests PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-cd claude-code-hub && git add src/message-router.ts tests/message-router.test.ts && git commit -m "feat: message router with prefix, broadcast, and targeted messages"
+cd claude-code-operant && git add src/message-router.ts tests/message-router.test.ts && git commit -m "feat: message router with prefix, broadcast, and targeted messages"
 ```
 
 ---
@@ -1492,8 +1492,8 @@ cd claude-code-hub && git add src/message-router.ts tests/message-router.test.ts
 ## Task 8: Screen Manager
 
 **Files:**
-- Create: `claude-code-hub/src/screen-manager.ts`
-- Create: `claude-code-hub/tests/screen-manager.test.ts`
+- Create: `claude-code-operant/src/screen-manager.ts`
+- Create: `claude-code-operant/tests/screen-manager.test.ts`
 
 - [ ] **Step 1: Write failing tests**
 
@@ -1514,12 +1514,12 @@ describe('ScreenManager', () => {
   })
 
   test('buildScreenCommand creates correct command', () => {
-    const cmd = manager.buildScreenCommand('hub-frontend', '/home/user/frontend', 'bun run src/shim.ts')
-    expect(cmd).toBe('screen -dmS hub-frontend bash -c \'cd /home/user/frontend && bun run src/shim.ts\'')
+    const cmd = manager.buildScreenCommand('operant-frontend', '/home/user/frontend', 'bun run src/shim.ts')
+    expect(cmd).toBe('screen -dmS operant-frontend bash -c \'cd /home/user/frontend && bun run src/shim.ts\'')
   })
 
   test('isScreenRunning returns false for non-existent screen', async () => {
-    const running = await manager.isScreenRunning('hub-nonexistent-12345')
+    const running = await manager.isScreenRunning('operant-nonexistent-12345')
     expect(running).toBe(false)
   })
 
@@ -1533,7 +1533,7 @@ describe('ScreenManager', () => {
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-cd claude-code-hub && bun test tests/screen-manager.test.ts
+cd claude-code-operant && bun test tests/screen-manager.test.ts
 ```
 
 Expected: FAIL — module not found.
@@ -1559,7 +1559,7 @@ export class ScreenManager {
   }
 
   async spawn(name: string, projectPath: string, shimCommand: string): Promise<void> {
-    const screenName = `hub-${name}`
+    const screenName = `operant-${name}`
     const cmd = this.buildScreenCommand(screenName, projectPath, shimCommand)
     await $`bash -c ${cmd}`.quiet()
     this.managed.set(name, { screenName, projectPath, respawnEnabled: true })
@@ -1608,9 +1608,9 @@ export class ScreenManager {
       const result = await $`screen -list 2>&1`.quiet().text()
       const lines = result.split('\n')
       return lines
-        .filter(l => l.includes('.hub-'))
+        .filter(l => l.includes('.operant-'))
         .map(l => {
-          const match = l.match(/\d+\.(hub-\S+)/)
+          const match = l.match(/\d+\.(operant-\S+)/)
           return match ? match[1] : ''
         })
         .filter(Boolean)
@@ -1629,7 +1629,7 @@ export class ScreenManager {
       try {
         await this.spawn(name, entry.projectPath, shimCommand)
       } catch (err) {
-        process.stderr.write(`hub: failed to respawn ${name}: ${err}\n`)
+        process.stderr.write(`operant: failed to respawn ${name}: ${err}\n`)
       }
     }, 3000))
   }
@@ -1647,7 +1647,7 @@ export class ScreenManager {
 - [ ] **Step 4: Run tests to verify they pass**
 
 ```bash
-cd claude-code-hub && bun test tests/screen-manager.test.ts
+cd claude-code-operant && bun test tests/screen-manager.test.ts
 ```
 
 Expected: all 3 tests PASS.
@@ -1655,7 +1655,7 @@ Expected: all 3 tests PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-cd claude-code-hub && git add src/screen-manager.ts tests/screen-manager.test.ts && git commit -m "feat: screen manager for spawning and monitoring sessions"
+cd claude-code-operant && git add src/screen-manager.ts tests/screen-manager.test.ts && git commit -m "feat: screen manager for spawning and monitoring sessions"
 ```
 
 ---
@@ -1663,8 +1663,8 @@ cd claude-code-hub && git add src/screen-manager.ts tests/screen-manager.test.ts
 ## Task 9: Telegram Frontend
 
 **Files:**
-- Create: `claude-code-hub/src/frontends/telegram.ts`
-- Create: `claude-code-hub/tests/frontends/telegram.test.ts`
+- Create: `claude-code-operant/src/frontends/telegram.ts`
+- Create: `claude-code-operant/tests/frontends/telegram.test.ts`
 
 - [ ] **Step 1: Write failing tests**
 
@@ -1733,7 +1733,7 @@ describe('telegram helpers', () => {
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-cd claude-code-hub && bun test tests/frontends/telegram.test.ts
+cd claude-code-operant && bun test tests/frontends/telegram.test.ts
 ```
 
 Expected: FAIL — module not found.
@@ -1989,7 +1989,7 @@ export class TelegramFrontend {
       this.deps.socketServer.sendToSession(path, {
         type: 'channel_message',
         content: `File "${fileName}" uploaded to ${destPath}`,
-        meta: { source: 'hub', frontend: 'telegram', user: ctx.from!.username ?? String(ctx.from!.id), session: activeName },
+        meta: { source: 'operant', frontend: 'telegram', user: ctx.from!.username ?? String(ctx.from!.id), session: activeName },
       })
 
       await ctx.reply(`Uploaded ${fileName} to ${activeName}:${session.uploadDir}`)
@@ -2023,7 +2023,7 @@ export class TelegramFrontend {
     })
 
     this.bot.catch((err) => {
-      process.stderr.write(`hub telegram: handler error: ${err.error}\n`)
+      process.stderr.write(`operant telegram: handler error: ${err.error}\n`)
     })
   }
 
@@ -2033,7 +2033,7 @@ export class TelegramFrontend {
     for (const chatId of this.deps.allowFrom) {
       for (const chunk of chunks) {
         await this.bot.api.sendMessage(chatId, chunk).catch(err => {
-          process.stderr.write(`hub telegram: failed to send to ${chatId}: ${err}\n`)
+          process.stderr.write(`operant telegram: failed to send to ${chatId}: ${err}\n`)
         })
       }
     }
@@ -2047,7 +2047,7 @@ export class TelegramFrontend {
     const text = `[${req.sessionName}] 🔐 ${req.toolName}: ${req.description}`
     for (const chatId of this.deps.allowFrom) {
       await this.bot.api.sendMessage(chatId, text, { reply_markup: keyboard }).catch(err => {
-        process.stderr.write(`hub telegram: permission prompt failed: ${err}\n`)
+        process.stderr.write(`operant telegram: permission prompt failed: ${err}\n`)
       })
     }
   }
@@ -2055,7 +2055,7 @@ export class TelegramFrontend {
   async start(): Promise<void> {
     await this.bot.start({
       onStart: (info) => {
-        process.stderr.write(`hub telegram: polling as @${info.username}\n`)
+        process.stderr.write(`operant telegram: polling as @${info.username}\n`)
       },
     })
   }
@@ -2069,7 +2069,7 @@ export class TelegramFrontend {
 - [ ] **Step 4: Run tests to verify they pass**
 
 ```bash
-cd claude-code-hub && bun test tests/frontends/telegram.test.ts
+cd claude-code-operant && bun test tests/frontends/telegram.test.ts
 ```
 
 Expected: all 7 tests PASS.
@@ -2077,7 +2077,7 @@ Expected: all 7 tests PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-cd claude-code-hub && git add src/frontends/telegram.ts tests/frontends/telegram.test.ts && git commit -m "feat: Telegram frontend with commands, routing, and permissions"
+cd claude-code-operant && git add src/frontends/telegram.ts tests/frontends/telegram.test.ts && git commit -m "feat: Telegram frontend with commands, routing, and permissions"
 ```
 
 ---
@@ -2085,9 +2085,9 @@ cd claude-code-hub && git add src/frontends/telegram.ts tests/frontends/telegram
 ## Task 10: Web PWA Frontend
 
 **Files:**
-- Create: `claude-code-hub/src/frontends/web.ts`
-- Create: `claude-code-hub/src/frontends/web-client.html`
-- Create: `claude-code-hub/tests/frontends/web.test.ts`
+- Create: `claude-code-operant/src/frontends/web.ts`
+- Create: `claude-code-operant/src/frontends/web-client.html`
+- Create: `claude-code-operant/tests/frontends/web.test.ts`
 
 - [ ] **Step 1: Write failing tests**
 
@@ -2140,7 +2140,7 @@ describe('WebFrontend', () => {
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-cd claude-code-hub && bun test tests/frontends/web.test.ts
+cd claude-code-operant && bun test tests/frontends/web.test.ts
 ```
 
 Expected: FAIL — module not found.
@@ -2154,7 +2154,7 @@ Expected: FAIL — module not found.
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Claude Code Hub</title>
+<title>Claude Code Operant</title>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#1a1a2e">
 <style>
@@ -2394,7 +2394,7 @@ export class WebFrontend {
       const dir = dirname(fileURLToPath(import.meta.url))
       this.htmlContent = readFileSync(join(dir, 'web-client.html'), 'utf8')
     } catch {
-      this.htmlContent = '<!DOCTYPE html><html><body>Claude Code Hub</body></html>'
+      this.htmlContent = '<!DOCTYPE html><html><body>Claude Code Operant</body></html>'
     }
   }
 
@@ -2462,7 +2462,7 @@ export class WebFrontend {
     this.deps.socketServer?.sendToSession(path, {
       type: 'channel_message',
       content: `File "${file.name}" uploaded to ${destPath}`,
-      meta: { source: 'hub', frontend: 'web', user: 'web', session: sessionName },
+      meta: { source: 'operant', frontend: 'web', user: 'web', session: sessionName },
     })
 
     return new Response('ok')
@@ -2530,7 +2530,7 @@ export class WebFrontend {
 - [ ] **Step 5: Run tests to verify they pass**
 
 ```bash
-cd claude-code-hub && bun test tests/frontends/web.test.ts
+cd claude-code-operant && bun test tests/frontends/web.test.ts
 ```
 
 Expected: all 2 tests PASS.
@@ -2538,7 +2538,7 @@ Expected: all 2 tests PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-cd claude-code-hub && git add src/frontends/web.ts src/frontends/web-client.html tests/frontends/web.test.ts && git commit -m "feat: web PWA frontend with dashboard and chat"
+cd claude-code-operant && git add src/frontends/web.ts src/frontends/web-client.html tests/frontends/web.test.ts && git commit -m "feat: web PWA frontend with dashboard and chat"
 ```
 
 ---
@@ -2546,8 +2546,8 @@ cd claude-code-hub && git add src/frontends/web.ts src/frontends/web-client.html
 ## Task 11: CLI Frontend
 
 **Files:**
-- Create: `claude-code-hub/src/cli.ts`
-- Create: `claude-code-hub/tests/cli.test.ts`
+- Create: `claude-code-operant/src/cli.ts`
+- Create: `claude-code-operant/tests/cli.test.ts`
 
 - [ ] **Step 1: Write failing tests**
 
@@ -2591,7 +2591,7 @@ describe('CLI arg parsing', () => {
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-cd claude-code-hub && bun test tests/cli.test.ts
+cd claude-code-operant && bun test tests/cli.test.ts
 ```
 
 Expected: FAIL — module not found.
@@ -2603,7 +2603,7 @@ Expected: FAIL — module not found.
 import { homedir } from 'os'
 import { join } from 'path'
 
-const HUB_URL = process.env.HUB_URL ?? 'http://localhost:3000'
+const OPERANT_URL = process.env.OPERANT_URL ?? 'http://localhost:3000'
 
 export function parseCliArgs(args: string[]): { command: string; args: string[] } {
   if (args.length === 0) return { command: 'help', args: [] }
@@ -2616,29 +2616,29 @@ export function parseCliArgs(args: string[]): { command: string; args: string[] 
 }
 
 const HELP = `
-Claude Code Hub CLI
+Claude Code Operant CLI
 
 Usage:
-  hub list                          Show all sessions
-  hub status                        Dashboard view
-  hub spawn <name> <path>           Launch session in screen
-  hub kill <name>                   Stop a session
-  hub send <name> <message>         Send message to a session
-  hub trust <name> <auto|ask>       Set trust level
-  hub prefix <name> <text>          Set command prefix
-  hub rename <old> <new>            Rename a session
-  hub upload <name> <file>          Upload file to project
-  hub start                         Start the daemon
+  operant list                          Show all sessions
+  operant status                        Dashboard view
+  operant spawn <name> <path>           Launch session in screen
+  operant kill <name>                   Stop a session
+  operant send <name> <message>         Send message to a session
+  operant trust <name> <auto|ask>       Set trust level
+  operant prefix <name> <text>          Set command prefix
+  operant rename <old> <new>            Rename a session
+  operant upload <name> <file>          Upload file to project
+  operant start                         Start the daemon
 `.trim()
 
 async function apiGet(path: string): Promise<any> {
-  const res = await fetch(`${HUB_URL}${path}`)
+  const res = await fetch(`${OPERANT_URL}${path}`)
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`)
   return res.json()
 }
 
 async function apiPost(path: string, body: any): Promise<any> {
-  const res = await fetch(`${HUB_URL}${path}`, {
+  const res = await fetch(`${OPERANT_URL}${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -2674,56 +2674,56 @@ if (import.meta.main) {
       }
 
       case 'spawn': {
-        if (args.length < 2) { console.error('Usage: hub spawn <name> <path>'); process.exit(1) }
+        if (args.length < 2) { console.error('Usage: operant spawn <name> <path>'); process.exit(1) }
         await apiPost('/api/spawn', { name: args[0], path: args[1] })
         console.log(`Spawning ${args[0]}...`)
         break
       }
 
       case 'kill': {
-        if (args.length < 1) { console.error('Usage: hub kill <name>'); process.exit(1) }
+        if (args.length < 1) { console.error('Usage: operant kill <name>'); process.exit(1) }
         await apiPost('/api/kill', { name: args[0] })
         console.log(`Killed ${args[0]}`)
         break
       }
 
       case 'send': {
-        if (args.length < 2) { console.error('Usage: hub send <name> <message>'); process.exit(1) }
+        if (args.length < 2) { console.error('Usage: operant send <name> <message>'); process.exit(1) }
         await apiPost('/api/send', { sessionName: args[0], text: args[1] })
         console.log(`Sent to ${args[0]}`)
         break
       }
 
       case 'trust': {
-        if (args.length < 2) { console.error('Usage: hub trust <name> <auto|ask>'); process.exit(1) }
+        if (args.length < 2) { console.error('Usage: operant trust <name> <auto|ask>'); process.exit(1) }
         await apiPost('/api/trust', { name: args[0], level: args[1] })
         console.log(`${args[0]} trust: ${args[1]}`)
         break
       }
 
       case 'prefix': {
-        if (args.length < 2) { console.error('Usage: hub prefix <name> <text>'); process.exit(1) }
+        if (args.length < 2) { console.error('Usage: operant prefix <name> <text>'); process.exit(1) }
         await apiPost('/api/prefix', { name: args[0], text: args[1] })
         console.log(`Prefix set for ${args[0]}`)
         break
       }
 
       case 'rename': {
-        if (args.length < 2) { console.error('Usage: hub rename <old> <new>'); process.exit(1) }
+        if (args.length < 2) { console.error('Usage: operant rename <old> <new>'); process.exit(1) }
         await apiPost('/api/rename', { oldName: args[0], newName: args[1] })
         console.log(`Renamed ${args[0]} → ${args[1]}`)
         break
       }
 
       case 'upload': {
-        if (args.length < 2) { console.error('Usage: hub upload <name> <file>'); process.exit(1) }
+        if (args.length < 2) { console.error('Usage: operant upload <name> <file>'); process.exit(1) }
         const { readFileSync } = await import('fs')
         const { basename } = await import('path')
         const fileData = readFileSync(args[1])
         const form = new FormData()
         form.append('file', new Blob([fileData]), basename(args[1]))
         form.append('sessionName', args[0])
-        const res = await fetch(`${HUB_URL}/api/upload`, { method: 'POST', body: form })
+        const res = await fetch(`${OPERANT_URL}/api/upload`, { method: 'POST', body: form })
         if (!res.ok) throw new Error(await res.text())
         console.log(`Uploaded ${basename(args[1])} to ${args[0]}`)
         break
@@ -2756,7 +2756,7 @@ if (import.meta.main) {
 - [ ] **Step 4: Run tests to verify they pass**
 
 ```bash
-cd claude-code-hub && bun test tests/cli.test.ts
+cd claude-code-operant && bun test tests/cli.test.ts
 ```
 
 Expected: all 5 tests PASS.
@@ -2764,7 +2764,7 @@ Expected: all 5 tests PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-cd claude-code-hub && git add src/cli.ts tests/cli.test.ts && git commit -m "feat: CLI frontend with all management commands"
+cd claude-code-operant && git add src/cli.ts tests/cli.test.ts && git commit -m "feat: CLI frontend with all management commands"
 ```
 
 ---
@@ -2772,7 +2772,7 @@ cd claude-code-hub && git add src/cli.ts tests/cli.test.ts && git commit -m "fea
 ## Task 12: Daemon Entry Point
 
 **Files:**
-- Create: `claude-code-hub/src/daemon.ts`
+- Create: `claude-code-operant/src/daemon.ts`
 
 - [ ] **Step 1: Implement daemon**
 
@@ -2781,7 +2781,7 @@ This wires all modules together.
 ```typescript
 // src/daemon.ts
 import { join } from 'path'
-import { loadHubConfig, loadSessions, saveSessions, HUB_DIR } from './config'
+import { loadOperantConfig, loadSessions, saveSessions, OPERANT_DIR } from './config'
 import { SessionRegistry } from './session-registry'
 import { SocketServer } from './socket-server'
 import { PermissionEngine } from './permission-engine'
@@ -2791,10 +2791,10 @@ import { TelegramFrontend } from './frontends/telegram'
 import { WebFrontend } from './frontends/web'
 import type { PermissionRequest } from './types'
 
-const config = loadHubConfig()
+const config = loadOperantConfig()
 const savedSessions = loadSessions()
 
-const SOCKET_PATH = process.env.HUB_SOCKET ?? join(HUB_DIR, 'hub.sock')
+const SOCKET_PATH = process.env.OPERANT_SOCKET ?? join(OPERANT_DIR, 'operant.sock')
 const SHIM_COMMAND = `bun run ${join(import.meta.dir, 'shim.ts')}`
 
 // Session registry
@@ -2839,14 +2839,14 @@ const router = new MessageRouter(
 
 // Wire socket server events
 socketServer.on('session:connected', (path: string) => {
-  process.stderr.write(`hub: session connected: ${path}\n`)
+  process.stderr.write(`operant: session connected: ${path}\n`)
   saveSessions(registry.toSaveFormat())
   webFrontend?.refreshSessions()
 })
 
 socketServer.on('session:disconnected', (path: string) => {
   const session = registry.get(path)
-  process.stderr.write(`hub: session disconnected: ${path}\n`)
+  process.stderr.write(`operant: session disconnected: ${path}\n`)
   saveSessions(registry.toSaveFormat())
   webFrontend?.refreshSessions()
 
@@ -2903,7 +2903,7 @@ socketServer.on('permission_request', (path: string, msg: any) => {
 // Start everything
 async function start(): Promise<void> {
   await socketServer.start()
-  process.stderr.write(`hub: socket server listening on ${SOCKET_PATH}\n`)
+  process.stderr.write(`operant: socket server listening on ${SOCKET_PATH}\n`)
 
   // Web frontend (always starts)
   webFrontend = new WebFrontend({
@@ -2916,7 +2916,7 @@ async function start(): Promise<void> {
     shimCommand: SHIM_COMMAND,
   })
   await webFrontend.start()
-  process.stderr.write(`hub: web UI at http://localhost:${webFrontend.port}\n`)
+  process.stderr.write(`operant: web UI at http://localhost:${webFrontend.port}\n`)
 
   // Add API routes for CLI
   // (These are handled by the web frontend's fetch handler — we need to add them)
@@ -2934,18 +2934,18 @@ async function start(): Promise<void> {
       allowFrom: config.telegramAllowFrom,
     })
     telegramFrontend.start().catch(err => {
-      process.stderr.write(`hub: telegram failed to start: ${err}\n`)
+      process.stderr.write(`operant: telegram failed to start: ${err}\n`)
     })
   } else {
-    process.stderr.write('hub: no telegram token — skipping telegram frontend\n')
+    process.stderr.write('operant: no telegram token — skipping telegram frontend\n')
   }
 
-  process.stderr.write('hub: daemon ready\n')
+  process.stderr.write('operant: daemon ready\n')
 }
 
 // Graceful shutdown
 async function shutdown(): Promise<void> {
-  process.stderr.write('hub: shutting down...\n')
+  process.stderr.write('operant: shutting down...\n')
   saveSessions(registry.toSaveFormat())
   await screenManager.killAll()
   await socketServer.stop()
@@ -2958,7 +2958,7 @@ process.on('SIGTERM', shutdown)
 process.on('SIGINT', shutdown)
 
 start().catch(err => {
-  process.stderr.write(`hub: failed to start: ${err}\n`)
+  process.stderr.write(`operant: failed to start: ${err}\n`)
   process.exit(1)
 })
 ```
@@ -3013,7 +3013,7 @@ if (url.pathname === '/api/rename' && req.method === 'POST') {
 - [ ] **Step 3: Verify daemon compiles**
 
 ```bash
-cd claude-code-hub && bun build src/daemon.ts --outfile /dev/null --target bun 2>&1
+cd claude-code-operant && bun build src/daemon.ts --outfile /dev/null --target bun 2>&1
 ```
 
 Expected: no type errors.
@@ -3021,7 +3021,7 @@ Expected: no type errors.
 - [ ] **Step 4: Commit**
 
 ```bash
-cd claude-code-hub && git add src/daemon.ts src/frontends/web.ts && git commit -m "feat: daemon entry point wiring all modules together"
+cd claude-code-operant && git add src/daemon.ts src/frontends/web.ts && git commit -m "feat: daemon entry point wiring all modules together"
 ```
 
 ---
@@ -3029,7 +3029,7 @@ cd claude-code-hub && git add src/daemon.ts src/frontends/web.ts && git commit -
 ## Task 13: Integration Test
 
 **Files:**
-- Create: `claude-code-hub/tests/integration.test.ts`
+- Create: `claude-code-operant/tests/integration.test.ts`
 
 - [ ] **Step 1: Write integration test**
 
@@ -3072,7 +3072,7 @@ describe('integration: shim → daemon flow', () => {
         return socketServer.sendToSession(path, {
           type: 'channel_message',
           content,
-          meta: { source: 'hub', frontend: 'test', user: 'test', session: '' },
+          meta: { source: 'operant', frontend: 'test', user: 'test', session: '' },
         })
       },
       (sessionName, text) => {
@@ -3181,7 +3181,7 @@ describe('integration: shim → daemon flow', () => {
 - [ ] **Step 2: Run integration tests**
 
 ```bash
-cd claude-code-hub && bun test tests/integration.test.ts
+cd claude-code-operant && bun test tests/integration.test.ts
 ```
 
 Expected: all 2 tests PASS.
@@ -3189,7 +3189,7 @@ Expected: all 2 tests PASS.
 - [ ] **Step 3: Run full test suite**
 
 ```bash
-cd claude-code-hub && bun test
+cd claude-code-operant && bun test
 ```
 
 Expected: all tests PASS.
@@ -3197,7 +3197,7 @@ Expected: all tests PASS.
 - [ ] **Step 4: Commit**
 
 ```bash
-cd claude-code-hub && git add tests/integration.test.ts && git commit -m "feat: integration tests for full message round-trip"
+cd claude-code-operant && git add tests/integration.test.ts && git commit -m "feat: integration tests for full message round-trip"
 ```
 
 ---
@@ -3205,7 +3205,7 @@ cd claude-code-hub && git add tests/integration.test.ts && git commit -m "feat: 
 ## Task 14: Package and Documentation
 
 **Files:**
-- Modify: `claude-code-hub/package.json` (add bin entries)
+- Modify: `claude-code-operant/package.json` (add bin entries)
 
 - [ ] **Step 1: Add bin entries to package.json**
 
@@ -3214,9 +3214,9 @@ Update the `package.json` to add executable entries:
 ```json
 {
   "bin": {
-    "hub": "./src/cli.ts",
-    "hub-shim": "./src/shim.ts",
-    "hub-daemon": "./src/daemon.ts"
+    "operant": "./src/cli.ts",
+    "operant-shim": "./src/shim.ts",
+    "operant-daemon": "./src/daemon.ts"
   }
 }
 ```
@@ -3226,7 +3226,7 @@ Update the `package.json` to add executable entries:
 ```json
 {
   "mcpServers": {
-    "hub": {
+    "operant": {
       "command": "bun",
       "args": ["run", "${CLAUDE_PLUGIN_ROOT}/src/shim.ts"]
     }
@@ -3234,12 +3234,12 @@ Update the `package.json` to add executable entries:
 }
 ```
 
-Save as `claude-code-hub/.mcp.json`.
+Save as `claude-code-operant/.mcp.json`.
 
 - [ ] **Step 3: Run all tests one final time**
 
 ```bash
-cd claude-code-hub && bun test
+cd claude-code-operant && bun test
 ```
 
 Expected: all tests PASS.
@@ -3247,5 +3247,5 @@ Expected: all tests PASS.
 - [ ] **Step 4: Final commit**
 
 ```bash
-cd claude-code-hub && git add -A && git commit -m "feat: package config with bin entries and MCP plugin manifest"
+cd claude-code-operant && git add -A && git commit -m "feat: package config with bin entries and MCP plugin manifest"
 ```

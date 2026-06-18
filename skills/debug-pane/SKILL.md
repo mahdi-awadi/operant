@@ -12,14 +12,14 @@ this BEFORE proposing any fix.
 ## Inputs
 
 You need: **session name** (e.g. `sap`, `ap-test`, `eticket-v3`). The user
-usually says it; if not, ask once. Run `tmux ls | grep ^hub-` to see what's
+usually says it; if not, ask once. Run `tmux ls | grep ^operant-` to see what's
 live.
 
 ## Procedure
 
 ```bash
 NAME="<session-name>"
-TMUX="hub-${NAME}"
+TMUX="operant-${NAME}"
 
 echo "=== 1. Visible pane (no scrollback) ==="
 tmux capture-pane -t "${TMUX}" -p 2>&1 | tail -40
@@ -29,10 +29,10 @@ echo "=== 2. Pane WITH scrollback (200 lines) — for /btw history forensics ===
 tmux capture-pane -t "${TMUX}" -p -S -200 2>&1 | tail -60
 
 echo
-echo "=== 3. Registry state (~/.claude/channels/hub/sessions.json) ==="
+echo "=== 3. Registry state (~/.claude/channels/operant/sessions.json) ==="
 python3 -c "
 import json
-with open('$HOME/.claude/channels/hub/sessions.json') as f: m = json.load(f)
+with open('$HOME/.claude/channels/operant/sessions.json') as f: m = json.load(f)
 for k,v in m.items():
     if v.get('name') == '${NAME}':
         print(f'  path: {k}')
@@ -44,13 +44,13 @@ else:
 
 echo
 echo "=== 4. Last 5 autopilot errors for this session ==="
-sqlite3 "$HOME/.claude/channels/hub/errors.sqlite" \
+sqlite3 "$HOME/.claude/channels/operant/errors.sqlite" \
   "SELECT id, datetime(ts/1000,'unixepoch','localtime') AS when_, status, reason, length(captured_pane) AS pane_len, duration_ms FROM autopilot_errors WHERE session_name = '${NAME}' ORDER BY ts DESC LIMIT 5" 2>/dev/null \
   || echo "  errors.sqlite not present or no rows"
 
 echo
 echo "=== 5. Last 30 daemon log lines mentioning this session ==="
-tmux capture-pane -t hub-daemon -p -S -300 2>&1 | grep -E "${NAME}|/$(basename ${NAME})" | tail -30
+tmux capture-pane -t operant-daemon -p -S -300 2>&1 | grep -E "${NAME}|/$(basename ${NAME})" | tail -30
 ```
 
 ## Analyze

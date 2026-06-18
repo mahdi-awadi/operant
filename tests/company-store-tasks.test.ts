@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { openHubDb } from '../src/hub-db'
+import { openOperantDb } from '../src/operant-db'
 import { CompanyStore } from '../src/company/store'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
@@ -9,7 +9,7 @@ describe('CompanyStore tasks', () => {
   let dir: string, close: () => void, store: CompanyStore
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'co-tasks-'))
-    const h = openHubDb(dir); close = h.close
+    const h = openOperantDb(dir); close = h.close
     store = new CompanyStore(h.db)
   })
   afterEach(() => { close(); rmSync(dir, { recursive: true, force: true }) })

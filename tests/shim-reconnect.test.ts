@@ -52,7 +52,7 @@ describe('rejectPendingWithDisconnect', () => {
     expect(results).toHaveLength(2)
     for (const r of results) {
       expect(r.isError).toBe(true)
-      expect(r.content[0]!.text).toBe('hub disconnected, retry')
+      expect(r.content[0]!.text).toBe('operant disconnected, retry')
     }
   })
 
@@ -132,8 +132,8 @@ describe('shim reconnect integration', () => {
       cwd: process.cwd(),
       env: {
         ...process.env,
-        HUB_SOCKET: socketPath,
-        HUB_TEST_BYPASS_SESSION_CHECK: '1',
+        OPERANT_SOCKET: socketPath,
+        OPERANT_TEST_BYPASS_SESSION_CHECK: '1',
       },
       stdin: 'pipe',
       stdout: 'pipe',
@@ -142,8 +142,8 @@ describe('shim reconnect integration', () => {
   }
 
   test('reconnects after the daemon restarts', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'hub-shim-rc-'))
-    const socketPath = join(dir, 'hub.sock')
+    const dir = mkdtempSync(join(tmpdir(), 'operant-shim-rc-'))
+    const socketPath = join(dir, 'operant.sock')
     const registers: number[] = []
     const stderrChunks: string[] = []
 
@@ -216,8 +216,8 @@ describe('shim reconnect integration', () => {
   }, 20000)
 
   test('clean SIGTERM does not trigger a reconnect attempt', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'hub-shim-term-'))
-    const socketPath = join(dir, 'hub.sock')
+    const dir = mkdtempSync(join(tmpdir(), 'operant-shim-term-'))
+    const socketPath = join(dir, 'operant.sock')
     const connections: number[] = []
 
     const onConnect = (sock: Socket) => {

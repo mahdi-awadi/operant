@@ -6,7 +6,7 @@
 
 ## Problem
 
-Clicking the `↻` button on a disconnected session in the web dashboard spawns a fresh Claude process with no memory of the prior conversation. Users almost always want to pick up where they left off, not start over. There is currently no way to resume a past conversation from the hub UI.
+Clicking the `↻` button on a disconnected session in the web dashboard spawns a fresh Claude process with no memory of the prior conversation. Users almost always want to pick up where they left off, not start over. There is currently no way to resume a past conversation from the operant UI.
 
 `claude` CLI supports this natively:
 
@@ -137,7 +137,7 @@ const FLAG =
   resume?.mode === "continue" ? "--continue " :
   resume?.mode === "session" ? `--resume ${shellQuote(resume.id)} ` :
   ""
-const CMD = `claude ${FLAG}--dangerously-load-development-channels server:hub`
+const CMD = `claude ${FLAG}--dangerously-load-development-channels server:operant`
 ```
 
 `shellQuote` must reject session IDs that don't match `/^[0-9a-f-]{8,64}$/i` — Claude uses UUIDs, so anything else is rejected upstream with `400`.

@@ -82,7 +82,7 @@ type Profile = {
 
 ### Storage
 
-Profiles are stored globally in `~/.claude/channels/hub/profiles.json` (one file, array of profiles). Sessions reference the applied profile name but hold their own copy of the fields — so deleting or editing a profile doesn't break running sessions. Propagating edits is a separate concern for a future phase.
+Profiles are stored globally in `~/.claude/channels/operant/profiles.json` (one file, array of profiles). Sessions reference the applied profile name but hold their own copy of the fields — so deleting or editing a profile doesn't break running sessions. Propagating edits is a separate concern for a future phase.
 
 ### Built-in Profiles
 
@@ -251,7 +251,7 @@ After every reply Claude sends back through the channel, operant runs a regex-on
 - User can click "Send correction" to push a templated reminder back into the session
 - No auto-injection without user approval
 
-**Why advisory not enforcing**: Auto-injecting corrections can trap Claude in feedback loops — Claude writes "for now", hub corrects, Claude writes "temporarily" in the next try, hub corrects again. The session becomes about rule compliance instead of work. User-in-the-loop avoids this.
+**Why advisory not enforcing**: Auto-injecting corrections can trap Claude in feedback loops — Claude writes "for now", operant corrects, Claude writes "temporarily" in the next try, operant corrects again. The session becomes about rule compliance instead of work. User-in-the-loop avoids this.
 
 **Correction template (when user clicks "Send correction")**:
 > ⚠️ Project rule reminder: {rule}. Your last reply contained "{matched phrase}" — please re-do this without shortcuts, root-causing the issue instead.
@@ -272,7 +272,7 @@ Claude's habit of saying "done" without running tests is solved with determinist
 
 Operant looks for an exact sentinel phrase in Claude's reply — not natural language. Default: `✅ COMPLETE`. Claude is told to emit this phrase via channel instructions only when work is genuinely done and ready for verification:
 
-> *Channel instruction:* "When you have fully completed a task and want the hub to run verification commands, end your reply with `✅ COMPLETE` on its own line. Don't use this phrase casually — only when the work is ready to be validated."
+> *Channel instruction:* "When you have fully completed a task and want the operant to run verification commands, end your reply with `✅ COMPLETE` on its own line. Don't use this phrase casually — only when the work is ready to be validated."
 
 This eliminates false positives from phrases like "I finished reading the file" or "once you're done." Only the exact sentinel triggers verification.
 
@@ -378,8 +378,8 @@ export type SessionConfig = {
 **Resolution**: When the daemon needs a session's effective config, it merges `profile + profileOverrides`. If the profile was deleted, the overrides still work as a last-known-good fallback.
 
 **Files**:
-- `~/.claude/channels/hub/profiles.json` — array of `Profile` objects
-- `~/.claude/channels/hub/sessions.json` — session registry (existing, extended)
+- `~/.claude/channels/operant/profiles.json` — array of `Profile` objects
+- `~/.claude/channels/operant/sessions.json` — session registry (existing, extended)
 
 No caches persisted. Drift notification state (last-sent timestamps) is in-memory only.
 
@@ -438,9 +438,9 @@ src/
 - **Drift events** in the activity log with warning icon and correction text
 - **Verification results** in the activity log with pass/fail badges
 
-## Hub vs Claude Responsibilities
+## Operant vs Claude Responsibilities
 
-| Responsibility | Hub (deterministic) | Main Claude | Sidecar (opt-in) | User |
+| Responsibility | Operant (deterministic) | Main Claude | Sidecar (opt-in) | User |
 |---|---|---|---|---|
 | Define profiles | ✅ | — | — | — |
 | Apply profile to session | ✅ | — | — | — |

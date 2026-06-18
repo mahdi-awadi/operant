@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { openHubDb } from '../src/hub-db'
+import { openOperantDb } from '../src/operant-db'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -10,7 +10,7 @@ describe('company schema', () => {
   afterEach(() => { rmSync(dir, { recursive: true, force: true }) })
 
   test('creates all company tables', () => {
-    const { db, close } = openHubDb(dir)
+    const { db, close } = openOperantDb(dir)
     try {
       const names = db.prepare(`SELECT name FROM sqlite_master WHERE type='table'`).all().map((r: any) => r.name)
       for (const t of ['departments', 'tasks', 'handoffs', 'memory', 'approvals', 'activity_log']) {

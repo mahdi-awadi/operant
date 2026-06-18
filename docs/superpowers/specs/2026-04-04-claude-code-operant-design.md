@@ -1,8 +1,8 @@
-# Claude Code Hub — Design Spec
+# Claude Code Operant — Design Spec
 
 ## Overview
 
-A single-process hub that acts as an MCP channel server for multiple Claude Code sessions, with three frontends: Web PWA, Telegram bot, and CLI. Uses your Claude Code subscription (no API costs). Runs on the same machine as your Claude Code sessions.
+A single-process operant that acts as an MCP channel server for multiple Claude Code sessions, with three frontends: Web PWA, Telegram bot, and CLI. Uses your Claude Code subscription (no API costs). Runs on the same machine as your Claude Code sessions.
 
 ## Problem
 
@@ -10,7 +10,7 @@ Claude Code channels are one-session-per-channel. There's no way to manage multi
 
 ## Solution
 
-A hub process that:
+A operant process that:
 - Accepts MCP stdio connections from multiple Claude Code sessions
 - Routes messages between sessions and frontends (Web, Telegram, CLI)
 - Manages session lifecycles (spawn in screen, respawn on crash)
@@ -22,7 +22,7 @@ The system has two layers: a long-running **daemon** and short-lived **shim** pr
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│                   HUB DAEMON                         │
+│                   OPERANT DAEMON                         │
 │              (long-running, started once)             │
 │                                                      │
 │  ┌──────────────┐  ┌──────────────────────────────┐ │
@@ -40,7 +40,7 @@ The system has two layers: a long-running **daemon** and short-lived **shim** pr
 │  │ Engine        │  │ (spawn/respawn sessions)     │ │
 │  └──────────────┘  └──────────────────────────────┘ │
 │                                                      │
-│  Unix socket: ~/.claude/channels/hub/hub.sock        │
+│  Unix socket: ~/.claude/channels/operant/operant.sock        │
 │    ▲            ▲            ▲                        │
 └────┼────────────┼────────────┼────────────────────────┘
      │            │            │
@@ -56,8 +56,8 @@ The system has two layers: a long-running **daemon** and short-lived **shim** pr
 
 **Why two layers:** Claude Code launches channel servers as child processes via stdio — one per session. A single process can't serve multiple stdio pairs. So:
 
-- **Hub daemon** — started once (`hub start`). Runs Telegram bot, web server, screen manager, session registry. Listens on a Unix socket.
-- **Shim** — tiny process launched by `claude --channels server:hub-shim`. Bridges stdio (MCP with Claude) ↔ Unix socket (to daemon). Sends its CWD on connect so the daemon knows which project it is.
+- **Operant daemon** — started once (`operant start`). Runs Telegram bot, web server, screen manager, session registry. Listens on a Unix socket.
+- **Shim** — tiny process launched by `claude --channels server:operant-shim`. Bridges stdio (MCP with Claude) ↔ Unix socket (to daemon). Sends its CWD on connect so the daemon knows which project it is.
 
 The shim is ~50 lines. All logic lives in the daemon.
 
@@ -73,13 +73,13 @@ The shim is ~50 lines. All logic lives in the daemon.
 
 ### Identity
 
-- **Folder path is the unique key.** Two sessions from the same folder are forbidden — hub rejects the second.
+- **Folder path is the unique key.** Two sessions from the same folder are forbidden — operant rejects the second.
 - **Display name** = folder basename (e.g., `/home/user/frontend` → `frontend`). Renameable.
 - CWD detected via `/proc/<pid>/cwd` of the stdio child process on connect.
 
 ### Auto-detect Mode
 
-1. User runs `claude --channels server:hub-shim` in a project folder
+1. User runs `claude --channels server:operant-shim` in a project folder
 2. Shim starts, connects to daemon via Unix socket, sends CWD
 3. Daemon registers session, appears in `/list` on all frontends
 4. When Claude exits, shim disconnects, daemon marks session as `disconnected`
@@ -87,11 +87,11 @@ The shim is ~50 lines. All logic lives in the daemon.
 ### Engine-managed Mode
 
 1. User runs `/spawn frontend /home/user/frontend` (Telegram/Web/CLI)
-2. Daemon creates screen session: `screen -dmS hub-frontend`
-3. Inside screen: `cd /home/user/frontend && claude --channels server:hub-shim`
-4. Hub monitors the screen — if it dies, respawn after 3 seconds
+2. Daemon creates screen session: `screen -dmS operant-frontend`
+3. Inside screen: `cd /home/user/frontend && claude --channels server:operant-shim`
+4. Operant monitors the screen — if it dies, respawn after 3 seconds
 5. `/kill frontend` stops the session and screen
-6. User can `screen -r hub-frontend` to attach directly
+6. User can `screen -r operant-frontend` to attach directly
 
 ## Telegram Frontend
 
@@ -117,18 +117,18 @@ The shim is ~50 lines. All logic lives in the daemon.
 
 ### Permission Prompts
 
-- **Trusted sessions (auto-approve):** Hub sends `allow` automatically, user never sees them
+- **Trusted sessions (auto-approve):** Operant sends `allow` automatically, user never sees them
 - **Untrusted sessions (ask):** User gets `[frontend] 🔐 Bash: npm install` with Allow/Deny inline buttons
 
 ### File Uploads
 
-- Send a file via Telegram → hub saves it to the active project's folder
+- Send a file via Telegram → operant saves it to the active project's folder
 - Configurable upload subdirectory per project (default: project root)
 - Claude gets notified: "File `design.png` uploaded to `/home/user/frontend/uploads/`"
 
 ## Web PWA Frontend
 
-Served by hub on a local port (default: `http://localhost:3000`).
+Served by operant on a local port (default: `http://localhost:3000`).
 
 ### Dashboard View
 
@@ -150,18 +150,18 @@ Served by hub on a local port (default: `http://localhost:3000`).
 ## CLI Frontend
 
 ```bash
-hub list                                  # show all sessions
-hub spawn frontend /home/user/frontend    # launch session in screen
-hub kill frontend                         # stop session
-hub send frontend "fix the login bug"     # send message to a session
-hub trust frontend auto                   # set trust level (auto/ask)
-hub prefix frontend "You are a Next.js expert."  # set command prefix
-hub status                                # dashboard view in terminal
-hub upload frontend ./design.png          # copy file to project folder
-hub rename frontend my-app                # rename display name
+operant list                                  # show all sessions
+operant spawn frontend /home/user/frontend    # launch session in screen
+operant kill frontend                         # stop session
+operant send frontend "fix the login bug"     # send message to a session
+operant trust frontend auto                   # set trust level (auto/ask)
+operant prefix frontend "You are a Next.js expert."  # set command prefix
+operant status                                # dashboard view in terminal
+operant upload frontend ./design.png          # copy file to project folder
+operant rename frontend my-app                # rename display name
 ```
 
-CLI communicates with the hub via HTTP/WebSocket on the local port.
+CLI communicates with the operant via HTTP/WebSocket on the local port.
 
 ## Command Prefix
 
@@ -173,10 +173,10 @@ Useful for giving each project persistent context without repeating yourself.
 
 ## Configuration & Storage
 
-All state in `~/.claude/channels/hub/`:
+All state in `~/.claude/channels/operant/`:
 
 ```
-~/.claude/channels/hub/
+~/.claude/channels/operant/
   config.json          # global settings
   sessions.json        # registered sessions
   inbox/               # temp file storage before moving to project
@@ -209,7 +209,7 @@ All state in `~/.claude/channels/hub/`:
 
 ## MCP Channel Protocol
 
-The hub implements the same MCP channel protocol as the official Telegram plugin:
+The operant implements the same MCP channel protocol as the official Telegram plugin:
 
 ### Capabilities Declared
 
@@ -227,7 +227,7 @@ The hub implements the same MCP channel protocol as the official Telegram plugin
 
 ### Inbound (User → Claude)
 
-Hub sends `notifications/claude/channel` to the target session's MCP connection:
+Operant sends `notifications/claude/channel` to the target session's MCP connection:
 
 ```typescript
 {
@@ -235,7 +235,7 @@ Hub sends `notifications/claude/channel` to the target session's MCP connection:
   params: {
     content: prefixedMessage,
     meta: {
-      source: 'hub',
+      source: 'operant',
       frontend: 'telegram' | 'web' | 'cli',
       user: username,
       session: sessionName,
@@ -246,11 +246,11 @@ Hub sends `notifications/claude/channel` to the target session's MCP connection:
 
 ### Outbound (Claude → User)
 
-Hub exposes `reply`, `react`, `edit_message` tools to each session. When Claude calls `reply`, hub routes the message to all connected frontends.
+Operant exposes `reply`, `react`, `edit_message` tools to each session. When Claude calls `reply`, operant routes the message to all connected frontends.
 
 ### Permission Relay
 
-Hub receives `notifications/claude/channel/permission_request` from a session. Based on trust level:
+Operant receives `notifications/claude/channel/permission_request` from a session. Based on trust level:
 - `auto-approve`: immediately sends back `notifications/claude/channel/permission` with `behavior: 'allow'`
 - `ask`: forwards to all frontends with session name, waits for user response
 
@@ -261,10 +261,10 @@ Hub receives `notifications/claude/channel/permission_request` from a session. B
 - **Telegram:** `grammy`
 - **Web server:** Bun built-in HTTP + WebSocket
 - **PWA frontend:** Preact (lightweight) or vanilla HTML/CSS/JS
-- **CLI:** Bun script communicating with hub via HTTP/WebSocket
+- **CLI:** Bun script communicating with operant via HTTP/WebSocket
 - **Process management:** `child_process` for screen commands
 
-No external databases, no heavy frameworks. `bun run daemon.ts` starts the daemon; `hub-shim.ts` is the tiny MCP bridge launched by Claude.
+No external databases, no heavy frameworks. `bun run daemon.ts` starts the daemon; `operant-shim.ts` is the tiny MCP bridge launched by Claude.
 
 ## Security
 
@@ -272,12 +272,12 @@ No external databases, no heavy frameworks. `bun run daemon.ts` starts the daemo
 - Web PWA: local-only by default. For remote access, user configures tunnel (ngrok, tailscale)
 - File uploads: validated, size-limited (50MB), restricted to configured upload directories
 - Permission relay: only allowlisted Telegram users or authenticated web sessions can approve
-- Hub state directory (`~/.claude/channels/hub/`) locked to owner (chmod 700)
+- Operant state directory (`~/.claude/channels/operant/`) locked to owner (chmod 700)
 
 ## Constraints & Limitations
 
 - Requires `--dangerously-load-development-channels` flag during research preview
-- One Claude Code session per folder (enforced by hub)
-- Telegram Bot API: no message history, 4096 char message limit (hub chunks automatically)
+- One Claude Code session per folder (enforced by operant)
+- Telegram Bot API: no message history, 4096 char message limit (operant chunks automatically)
 - Screen manager requires `screen` installed on the host
-- Hub must run on the same machine as Claude Code sessions (stdio transport)
+- Operant must run on the same machine as Claude Code sessions (stdio transport)

@@ -27,13 +27,13 @@ Don't use this for parser-only fixes — those have unit tests in
 ```bash
 TEST_DIR="/tmp/ap-test-$$"
 TEST_NAME="ap-test-$$"
-TMUX="hub-${TEST_NAME}"
+TMUX="operant-${TEST_NAME}"
 
 mkdir -p "${TEST_DIR}" && echo "# Disposable test bed" > "${TEST_DIR}/CLAUDE.md"
 
-# Spawn Claude Code in the test dir, attached to our hub
+# Spawn Claude Code in the test dir, attached to our operant
 tmux new-session -d -s "${TMUX}" -c "${TEST_DIR}" \
-  "claude --dangerously-load-development-channels server:hub"
+  "claude --dangerously-load-development-channels server:operant"
 
 # Auto-confirm the trust + dev-channel prompts
 sleep 8
@@ -47,10 +47,10 @@ tmux capture-pane -t "${TMUX}" -p | tail -10
 Verify the daemon registered the session:
 
 ```bash
-tmux capture-pane -t hub-daemon -p -S -50 | grep "${TEST_DIR}"
+tmux capture-pane -t operant-daemon -p -S -50 | grep "${TEST_DIR}"
 ```
 
-You should see `hub: session connected: ${TEST_DIR}:0`.
+You should see `operant: session connected: ${TEST_DIR}:0`.
 
 ## Enable autopilot (no auth, direct registry)
 
@@ -61,7 +61,7 @@ directly to the persisted state and restart the daemon (see
 ```bash
 python3 -c "
 import json
-p = '$HOME/.claude/channels/hub/sessions.json'
+p = '$HOME/.claude/channels/operant/sessions.json'
 with open(p) as f: m = json.load(f)
 key = f'${TEST_DIR}:0'
 m[key] = {
@@ -82,9 +82,9 @@ Choose a question that exercises the path you changed. Defaults:
 
 | What you're testing | Prompt |
 |---|---|
-| Basic injection | `Use the hub.reply tool to ask: Should we use Bun or Node? Wait for the answer.` |
-| Multi-paragraph parsing | `Use the hub.reply tool to ask: Walk me through the trade-offs between A) microservices and B) modular monolith for our use case.` |
-| Risk filter | `Use the hub.reply tool to ask: Should I force push to main to fix the broken build?` |
+| Basic injection | `Use the operant.reply tool to ask: Should we use Bun or Node? Wait for the answer.` |
+| Multi-paragraph parsing | `Use the operant.reply tool to ask: Walk me through the trade-offs between A) microservices and B) modular monolith for our use case.` |
+| Risk filter | `Use the operant.reply tool to ask: Should I force push to main to fix the broken build?` |
 | Scroll-to-top | (use multi-paragraph prompt) |
 
 Send it:
@@ -98,10 +98,10 @@ tmux send-keys -t "${TMUX}" Enter
 Wait for the autopilot result line in the daemon log:
 
 ```bash
-until tmux capture-pane -t hub-daemon -p -S -200 | grep -q "autopilot ${TEST_NAME}.*status="; do
+until tmux capture-pane -t operant-daemon -p -S -200 | grep -q "autopilot ${TEST_NAME}.*status="; do
   sleep 5
 done
-tmux capture-pane -t hub-daemon -p -S -200 | grep "autopilot ${TEST_NAME}" | tail -3
+tmux capture-pane -t operant-daemon -p -S -200 | grep "autopilot ${TEST_NAME}" | tail -3
 ```
 
 ## Verify
@@ -113,12 +113,12 @@ Check three things, in order:
    the captured pane.
 2. **Length** — sanity check it's not 0 or absurdly small (truncation).
 3. **Injection** — capture the test session pane: the autopilot answer
-   appears as `← hub: <answer>` immediately after `Asked. Waiting…`. Verify
+   appears as `← operant: <answer>` immediately after `Asked. Waiting…`. Verify
    it starts at a sentence boundary, not mid-sentence (the scroll-to-top
    bug we fixed was the prime example).
 
 ```bash
-tmux capture-pane -t "${TMUX}" -p -S -50 | grep -B1 -A2 "← hub:" | tail -15
+tmux capture-pane -t "${TMUX}" -p -S -50 | grep -B1 -A2 "← operant:" | tail -15
 ```
 
 ## Tear down
@@ -129,7 +129,7 @@ rm -rf "${TEST_DIR}"
 # Remove the test entry from sessions.json
 python3 -c "
 import json
-p = '$HOME/.claude/channels/hub/sessions.json'
+p = '$HOME/.claude/channels/operant/sessions.json'
 with open(p) as f: m = json.load(f)
 m.pop('${TEST_DIR}:0', None)
 with open(p,'w') as f: json.dump(m,f,indent=2)

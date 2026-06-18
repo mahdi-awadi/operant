@@ -15,7 +15,7 @@ The structure below is the **final target** so future work plugs in without re-a
 - Runs ONLY on Mahdi's $200 Claude Max subscription via the official `claude` CLI. **No API key, no token proxies.** `ANTHROPIC_API_KEY` stays unset.
 - Only first-party features: `claude` CLI, `/loop`, `/goal`, Channels, Agent Teams, subagents, skills, MCP.
 - **Solo / individual use** — only Mahdi; agents serve him; no other humans, no external users routed through his credentials. This is what keeps it compliant.
-- Built by **extending operant** (Bun/TypeScript daemon, Unix-socket shim, Telegram/web/CLI frontends, permission relay, profiles, SQLite `hub.sqlite`, systemd). Reuse primitives; don't rebuild.
+- Built by **extending operant** (Bun/TypeScript daemon, Unix-socket shim, Telegram/web/CLI frontends, permission relay, profiles, SQLite `operant.sqlite`, systemd). Reuse primitives; don't rebuild.
 - Runs on Mahdi's VPSes (Germany/UK/US, open internet) for dev + prod; controlled from Iraq via the Rubika→Telegram bridge (mobile, can be fragile → async, not real-time).
 - Rate budget: Max 20x ≈ ~300 weekly active-compute hours, **pooled across all sessions**. Keep sessions idle by default; few active at once; staggered.
 
@@ -46,7 +46,7 @@ One writer (the daemon), many readers (departments call `company_*` MCP tools th
   memory/                           # human-readable shared memory mirror (md)     [MVP: secretary]
 
 /home/operant/src/company/       # NEW engine modules (operant style)
-  schema.ts        # append company tables to hub.sqlite                           [MVP]
+  schema.ts        # append company tables to operant.sqlite                           [MVP]
   store.ts         # typed CRUD; the ONLY writer of company state                  [MVP]
   org-loader.ts    # read+validate /home/company/*.yaml -> departments table       [MVP]
   loadout.ts       # resolve a seat's skills/mcps -> write .claude config at spawn  [MVP]
@@ -59,7 +59,7 @@ One writer (the daemon), many readers (departments call `company_*` MCP tools th
   memory-mcp.ts    # CORE MCP server: shared memory, FTS5 (local stdio)             [MVP]
 ```
 
-## The shared company data model (in `hub.sqlite`)
+## The shared company data model (in `operant.sqlite`)
 
 Full target schema (all tables defined now; MVP populates a subset).
 
@@ -162,7 +162,7 @@ reports_to: mahdi
 manages: [dev, cto, research, sales, marketing, support, ops]
 profile: careful                              # reuses operant profiles
 skills: [brainstorming, writing-plans, schedule, loop, route-task, approval-digest]
-mcps:   [hub, taskboard, memory, telegram, web-search]   # hub/taskboard/memory = CORE
+mcps:   [operant, taskboard, memory, telegram, web-search]   # operant/taskboard/memory = CORE
 schedule_cron: "0 7,13,19 * * *"              # 3x/day, staggered
 budget_minutes_week: 240
 approval_policy: ask                          # strict|ask|auto|yolo
@@ -171,7 +171,7 @@ autonomy_level: 1                             # earned-autonomy ladder
 
 ## How it works (the coordination model)
 
-1. One shared world — all tasks/memory/decisions live in `hub.sqlite`. A department holds nothing in its own head; it queries at wake, writes back at sleep.
+1. One shared world — all tasks/memory/decisions live in `operant.sqlite`. A department holds nothing in its own head; it queries at wake, writes back at sleep.
 2. Tasks carry `dept_id` + `project`, not a window — work crosses departments as data.
 3. Handoffs are first-class + automatic — on task done, the orchestrator reads `emits_on_done` and creates the next task for the receiving dept.
 4. Shared memory replaces re-explaining — "eticket's OTA partner is weak" is one memory row every dept reads.
@@ -182,7 +182,7 @@ autonomy_level: 1                             # earned-autonomy ladder
 The loadout is data in the seat YAML, enforced automatically at spawn by `loadout.ts`:
 - Skills: write `<folder>/.claude/settings.local.json` enabling only the seat's skills; bespoke skills in `<folder>/.claude/skills/`.
 - MCP: write `<folder>/.mcp.json` with only the seat's servers (least privilege — no `telegram`/send MCP means a Dev seat physically cannot message a customer).
-- CORE in every seat: `hub` (permission relay + channels), `taskboard` (the board), `memory` (FTS5 store), and `/loop`.
+- CORE in every seat: `operant` (permission relay + channels), `taskboard` (the board), `memory` (FTS5 store), and `/loop`.
 
 ### The loop's place (one tool, not the center)
 - Company clock = the daemon orchestrator tick + cron.
@@ -202,7 +202,7 @@ Reuse operant's permission relay + autopilot + veto. Add a company-level tier: a
 ## How it bolts onto operant
 
 ADD: `/home/company/` config repo; `src/company/*.ts` modules; `taskboard-mcp.ts` + `memory-mcp.ts`.
-MODIFY (light): `hub-db.ts` (append tables); `types.ts` (`Profile` gains `skills[]`/`mcps[]`); `profiles.ts` (resolve loadout); `screen-manager.ts` (`spawnDepartment(seatId)` runs loadout then spawn with `/goal`); `shim.ts` (register `company_*` tools); `daemon.ts` (start orchestrator+scheduler, wire approvals into the permission-forward callback); `frontends/telegram.ts` (`/board`, `/brief`, `/approvals`, `/wake`, `/depts`).
+MODIFY (light): `operant-db.ts` (append tables); `types.ts` (`Profile` gains `skills[]`/`mcps[]`); `profiles.ts` (resolve loadout); `screen-manager.ts` (`spawnDepartment(seatId)` runs loadout then spawn with `/goal`); `shim.ts` (register `company_*` tools); `daemon.ts` (start orchestrator+scheduler, wire approvals into the permission-forward callback); `frontends/telegram.ts` (`/board`, `/brief`, `/approvals`, `/wake`, `/depts`).
 REUSE UNCHANGED: socket server, permission engine core, autopilot/veto, verification runner, `task-monitor.ts` (intra-team), `session-registry.ts`, `sessions.json`, systemd.
 
 ## MVP (what we build first)
@@ -210,7 +210,7 @@ REUSE UNCHANGED: socket server, permission engine core, autopilot/veto, verifica
 Goal of the MVP: stand up the full structure with ONE working department (Secretary) so it's immediately useful and everything later just plugs in.
 
 In the MVP:
-- Phase 0 — Substrate: add the company tables to `hub.sqlite` (`schema.ts`); `store.ts` (the only writer); `org-loader.ts` reading `seats/secretary.yaml`.
+- Phase 0 — Substrate: add the company tables to `operant.sqlite` (`schema.ts`); `store.ts` (the only writer); `org-loader.ts` reading `seats/secretary.yaml`.
 - Phase 1 — Secretary department: `taskboard-mcp.ts` + `memory-mcp.ts` (CORE), `dept-bridge.ts` `company_*` tools in the shim; `loadout.ts` writing the Secretary's `.claude` config; `spawnDepartment('secretary')` with the `/goal` wake prompt; `scheduler.ts` waking it on cron (staggered, budgeted); `approval.ts` + Telegram `/board`, `/brief`, `/approvals`.
 
 Deferred but structure-ready (no refactor later): Dev (Phase 2), the other 6 departments via YAML (Phase 3), hardening — cycle-depth guard, dead-letter, approval digests, memory decay/prune, multi-company (Phase 4).
@@ -219,7 +219,7 @@ Deferred but structure-ready (no refactor later): Dev (Phase 2), the other 6 dep
 From Telegram, Mahdi sends: "Track the eticket OTA partner follow-up."
 - Secretary creates a task on the board, writes a memory note, and on its next scheduled wake sends a daily brief ("blocked on you: …").
 - An action that would go external (e.g. "send this message") parks as a `needs_approval` task and shows Mahdi an Approve/Edit/Deny prompt on Telegram; approving executes, denying cancels.
-- Restart the daemon → tasks, memory, and pending approvals survive (loaded from `hub.sqlite`).
+- Restart the daemon → tasks, memory, and pending approvals survive (loaded from `operant.sqlite`).
 - `claude /status` confirms subscription auth (no API key) during all of the above.
 
 ## Risks + mitigations

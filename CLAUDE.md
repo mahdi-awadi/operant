@@ -1,12 +1,12 @@
-# Claude Code Hub
+# Claude Code Operant
 
 Multi-session Claude Code channel plugin with Web dashboard, Telegram bot, and CLI.
 
 ## Architecture
 
 ```
-Hub Daemon (long-running, systemd: operant.service)
-  ├── Socket Server (Unix: ~/.claude/channels/hub/hub.sock)
+Operant Daemon (long-running, systemd: operant.service)
+  ├── Socket Server (Unix: ~/.claude/channels/operant/operant.sock)
   │     ↕ shim processes (one per Claude Code session)
   ├── Web Dashboard (configurable port, Telegram login)
   ├── Telegram Bot (configurable token)
@@ -16,14 +16,14 @@ Hub Daemon (long-running, systemd: operant.service)
 
 Two layers:
 - **Daemon** — single process managing everything. Runs as a systemd service (`operant.service`); logs to `/var/log/operant.log`.
-- **Shim** — tiny MCP bridge per Claude session. Claude launches it via `--channels server:hub`
+- **Shim** — tiny MCP bridge per Claude session. Claude launches it via `--channels server:operant`
 
 ## Quick Start
 
 ### 1. Configure
 ```bash
-mkdir -p ~/.claude/channels/hub
-cat > ~/.claude/channels/hub/config.json << 'EOF'
+mkdir -p ~/.claude/channels/operant
+cat > ~/.claude/channels/operant/config.json << 'EOF'
 {
   "webPort": 3000,
   "telegramToken": "<bot-token-from-botfather>",
@@ -39,7 +39,7 @@ The daemon runs as a systemd service. Unit file lives at `/etc/systemd/system/op
 
 ```ini
 [Unit]
-Description=Claude Code Hub daemon
+Description=Claude Code Operant daemon
 After=network.target
 
 [Service]
@@ -59,7 +59,7 @@ Environment=HOME=/root
 WantedBy=multi-user.target
 ```
 
-Secrets (the Telegram bot token) live in `<HUB_DIR>/.env` (gitignored, `chmod 600`).
+Secrets (the Telegram bot token) live in `<OPERANT_DIR>/.env` (gitignored, `chmod 600`).
 The **daemon loads it itself at startup** (`loadDotEnv` in `src/config.ts`) — *not* via
 systemd `EnvironmentFile`, because SELinux (RHEL, enforcing) blocks PID 1 from reading
 files under `$HOME`. Values fill gaps in `process.env`, so a real env var still wins.
@@ -76,15 +76,15 @@ tail -f /var/log/operant.log   # tail logs
 ### 3. Connect Claude Code (from any project)
 ```bash
 cd /path/to/project
-claude --dangerously-load-development-channels server:hub
+claude --dangerously-load-development-channels server:operant
 ```
 
-The `server:hub` name is configured in `~/.claude.json` under `mcpServers.hub`.
+The `server:operant` name is configured in `~/.claude.json` under `mcpServers.operant`.
 
 ### Attach to spawned sessions
 Daemon logs go to `/var/log/operant.log` (not tmux). Spawned Claude sessions still run in tmux:
 ```bash
-tmux attach -t hub-<session-name> # spawned session
+tmux attach -t operant-<session-name> # spawned session
 ```
 Detach: `Ctrl+B` then `D`
 
@@ -107,7 +107,7 @@ The shim declares `claude/channel/permission` capability. Claude Code sends `not
 
 ## Agent Team Teammates
 
-When Claude's built-in agent teams spawn teammates (via `--agent-id`), the shim detects it by checking the parent process cmdline and **skips hub registration**. Only sessions started by the user appear in the hub. Teammates are managed by Claude's internal team protocol.
+When Claude's built-in agent teams spawn teammates (via `--agent-id`), the shim detects it by checking the parent process cmdline and **skips registration with the daemon**. Only sessions started by the user appear in Operant. Teammates are managed by Claude's internal team protocol.
 
 ## Frontends
 
@@ -146,7 +146,7 @@ Message routing:
 
 ### CLI
 ```bash
-HUB_URL=http://localhost:<webPort> bun run src/cli.ts <command>
+OPERANT_URL=http://localhost:<webPort> bun run src/cli.ts <command>
 ```
 Commands: `list`, `status`, `spawn`, `kill`, `send`, `trust`, `prefix`, `rename`, `upload`, `autopilot`
 
@@ -156,7 +156,7 @@ Settings come from two places, with **env vars overriding `config.json`** (prece
 environment → `config.json` → built-in default). Secrets belong in the environment;
 structured settings (`telegramAllowFrom`, `autopilot`) belong in `config.json`.
 
-### Secrets: `~/.claude/channels/hub/.env`
+### Secrets: `~/.claude/channels/operant/.env`
 Loaded by the daemon at startup (`loadDotEnv`), gitignored, `chmod 600`. See `.env.example`.
 (Not systemd `EnvironmentFile` — SELinux blocks PID 1 from reading under `$HOME`.)
 ```sh
@@ -164,7 +164,7 @@ TELEGRAM_TOKEN=<bot-token-from-botfather>   # overrides config.json telegramToke
 # WEB_PORT / WEB_HOST / BROWSE_ROOT — optional overrides
 ```
 
-### Hub config: `~/.claude/channels/hub/config.json`
+### Operant config: `~/.claude/channels/operant/config.json`
 ```json
 {
   "webPort": 3000,
@@ -187,7 +187,7 @@ Supports `CLAUDE_PLUGIN_DATA` env var for plugin-managed data persistence.
 ```json
 {
   "mcpServers": {
-    "hub": {
+    "operant": {
       "command": "bun",
       "args": ["run", "/path/to/operant/src/shim.ts"]
     }
@@ -195,7 +195,7 @@ Supports `CLAUDE_PLUGIN_DATA` env var for plugin-managed data persistence.
 }
 ```
 
-### Session persistence: `~/.claude/channels/hub/sessions.json`
+### Session persistence: `~/.claude/channels/operant/sessions.json`
 Auto-saved on connect/disconnect. Restored on daemon restart. Reconnecting sessions reuse disconnected slots.
 
 ## Multi-Session Model
@@ -213,7 +213,7 @@ Ready for Claude Code marketplace submission:
 .claude-plugin/plugin.json   # Plugin manifest
 .mcp.json                    # MCP server config (shim entry point)
 skills/
-  configure/SKILL.md         # Hub setup skill
+  configure/SKILL.md         # Operant setup skill
   access/SKILL.md            # Access management skill
 LICENSE                      # Apache-2.0
 README.md                    # User documentation

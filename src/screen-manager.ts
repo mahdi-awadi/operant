@@ -10,7 +10,7 @@ function ensureProjectDir(projectPath: string): void {
   }
   if (!existsSync(projectPath)) {
     mkdirSync(projectPath, { recursive: true })
-    process.stderr.write(`hub: created project directory ${projectPath}\n`)
+    process.stderr.write(`operant: created project directory ${projectPath}\n`)
   }
 }
 
@@ -21,7 +21,7 @@ type ManagedSession = {
   profileName?: string
 }
 
-const CHANNELS_FLAG = '--dangerously-load-development-channels server:hub'
+const CHANNELS_FLAG = '--dangerously-load-development-channels server:operant'
 const TEAM_ENV = 'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1'
 
 export type ResumeSpec =
@@ -67,7 +67,7 @@ export class ScreenManager {
     profileName?: string,
     resume?: ResumeSpec,
   ): Promise<void> {
-    const sessionName = `hub-${name}`
+    const sessionName = `operant-${name}`
     ensureProjectDir(projectPath)
 
     // Kill existing session if any
@@ -101,10 +101,10 @@ export class ScreenManager {
             await $`tmux send-keys -t ${sessionName} Enter`.quiet()
           }
           if (!dismissed) {
-            process.stderr.write(`hub: auto-confirm pressed Enter but warning still visible for ${sessionName} — continuing to retry outer loop\n`)
+            process.stderr.write(`operant: auto-confirm pressed Enter but warning still visible for ${sessionName} — continuing to retry outer loop\n`)
             continue   // back to outer loop; maybe the prompt re-renders
           }
-          process.stderr.write(`hub: auto-confirmed dev warning for ${sessionName}\n`)
+          process.stderr.write(`operant: auto-confirmed dev warning for ${sessionName}\n`)
           if (initialPrompt) {
             await this.waitForReady(sessionName)
             await this.sendPrompt(sessionName, initialPrompt)
@@ -124,7 +124,7 @@ export class ScreenManager {
       }
       await new Promise(r => setTimeout(r, CONFIRM_INTERVAL))
     }
-    process.stderr.write(`hub: could not auto-confirm warning for ${sessionName} (timed out)\n`)
+    process.stderr.write(`operant: could not auto-confirm warning for ${sessionName} (timed out)\n`)
   }
 
   private async waitForReady(sessionName: string): Promise<void> {
@@ -146,9 +146,9 @@ export class ScreenManager {
     try {
       // Type the prompt and press Enter
       await $`tmux send-keys -t ${sessionName} ${text} Enter`.quiet()
-      process.stderr.write(`hub: sent prompt to ${sessionName}\n`)
+      process.stderr.write(`operant: sent prompt to ${sessionName}\n`)
     } catch (err) {
-      process.stderr.write(`hub: failed to send prompt to ${sessionName}: ${err}\n`)
+      process.stderr.write(`operant: failed to send prompt to ${sessionName}: ${err}\n`)
     }
   }
 
@@ -180,10 +180,10 @@ export class ScreenManager {
       await this.gracefulExitTmux(entry.sessionName)
       this.managed.delete(name)
     } else {
-      // Unmanaged session — best effort: assume tmux is `hub-${name}`, which is
-      // the only shape the shim accepts (see shim.getHubTmuxSession). Send the
+      // Unmanaged session — best effort: assume tmux is `operant-${name}`, which is
+      // the only shape the shim accepts (see shim.getOperantTmuxSession). Send the
       // exit sequence so Claude actually exits instead of just being orphaned.
-      await this.gracefulExitTmux(`hub-${name}`)
+      await this.gracefulExitTmux(`operant-${name}`)
     }
   }
 
@@ -228,7 +228,7 @@ export class ScreenManager {
   async listSessions(): Promise<string[]> {
     try {
       const result = await $`tmux list-sessions -F #{session_name}`.quiet().text()
-      return result.trim().split('\n').filter(s => s.startsWith('hub-'))
+      return result.trim().split('\n').filter(s => s.startsWith('operant-'))
     } catch {
       return []
     }
@@ -243,9 +243,9 @@ export class ScreenManager {
       if (!entry.respawnEnabled) return
       try {
         await this.spawn(name, entry.projectPath)
-        process.stderr.write(`hub: respawned ${name}\n`)
+        process.stderr.write(`operant: respawned ${name}\n`)
       } catch (err) {
-        process.stderr.write(`hub: failed to respawn ${name}: ${err}\n`)
+        process.stderr.write(`operant: failed to respawn ${name}: ${err}\n`)
       }
     }, 3000))
   }
@@ -257,7 +257,7 @@ export class ScreenManager {
     const leadPrompt = `You are the team lead "${name}". Create a team and spawn ${size - 1} teammates. Assign them names: ${teammateNames.join(', ')}. Wait for them to connect, then coordinate the work.${tagsSuffix}`
 
     // Spawn lead first
-    const leadSession = `hub-${name}`
+    const leadSession = `operant-${name}`
     try { await $`tmux kill-session -t ${leadSession}`.quiet() } catch {}
     await $`tmux new-session -d -s ${leadSession} -c ${projectPath} ${CLAUDE_TEAM_CMD}`.quiet()
     this.managed.set(name, { sessionName: leadSession, projectPath, respawnEnabled: true, profileName })
@@ -269,7 +269,7 @@ export class ScreenManager {
     // Spawn teammates — they connect to the same folder, Claude's team protocol handles joining
     for (let i = 2; i <= size; i++) {
       const tmName = `${name}-${i}`
-      const tmSession = `hub-${tmName}`
+      const tmSession = `operant-${tmName}`
       try { await $`tmux kill-session -t ${tmSession}`.quiet() } catch {}
       await $`tmux new-session -d -s ${tmSession} -c ${projectPath} ${CLAUDE_TEAM_CMD}`.quiet()
       this.managed.set(tmName, { sessionName: tmSession, projectPath, respawnEnabled: true, profileName })
@@ -286,14 +286,14 @@ export class ScreenManager {
     while (this.managed.has(`${leadName}-${index}`)) index++
 
     const tmName = `${leadName}-${index}`
-    const tmSession = `hub-${tmName}`
+    const tmSession = `operant-${tmName}`
     try { await $`tmux kill-session -t ${tmSession}`.quiet() } catch {}
     await $`tmux new-session -d -s ${tmSession} -c ${leadEntry.projectPath} ${CLAUDE_TEAM_CMD}`.quiet()
     this.managed.set(tmName, { sessionName: tmSession, projectPath: leadEntry.projectPath, respawnEnabled: true })
     this.autoConfirm(tmSession)
 
     // Tell the lead about the new teammate
-    const leadSession = `hub-${leadName}`
+    const leadSession = `operant-${leadName}`
     this.waitForReady(tmSession).then(() => {
       this.sendPrompt(leadSession, `A new teammate "${tmName}" has joined. Assign them work.`)
     })
@@ -351,7 +351,7 @@ export class ScreenManager {
         await $`tmux send-keys -t ${sessionName} ${text}`.quiet()
       }
     } catch (err) {
-      process.stderr.write(`hub: sendKeysRaw failed for ${sessionName}: ${err}\n`)
+      process.stderr.write(`operant: sendKeysRaw failed for ${sessionName}: ${err}\n`)
     }
   }
 

@@ -12,7 +12,7 @@ import { homedir } from 'os'
 import type { DaemonToShim, ShimToDaemon } from './types'
 import { COMPANY_TOOL_DEFS } from './company/tools'
 
-const SOCKET_PATH = process.env.HUB_SOCKET ?? join(homedir(), '.claude', 'channels', 'hub', 'hub.sock')
+const SOCKET_PATH = process.env.OPERANT_SOCKET ?? join(homedir(), '.claude', 'channels', 'operant', 'operant.sock')
 
 // Exported helpers for testing
 export function parseShimMessage(line: string): DaemonToShim {
@@ -46,7 +46,7 @@ export function rejectPendingWithDisconnect(
   pending: Map<string, (result: ReturnType<typeof buildMcpToolResult>) => void>,
 ): void {
   for (const resolve of pending.values()) {
-    resolve(buildMcpToolResult('hub disconnected, retry', true))
+    resolve(buildMcpToolResult('operant disconnected, retry', true))
   }
   pending.clear()
 }
@@ -67,13 +67,13 @@ function isAgentTeammate(): boolean {
   }
 }
 
-function getHubTmuxSession(): string | null {
-  // Only register with the hub if we're running inside a tmux pane whose
-  // session name begins with "hub-". Anything else (GNU screen, bare terminal,
+function getOperantTmuxSession(): string | null {
+  // Only register with the operant if we're running inside a tmux pane whose
+  // session name begins with "operant-". Anything else (GNU screen, bare terminal,
   // a separate tmux server, nested sessions) is ignored.
-  // HUB_TEST_BYPASS_SESSION_CHECK lets subprocess integration tests skip the
+  // OPERANT_TEST_BYPASS_SESSION_CHECK lets subprocess integration tests skip the
   // tmux lookup without depending on a running tmux server.
-  if (process.env.HUB_TEST_BYPASS_SESSION_CHECK === '1') return 'hub-test'
+  if (process.env.OPERANT_TEST_BYPASS_SESSION_CHECK === '1') return 'operant-test'
   const pane = process.env.TMUX_PANE
   if (!pane) return null
   try {
@@ -81,7 +81,7 @@ function getHubTmuxSession(): string | null {
     const sessionName = execSync(`tmux display-message -p -t ${pane} '#S'`, {
       stdio: ['ignore', 'pipe', 'ignore'],
     }).toString().trim()
-    return sessionName.startsWith('hub-') ? sessionName : null
+    return sessionName.startsWith('operant-') ? sessionName : null
   } catch {
     return null
   }
@@ -89,7 +89,7 @@ function getHubTmuxSession(): string | null {
 
 function startStubMcpServer(): void {
   // Keeps Claude happy (the MCP server it configured exists) but does not
-  // connect to the daemon — so this Claude instance is invisible to the hub.
+  // connect to the daemon — so this Claude instance is invisible to the operant.
   const mcp = new Server(
     { name: 'operant', version: '0.1.0' },
     { capabilities: { tools: {}, experimental: { 'claude/channel': {} } } },
@@ -100,21 +100,21 @@ function startStubMcpServer(): void {
 function main() {
   // Skip registration for agent teammates spawned by Claude's agent teams feature.
   if (isAgentTeammate()) {
-    process.stderr.write('hub shim: agent teammate detected, skipping hub registration\n')
+    process.stderr.write('operant shim: agent teammate detected, skipping operant registration\n')
     startStubMcpServer()
     return
   }
 
-  // Skip registration unless we're inside a hub-managed tmux session.
+  // Skip registration unless we're inside a operant-managed tmux session.
   // This prevents stray Claude instances (from other terminals, screen, etc.)
-  // from joining the hub and appearing as phantom teammates.
-  const hubSession = getHubTmuxSession()
-  if (!hubSession) {
-    process.stderr.write('hub shim: not inside a hub-* tmux session, skipping registration\n')
+  // from joining the operant and appearing as phantom teammates.
+  const operantSession = getOperantTmuxSession()
+  if (!operantSession) {
+    process.stderr.write('operant shim: not inside a operant-* tmux session, skipping registration\n')
     startStubMcpServer()
     return
   }
-  process.stderr.write(`hub shim: running inside tmux session "${hubSession}"\n`)
+  process.stderr.write(`operant shim: running inside tmux session "${operantSession}"\n`)
 
   const cwd = process.cwd()
 
@@ -137,10 +137,10 @@ function main() {
         },
       },
       instructions: [
-        'This session is connected to Claude Code Hub — a multi-project management system.',
-        'Messages arrive from the hub frontends (Telegram, Web, CLI).',
+        'This session is connected to Claude Code Operant — a multi-project management system.',
+        'Messages arrive from the operant frontends (Telegram, Web, CLI).',
         'Reply with the reply tool — pass the text you want to send back.',
-        'The hub routes your replies to the user on whichever frontend they are using.',
+        'The operant routes your replies to the user on whichever frontend they are using.',
       ].join('\n'),
     },
   )
@@ -149,7 +149,7 @@ function main() {
     tools: [
       {
         name: 'reply',
-        description: 'Reply to the user via the hub. Text is routed to all connected frontends.',
+        description: 'Reply to the user via the operant. Text is routed to all connected frontends.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -178,13 +178,13 @@ function main() {
       {
         name: 'list_sessions',
         description:
-          'List all operant sessions currently registered in the hub. Use this BEFORE send_to_session to discover the exact display names of peer sessions — the user often refers to teammates by shorthand (e.g. "team 2" or "leader") that does not match the registry. Returns each session\'s name, status (active/disconnected/respawning), folder path, teamIndex, and a self flag marking the calling session. Takes no arguments.',
+          'List all operant sessions currently registered in the operant. Use this BEFORE send_to_session to discover the exact display names of peer sessions — the user often refers to teammates by shorthand (e.g. "team 2" or "leader") that does not match the registry. Returns each session\'s name, status (active/disconnected/respawning), folder path, teamIndex, and a self flag marking the calling session. Takes no arguments.',
         inputSchema: { type: 'object', properties: {} },
       },
       {
         name: 'send_to_session',
         description:
-          'Send a message to ANOTHER operant session in the registry. Use this to delegate work to a teammate (peer hub session in the same or different folder) WITHOUT going through the user. The recipient must be identified by EXACT registry name — call list_sessions first if the user used a shorthand or you are unsure of the precise name. Returns ok=true if the recipient was found and active, or ok=false with a reason otherwise.',
+          'Send a message to ANOTHER operant session in the registry. Use this to delegate work to a teammate (peer operant session in the same or different folder) WITHOUT going through the user. The recipient must be identified by EXACT registry name — call list_sessions first if the user used a shorthand or you are unsure of the precise name. Returns ok=true if the recipient was found and active, or ok=false with a reason otherwise.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -219,7 +219,7 @@ function main() {
       }),
     }),
     async ({ params }) => {
-      process.stderr.write(`hub shim: received permission_request: ${params.tool_name} (${params.request_id})\n`)
+      process.stderr.write(`operant shim: received permission_request: ${params.tool_name} (${params.request_id})\n`)
       let toolArgs: Record<string, unknown> = {}
       try {
         const parsed = JSON.parse(params.input_preview)
@@ -245,20 +245,20 @@ function main() {
     switch (msg.type) {
       case 'registered':
         registered = true
-        process.stderr.write(`hub shim: registered as "${msg.sessionName}"\n`)
+        process.stderr.write(`operant shim: registered as "${msg.sessionName}"\n`)
         break
       case 'rejected':
-        process.stderr.write(`hub shim: rejected — ${msg.reason}\n`)
+        process.stderr.write(`operant shim: rejected — ${msg.reason}\n`)
         shuttingDown = true
         process.exit(1)
         break
       case 'channel_message': {
-        const annotated = `${msg.content}\n\n[hub] You must respond using the operant reply tool — do NOT just type your answer. Plain text in this terminal is not visible to the user; only the reply tool routes back to the frontend.`
+        const annotated = `${msg.content}\n\n[operant] You must respond using the operant reply tool — do NOT just type your answer. Plain text in this terminal is not visible to the user; only the reply tool routes back to the frontend.`
         mcp.notification({
           method: 'notifications/claude/channel',
           params: { content: annotated, meta: msg.meta },
         }).catch((err) => {
-          process.stderr.write(`hub shim: failed to deliver message: ${err}\n`)
+          process.stderr.write(`operant shim: failed to deliver message: ${err}\n`)
         })
         break
       }
@@ -277,7 +277,7 @@ function main() {
           method: 'notifications/claude/channel/permission',
           params: { request_id: msg.requestId, behavior: msg.behavior },
         }).catch((err) => {
-          process.stderr.write(`hub shim: failed to relay permission: ${err}\n`)
+          process.stderr.write(`operant shim: failed to relay permission: ${err}\n`)
         })
         break
     }
@@ -285,7 +285,7 @@ function main() {
 
   function sendToDaemon(msg: ShimToDaemon): void {
     if (!daemon || daemon.destroyed) {
-      process.stderr.write(`hub shim: dropping ${msg.type} (not connected)\n`)
+      process.stderr.write(`operant shim: dropping ${msg.type} (not connected)\n`)
       return
     }
     daemon.write(JSON.stringify(msg) + '\n')
@@ -298,7 +298,7 @@ function main() {
   function scheduleReconnect(): void {
     if (shuttingDown || reconnectTimer) return
     const delay = computeBackoff(reconnectAttempt)
-    process.stderr.write(`hub shim: reconnecting in ${Math.round(delay / 1000)}s…\n`)
+    process.stderr.write(`operant shim: reconnecting in ${Math.round(delay / 1000)}s…\n`)
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null
       reconnectAttempt += 1
@@ -314,9 +314,9 @@ function main() {
 
     sock.on('connect', () => {
       reconnectAttempt = 0
-      process.stderr.write('hub shim: connected to daemon, registering…\n')
-      // hubSession is non-null here — we returned early above when it was null
-      sendToDaemon({ type: 'register', cwd, tmuxName: hubSession ?? undefined })
+      process.stderr.write('operant shim: connected to daemon, registering…\n')
+      // operantSession is non-null here — we returned early above when it was null
+      sendToDaemon({ type: 'register', cwd, tmuxName: operantSession ?? undefined })
     })
 
     sock.on('data', (chunk) => {
@@ -330,7 +330,7 @@ function main() {
     })
 
     sock.on('error', (err) => {
-      process.stderr.write(`hub shim: socket error: ${err.message}\n`)
+      process.stderr.write(`operant shim: socket error: ${err.message}\n`)
       // 'close' fires next and handles reconnect.
     })
 
@@ -354,7 +354,7 @@ function main() {
   openConnection()
 
   mcp.connect(new StdioServerTransport()).catch((err) => {
-    process.stderr.write(`hub shim: MCP connect failed: ${err}\n`)
+    process.stderr.write(`operant shim: MCP connect failed: ${err}\n`)
     process.exit(1)
   })
 

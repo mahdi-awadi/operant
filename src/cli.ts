@@ -19,7 +19,7 @@ export function parseCliArgs(args: string[]): { command: string; args: string[] 
 }
 
 const HELP_TEXT = `
-Claude Code Hub CLI
+Claude Code Operant CLI
 
 Commands:
   list                         List all sessions
@@ -42,7 +42,7 @@ async function main() {
   const { command } = parsed
   const cmdArgs = parsed.args
 
-  const HUB_URL = process.env.HUB_URL ?? 'http://localhost:3000'
+  const OPERANT_URL = process.env.OPERANT_URL ?? 'http://localhost:3000'
 
   if (command === 'help') {
     console.log(HELP_TEXT)
@@ -51,7 +51,7 @@ async function main() {
 
   if (command === 'list' || command === 'status') {
     try {
-      const res = await fetch(`${HUB_URL}/api/sessions`)
+      const res = await fetch(`${OPERANT_URL}/api/sessions`)
       if (!res.ok) {
         console.error(`Error: ${res.status} ${res.statusText}`)
         process.exit(1)
@@ -75,7 +75,7 @@ async function main() {
         }
       }
     } catch (err) {
-      console.error(`Failed to connect to hub at ${HUB_URL}:`, err)
+      console.error(`Failed to connect to operant at ${OPERANT_URL}:`, err)
       process.exit(1)
     }
     return
@@ -88,7 +88,7 @@ async function main() {
       process.exit(1)
     }
     try {
-      const res = await fetch(`${HUB_URL}/api/spawn`, {
+      const res = await fetch(`${OPERANT_URL}/api/spawn`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, path }),
@@ -112,7 +112,7 @@ async function main() {
       process.exit(1)
     }
     try {
-      const res = await fetch(`${HUB_URL}/api/kill`, {
+      const res = await fetch(`${OPERANT_URL}/api/kill`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name }),
@@ -136,7 +136,7 @@ async function main() {
       process.exit(1)
     }
     try {
-      const res = await fetch(`${HUB_URL}/api/send`, {
+      const res = await fetch(`${OPERANT_URL}/api/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionName, text }),
@@ -160,7 +160,7 @@ async function main() {
       process.exit(1)
     }
     try {
-      const res = await fetch(`${HUB_URL}/api/trust`, {
+      const res = await fetch(`${OPERANT_URL}/api/trust`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, level }),
@@ -184,7 +184,7 @@ async function main() {
       process.exit(1)
     }
     try {
-      const res = await fetch(`${HUB_URL}/api/prefix`, {
+      const res = await fetch(`${OPERANT_URL}/api/prefix`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, text }),
@@ -208,7 +208,7 @@ async function main() {
       process.exit(1)
     }
     try {
-      const res = await fetch(`${HUB_URL}/api/rename`, {
+      const res = await fetch(`${OPERANT_URL}/api/rename`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ oldName, newName }),
@@ -237,7 +237,7 @@ async function main() {
       formData.append('file', file)
       formData.append('sessionName', sessionName)
 
-      const res = await fetch(`${HUB_URL}/api/upload`, {
+      const res = await fetch(`${OPERANT_URL}/api/upload`, {
         method: 'POST',
         body: formData,
       })
@@ -261,7 +261,7 @@ async function main() {
       process.exit(1)
     }
     try {
-      const res = await fetch(`${HUB_URL}/api/autopilot`, {
+      const res = await fetch(`${OPERANT_URL}/api/autopilot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, enabled: mode === 'on' }),

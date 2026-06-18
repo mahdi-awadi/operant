@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a close action to the hub that gracefully exits Claude Code before killing its tmux session, exposed as a `✕` button in the web dashboard and wired into the existing Telegram `/kill` command.
+**Goal:** Add a close action to the operant that gracefully exits Claude Code before killing its tmux session, exposed as a `✕` button in the web dashboard and wired into the existing Telegram `/kill` command.
 
 **Architecture:** A new `ScreenManager.gracefulKill()` method drives Claude via `tmux send-keys` (Ctrl+C to cancel any in-progress work, then `/exit` to quit), polls `tmux has-session` to confirm the session dies on its own, and falls back to `tmux kill-session` after a 3-second timeout. The existing hard-kill `kill()` method is preserved for fast daemon shutdown in `killAll()`. The web `POST /api/kill` endpoint and Telegram `/kill` command are switched to call `gracefulKill()`.
 
@@ -88,13 +88,13 @@ async gracefulKill(name: string): Promise<void> {
 
 - [ ] **Step 3: Typecheck the module**
 
-Run: `cd /home/agent/claude-code-hub && bun build src/screen-manager.ts --outfile /tmp/gsc-check.js --target bun`
+Run: `cd /home/agent/claude-code-operant && bun build src/screen-manager.ts --outfile /tmp/gsc-check.js --target bun`
 Expected: builds with no errors; the output file is created.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-cd /home/agent/claude-code-hub
+cd /home/agent/claude-code-operant
 git add src/screen-manager.ts
 git commit -m "feat(screen-manager): add gracefulKill method"
 ```
@@ -120,13 +120,13 @@ test('gracefulKill is a no-op for unknown name', async () => {
 
 - [ ] **Step 2: Run the test and confirm it passes**
 
-Run: `cd /home/agent/claude-code-hub && bun test tests/screen-manager.test.ts -t "gracefulKill is a no-op"`
+Run: `cd /home/agent/claude-code-operant && bun test tests/screen-manager.test.ts -t "gracefulKill is a no-op"`
 Expected: 1 pass, 0 fail.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-cd /home/agent/claude-code-hub
+cd /home/agent/claude-code-operant
 git add tests/screen-manager.test.ts
 git commit -m "test(screen-manager): cover gracefulKill no-op on unknown name"
 ```
@@ -147,7 +147,7 @@ Append inside the `describe('ScreenManager', ...)` block, after the test added i
 ```ts
 test('gracefulKill falls back to hard kill when session ignores /exit', async () => {
   const name = 'test-fallback'
-  const sessionName = `hub-${name}`
+  const sessionName = `operant-${name}`
 
   // Start a fake tmux session running `sleep 60` — it won't respond to /exit.
   await $`tmux new-session -d -s ${sessionName} sleep 60`.quiet()
@@ -193,18 +193,18 @@ import { $ } from 'bun'
 
 - [ ] **Step 3: Run the test and confirm it passes**
 
-Run: `cd /home/agent/claude-code-hub && bun test tests/screen-manager.test.ts -t "gracefulKill falls back"`
+Run: `cd /home/agent/claude-code-operant && bun test tests/screen-manager.test.ts -t "gracefulKill falls back"`
 Expected: 1 pass, 0 fail. The test takes roughly 3–4 seconds.
 
 - [ ] **Step 4: Run the full screen-manager test file to confirm nothing broke**
 
-Run: `cd /home/agent/claude-code-hub && bun test tests/screen-manager.test.ts`
+Run: `cd /home/agent/claude-code-operant && bun test tests/screen-manager.test.ts`
 Expected: all tests pass (previously 6 tests + 2 new ones from Tasks 2 and 3 = 8 passing).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/agent/claude-code-hub
+cd /home/agent/claude-code-operant
 git add tests/screen-manager.test.ts
 git commit -m "test(screen-manager): verify gracefulKill fallback path"
 ```
@@ -234,18 +234,18 @@ Leave everything else in the method untouched.
 
 - [ ] **Step 2: Typecheck the module**
 
-Run: `cd /home/agent/claude-code-hub && bun build src/frontends/web.ts --outfile /tmp/gsc-check-web.js --target bun`
+Run: `cd /home/agent/claude-code-operant && bun build src/frontends/web.ts --outfile /tmp/gsc-check-web.js --target bun`
 Expected: builds with no errors.
 
 - [ ] **Step 3: Run the web frontend tests**
 
-Run: `cd /home/agent/claude-code-hub && bun test tests/frontends/web.test.ts`
+Run: `cd /home/agent/claude-code-operant && bun test tests/frontends/web.test.ts`
 Expected: all existing tests still pass.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-cd /home/agent/claude-code-hub
+cd /home/agent/claude-code-operant
 git add src/frontends/web.ts
 git commit -m "feat(web): route /api/kill through gracefulKill"
 ```
@@ -275,18 +275,18 @@ Leave the reply text and surrounding logic untouched.
 
 - [ ] **Step 2: Typecheck the module**
 
-Run: `cd /home/agent/claude-code-hub && bun build src/frontends/telegram.ts --outfile /tmp/gsc-check-tg.js --target bun`
+Run: `cd /home/agent/claude-code-operant && bun build src/frontends/telegram.ts --outfile /tmp/gsc-check-tg.js --target bun`
 Expected: builds with no errors.
 
 - [ ] **Step 3: Run the telegram frontend tests**
 
-Run: `cd /home/agent/claude-code-hub && bun test tests/frontends/telegram.test.ts`
+Run: `cd /home/agent/claude-code-operant && bun test tests/frontends/telegram.test.ts`
 Expected: all existing tests still pass.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-cd /home/agent/claude-code-hub
+cd /home/agent/claude-code-operant
 git add src/frontends/telegram.ts
 git commit -m "feat(telegram): route /kill through gracefulKill"
 ```
@@ -324,7 +324,7 @@ Immediately after the closing `}` of `restartSession`, add:
 - [ ] **Step 3: Commit**
 
 ```bash
-cd /home/agent/claude-code-hub
+cd /home/agent/claude-code-operant
 git add src/frontends/web-client.html
 git commit -m "feat(web-client): add closeSession helper"
 ```
@@ -370,13 +370,13 @@ Note: both the restart button and the close button use `margin-left:auto`, but t
 
 - [ ] **Step 3: Verify the HTML still parses (quick visual check)**
 
-Run: `cd /home/agent/claude-code-hub && node -e "const fs=require('fs'); const html=fs.readFileSync('src/frontends/web-client.html','utf8'); console.log('length:', html.length); if (!html.includes('closeSession')) throw new Error('closeSession missing'); if (!html.includes(\"textContent = '✕'\")) throw new Error('close button missing'); console.log('OK')"`
+Run: `cd /home/agent/claude-code-operant && node -e "const fs=require('fs'); const html=fs.readFileSync('src/frontends/web-client.html','utf8'); console.log('length:', html.length); if (!html.includes('closeSession')) throw new Error('closeSession missing'); if (!html.includes(\"textContent = '✕'\")) throw new Error('close button missing'); console.log('OK')"`
 Expected: prints `length: <N>` and `OK` with no thrown error.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-cd /home/agent/claude-code-hub
+cd /home/agent/claude-code-operant
 git add src/frontends/web-client.html
 git commit -m "feat(web-client): add close button to session list"
 ```
@@ -389,18 +389,18 @@ git commit -m "feat(web-client): add close button to session list"
 
 - [ ] **Step 1: Run the full test suite**
 
-Run: `cd /home/agent/claude-code-hub && bun test`
+Run: `cd /home/agent/claude-code-operant && bun test`
 Expected: all tests pass. Previously the suite reported 53 tests; after Tasks 2 and 3 it should report 55 tests passing.
 
 - [ ] **Step 2: Restart the daemon for manual smoke test**
 
 Run:
 ```bash
-tmux kill-session -t hub-daemon 2>/dev/null
-cd /home/agent/claude-code-hub
-tmux new-session -d -s hub-daemon "bun run src/daemon.ts"
+tmux kill-session -t operant-daemon 2>/dev/null
+cd /home/agent/claude-code-operant
+tmux new-session -d -s operant-daemon "bun run src/daemon.ts"
 sleep 2
-tmux capture-pane -t hub-daemon -p | tail -20
+tmux capture-pane -t operant-daemon -p | tail -20
 ```
 Expected: daemon starts without errors, listening on its socket and web port.
 
@@ -410,16 +410,16 @@ This step is a human verification. Do one of:
 
 **Option A (CLI):**
 ```bash
-cd /home/agent/claude-code-hub
-HUB_URL=http://localhost:3000 bun run src/cli.ts spawn smoke-close /tmp
+cd /home/agent/claude-code-operant
+OPERANT_URL=http://localhost:3000 bun run src/cli.ts spawn smoke-close /tmp
 # wait ~5 seconds for Claude to be ready
-HUB_URL=http://localhost:3000 bun run src/cli.ts kill smoke-close
+OPERANT_URL=http://localhost:3000 bun run src/cli.ts kill smoke-close
 # verify the tmux session is gone
-tmux has-session -t hub-smoke-close 2>&1
-# expected: "can't find session: hub-smoke-close"
+tmux has-session -t operant-smoke-close 2>&1
+# expected: "can't find session: operant-smoke-close"
 ```
 
-**Option B (web UI):** Open the web dashboard, spawn a session in `/tmp` named `smoke-close`, wait for it to show as connected, click the `✕` button, confirm the dialog, and verify the session disappears from the list within a few seconds. Then run `tmux has-session -t hub-smoke-close` in a terminal and confirm it fails.
+**Option B (web UI):** Open the web dashboard, spawn a session in `/tmp` named `smoke-close`, wait for it to show as connected, click the `✕` button, confirm the dialog, and verify the session disappears from the list within a few seconds. Then run `tmux has-session -t operant-smoke-close` in a terminal and confirm it fails.
 
 - [ ] **Step 4: Final commit (if any spec/plan touch-ups needed)**
 

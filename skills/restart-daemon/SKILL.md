@@ -1,11 +1,11 @@
 ---
 name: restart-daemon
-description: Restart the operant hub-daemon tmux session cleanly and verify it came back up. Use when the user asks to restart the daemon, when code changes need to take effect, or when sessions are showing as disconnected and you suspect the daemon is wedged.
+description: Restart the operant operant-daemon tmux session cleanly and verify it came back up. Use when the user asks to restart the daemon, when code changes need to take effect, or when sessions are showing as disconnected and you suspect the daemon is wedged.
 ---
 
 # Restart the operant daemon
 
-The hub daemon runs in a tmux session named `hub-daemon`. After any change
+The operant daemon runs in a tmux session named `operant-daemon`. After any change
 to `src/daemon.ts`, `src/socket-server.ts`, `src/permission-engine.ts`,
 `src/autopilot.ts`, `src/error-log.ts`, or anything else loaded at boot, the
 daemon must be restarted to pick up the new code. Shim processes stay alive
@@ -17,15 +17,15 @@ Run these commands in order. The shell `until` loop blocks until the daemon
 prints `daemon ready` (or times out at ~10 seconds).
 
 ```bash
-tmux kill-session -t hub-daemon 2>/dev/null
-tmux new-session -d -s hub-daemon "bun run src/daemon.ts"
+tmux kill-session -t operant-daemon 2>/dev/null
+tmux new-session -d -s operant-daemon "bun run src/daemon.ts"
 deadline=$((SECONDS + 10))
-until tmux capture-pane -t hub-daemon -p 2>/dev/null | grep -q "daemon ready" || [ $SECONDS -ge $deadline ]; do sleep 0.3; done
-tmux capture-pane -t hub-daemon -p | tail -10
+until tmux capture-pane -t operant-daemon -p 2>/dev/null | grep -q "daemon ready" || [ $SECONDS -ge $deadline ]; do sleep 0.3; done
+tmux capture-pane -t operant-daemon -p | tail -10
 ```
 
 The final tail should include `daemon ready` and one `session connected:` line
-per active hub session that auto-reconnected.
+per active operant session that auto-reconnected.
 
 ## Reply to the user
 
@@ -44,13 +44,13 @@ Report (in this order):
 - **Port already in use** — pane shows `EADDRINUSE`. Another process is on the
   configured port. Run `lsof -nP -i :3001` (or the configured port) to find it.
 - **`telegramAllowFrom is empty`** — refusing to start because the allowlist
-  is empty in `~/.claude/channels/hub/config.json`. This is intentional safety;
+  is empty in `~/.claude/channels/operant/config.json`. This is intentional safety;
   add the user's Telegram numeric ID before restarting.
 - **`Module not found`** — typo in a recent edit. Run `bunx tsc --noEmit` and
   fix the import.
 - **Daemon comes up but sessions don't reconnect** — shim processes died too.
   The user needs to re-attach Claude in each project (`claude
-  --dangerously-load-development-channels server:hub`) until the plugin lands
+  --dangerously-load-development-channels server:operant`) until the plugin lands
   in the public marketplace.
 
 ## Do not
@@ -58,6 +58,6 @@ Report (in this order):
 - Do not restart unless the user asked OR a code change actually needs it.
   Unnecessary restarts drop the active autopilot/veto state for ~3 seconds.
 - Do not pass `kill-server` (kills ALL tmux sessions, including users'
-  Claude sessions). Always target `-t hub-daemon`.
+  Claude sessions). Always target `-t operant-daemon`.
 - Do not start the daemon outside tmux (`bun run src/daemon.ts &`). It dies
   on stdin EOF and you'll spend 10 minutes wondering why.

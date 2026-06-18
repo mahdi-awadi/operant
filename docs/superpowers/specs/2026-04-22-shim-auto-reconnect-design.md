@@ -6,7 +6,7 @@
 
 ## Problem
 
-When the hub daemon restarts (manually, after a crash, after a config change), every Claude session connected through the MCP shim shows up as **red / disconnected** in the web dashboard and the Telegram `/list`. Sessions never recover on their own.
+When the operant daemon restarts (manually, after a crash, after a config change), every Claude session connected through the MCP shim shows up as **red / disconnected** in the web dashboard and the Telegram `/list`. Sessions never recover on their own.
 
 Today the shim (`src/shim.ts:265-274`) treats any disconnect as terminal:
 
@@ -40,8 +40,8 @@ Treat the socket as a connection to be re-established, not a fail-fast dependenc
 - Backoff sequence (ms): `1000, 2000, 4000, 8000, 16000, 30000, 30000, …` — capped at 30s, never gives up. This guarantees no tight loop even if the daemon stays down for hours.
 - On successful `connect`: reset backoff to the first step and re-send `{ type: 'register', cwd }`. The daemon's existing path:index slot-reuse logic recognises the same `cwd`, reclaims the previous slot, and restores name/trust/profile.
 - On every retry attempt, log to stderr so the tmux pane shows what's happening:
-  - `hub shim: daemon disconnected, reconnecting in 4s…`
-  - `hub shim: reconnected, re-registering as "<name>"`
+  - `operant shim: daemon disconnected, reconnecting in 4s…`
+  - `operant shim: reconnected, re-registering as "<name>"`
 
 Intentional shutdowns still exit cleanly:
 - `SIGTERM`, `SIGINT`, and `process.stdin.on('end')` call `daemon.end()` then `process.exit(0)`. Reconnect is suppressed when shutdown is in progress.
@@ -50,7 +50,7 @@ Intentional shutdowns still exit cleanly:
 
 A `tool_call` is request/response over the same socket. When the socket closes mid-flight:
 
-- Pending `tool_call` promises resolve with `buildMcpToolResult('hub disconnected, retry', true)`. Claude sees a tool error and can decide to retry the call once the next channel message arrives.
+- Pending `tool_call` promises resolve with `buildMcpToolResult('operant disconnected, retry', true)`. Claude sees a tool error and can decide to retry the call once the next channel message arrives.
 - Pending `permission_request` notifications are dropped silently. Claude will re-emit `notifications/claude/channel/permission_request` if the underlying tool call is still alive when the socket comes back.
 
 A small `pendingToolCalls: Set<{ name, resolve }>` lets the close handler reject everything currently waiting before scheduling the reconnect.
@@ -80,8 +80,8 @@ Claude's MCP host respawns each one, the new shim with reconnect logic connects 
 
 New file `tests/shim-reconnect.test.ts`:
 
-1. **Reconnects after daemon restart.** Start a fake Unix socket server. Spawn the shim pointed at it via `HUB_SOCKET=`. Wait for `register`. Close the server, restart it on the same path. Assert the shim re-registers within 5s.
-2. **Rejects pending tool calls on disconnect.** Send a tool call from a fake MCP transport, kill the socket before the daemon responds, assert the MCP transport receives an error result with text `hub disconnected, retry`.
+1. **Reconnects after daemon restart.** Start a fake Unix socket server. Spawn the shim pointed at it via `OPERANT_SOCKET=`. Wait for `register`. Close the server, restart it on the same path. Assert the shim re-registers within 5s.
+2. **Rejects pending tool calls on disconnect.** Send a tool call from a fake MCP transport, kill the socket before the daemon responds, assert the MCP transport receives an error result with text `operant disconnected, retry`.
 3. **Backoff caps at 30s.** Mock the timer, force ten consecutive disconnects, assert the schedule matches `[1000, 2000, 4000, 8000, 16000, 30000, 30000, 30000, 30000, 30000]`.
 4. **Clean shutdown suppresses reconnect.** Send `SIGTERM`, assert no further connect attempts after the socket closes.
 

@@ -17,9 +17,9 @@ describe('shim helpers', () => {
   })
 
   test('buildMcpNotification creates channel notification', () => {
-    const notif = buildMcpNotification('hello', { source: 'hub', session: 'frontend' })
+    const notif = buildMcpNotification('hello', { source: 'operant', session: 'frontend' })
     expect(notif.method).toBe('notifications/claude/channel')
     expect(notif.params.content).toBe('hello')
-    expect(notif.params.meta.source).toBe('hub')
+    expect(notif.params.meta.source).toBe('operant')
   })
 })

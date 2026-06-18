@@ -77,7 +77,7 @@ test('something on x', async ({ page }) => {
   // The dashboard also gates the UI on a localStorage marker (the cookie
   // is for server-side auth). Seed it so the app renders, not the login.
   await page.addInitScript(() => {
-    localStorage.setItem('hub_user', JSON.stringify({ id: 11111, first_name: 'Test' }))
+    localStorage.setItem('operant_user', JSON.stringify({ id: 11111, first_name: 'Test' }))
   })
   await page.goto(srv.url)
   // ... your assertions ...

@@ -16,9 +16,9 @@
     "build": "bun build src/daemon.ts --outfile dist/daemon.js --target bun --external playwright && bun build src/shim.ts --outfile dist/shim.js --target bun && bun build src/cli.ts --outfile dist/cli.js --target bun"
   },
   "bin": {
-    "hub": "./src/cli.ts",
-    "hub-shim": "./src/shim.ts",
-    "hub-daemon": "./src/daemon.ts"
+    "operant": "./src/cli.ts",
+    "operant-shim": "./src/shim.ts",
+    "operant-daemon": "./src/daemon.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",

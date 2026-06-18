@@ -2,21 +2,21 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
 import { Decisions } from '../src/decisions'
 import { Personalities } from '../src/personalities'
-import { openHubDb } from '../src/hub-db'
+import { openOperantDb } from '../src/operant-db'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import type { HubDbHandle } from '../src/hub-db'
+import type { OperantDbHandle } from '../src/operant-db'
 
 describe('Decisions', () => {
   let dir: string
-  let handle: HubDbHandle
+  let handle: OperantDbHandle
   let dec: Decisions
   let people: Personalities
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'hub-decisions-test-'))
-    handle = openHubDb(dir)
+    dir = mkdtempSync(join(tmpdir(), 'operant-decisions-test-'))
+    handle = openOperantDb(dir)
     dec = new Decisions(handle.db)
     people = new Personalities(handle.db)
   })

@@ -39,7 +39,7 @@ describe('integration: shim → daemon flow', () => {
         return socketServer.sendToSession(path, {
           type: 'channel_message',
           content,
-          meta: { source: 'hub', frontend: 'test', user: 'test', session: '' },
+          meta: { source: 'operant', frontend: 'test', user: 'test', session: '' },
         })
       },
       (sessionName, text) => {

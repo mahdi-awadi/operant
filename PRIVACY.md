@@ -19,7 +19,7 @@ Operant **does not**:
 
 ## Data Handled Locally
 
-Operant stores the following data **locally on your machine only**, under `~/.claude/channels/hub/`:
+Operant stores the following data **locally on your machine only**, under `~/.claude/channels/operant/`:
 
 - **Configuration** (`config.json`) — your Telegram bot token, your allowed Telegram user IDs, web port, and trust preferences
 - **Session registry** (`sessions.json`) — names, paths, and trust levels of registered Claude Code sessions

@@ -2,23 +2,23 @@
 
 ## Overview
 
-Add a close action to the hub that gracefully exits Claude before tearing down its tmux session, with a hard-kill fallback if Claude doesn't respond in time. Expose the action as a `✕` button in the web dashboard (for managed sessions only) and update the existing Telegram `/kill` and CLI `kill` commands to use the same graceful path.
+Add a close action to the operant that gracefully exits Claude before tearing down its tmux session, with a hard-kill fallback if Claude doesn't respond in time. Expose the action as a `✕` button in the web dashboard (for managed sessions only) and update the existing Telegram `/kill` and CLI `kill` commands to use the same graceful path.
 
 ## Problem
 
-The hub currently supports killing managed sessions via `screenManager.kill()`, which immediately runs `tmux kill-session`. This hard-kills Claude with no chance to close MCP connections cleanly. Additionally, the web dashboard has no UI to close a session — only a Restart button that appears when a session is already disconnected.
+The operant currently supports killing managed sessions via `screenManager.kill()`, which immediately runs `tmux kill-session`. This hard-kills Claude with no chance to close MCP connections cleanly. Additionally, the web dashboard has no UI to close a session — only a Restart button that appears when a session is already disconnected.
 
 ## Goals
 
 - Web dashboard shows a `✕` button next to managed, connected sessions.
 - Closing a session attempts to exit Claude cleanly first, then falls back to killing tmux.
 - Telegram `/kill` and CLI `kill` commands use the same graceful path.
-- Non-managed (auto-detected) sessions show no close button — the hub doesn't own their tmux.
+- Non-managed (auto-detected) sessions show no close button — the operant doesn't own their tmux.
 - Daemon shutdown (`killAll`) remains a hard kill for fast exit.
 
 ## Non-Goals
 
-- No graceful close for non-managed sessions (the hub didn't spawn them).
+- No graceful close for non-managed sessions (the operant didn't spawn them).
 - No new MCP-level "exit" protocol — we drive Claude via `tmux send-keys`, same mechanism already used for `autoConfirm` and `sendPrompt`.
 - No confirmation-suppression flag or "force close" mode. Single action.
 
@@ -136,7 +136,7 @@ Add tests to `tests/screen-manager.test.ts`:
    - Respawn timer cleared.
 
 2. **Graceful timeout path:** Mock `$` so `tmux has-session` keeps succeeding. Call `gracefulKill('foo')`. Assert:
-   - After the timeout, `tmux kill-session -t hub-foo` was issued.
+   - After the timeout, `tmux kill-session -t operant-foo` was issued.
    - Entry removed from `managed`.
 
 3. **No-op on unknown name:** Call `gracefulKill('does-not-exist')`. Assert: no `tmux` commands issued, no throw.

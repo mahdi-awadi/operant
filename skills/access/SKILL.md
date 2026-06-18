@@ -1,13 +1,13 @@
 ---
 name: access
-description: Manage hub access — view allowed users, add or remove Telegram user IDs from the allowlist. Use when the user asks about who can access the hub or wants to change access.
+description: Manage operant access — view allowed users, add or remove Telegram user IDs from the allowlist. Use when the user asks about who can access the operant or wants to change access.
 ---
 
-# Manage Hub Access
+# Manage Operant Access
 
 ## View Current Access
 
-Read `~/.claude/channels/hub/config.json` and show the `telegramAllowFrom` array.
+Read `~/.claude/channels/operant/config.json` and show the `telegramAllowFrom` array.
 
 ## Add a User
 

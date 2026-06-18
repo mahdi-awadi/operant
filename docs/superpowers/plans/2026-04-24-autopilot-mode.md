@@ -27,8 +27,8 @@
 
 | Path | Change |
 |---|---|
-| `src/types.ts` | Add `AutopilotConfig` + `AutopilotRuntimeState`; extend `HubConfig` and `SessionConfig`. |
-| `src/config.ts` | Load/save `autopilot` defaults from hub config. |
+| `src/types.ts` | Add `AutopilotConfig` + `AutopilotRuntimeState`; extend `OperantConfig` and `SessionConfig`. |
+| `src/config.ts` | Load/save `autopilot` defaults from operant config. |
 | `src/session-registry.ts` | Add `setAutopilot`, `getAutopilot` methods; persist via save/restore format. |
 | `src/screen-manager.ts` | Expose two public helpers: `sendKeysRaw(sessionName, text, withEnter)`, `capturePane(sessionName, lines?)`. |
 | `src/daemon.ts` | Wire `AutopilotRunner`; hook into the `reply` tool_call path after routing to user — if autopilot on, run the proxy and inject answer back through the channel pipe. |
@@ -46,7 +46,7 @@
 
 - [ ] **Step 1: Extend `types.ts` with autopilot types**
 
-Add these type exports. Append after the `HubConfig` type:
+Add these type exports. Append after the `OperantConfig` type:
 
 ```ts
 export type AutopilotConfig = {
@@ -71,10 +71,10 @@ export const DEFAULT_AUTOPILOT_DEFAULTS: AutopilotDefaults = {
 }
 ```
 
-Extend `HubConfig`:
+Extend `OperantConfig`:
 
 ```ts
-export type HubConfig = {
+export type OperantConfig = {
   webPort: number
   webHost?: string
   browseRoot?: string
@@ -118,7 +118,7 @@ git commit -m "feat(types): add AutopilotConfig and defaults"
 
 ---
 
-## Task 2: Load autopilot defaults from hub config
+## Task 2: Load autopilot defaults from operant config
 
 **Files:**
 - Modify: `src/config.ts`
@@ -129,7 +129,7 @@ git commit -m "feat(types): add AutopilotConfig and defaults"
 Append to `tests/config.test.ts`:
 
 ```ts
-test('loadHubConfig reads autopilot section', () => {
+test('loadOperantConfig reads autopilot section', () => {
   const dir = mkdtempSync(join(tmpdir(), 'cfg-autopilot-'))
   try {
     writeFileSync(join(dir, 'config.json'), JSON.stringify({
@@ -140,7 +140,7 @@ test('loadHubConfig reads autopilot section', () => {
       telegramAllowFrom: ['123'],
       autopilot: { vetoWindowMs: 5000, maxDurationMinutes: 120 },
     }))
-    const cfg = loadHubConfig(dir)
+    const cfg = loadOperantConfig(dir)
     expect(cfg.autopilot?.vetoWindowMs).toBe(5000)
     expect(cfg.autopilot?.maxDurationMinutes).toBe(120)
   } finally {
@@ -148,14 +148,14 @@ test('loadHubConfig reads autopilot section', () => {
   }
 })
 
-test('loadHubConfig without autopilot key returns undefined for autopilot', () => {
+test('loadOperantConfig without autopilot key returns undefined for autopilot', () => {
   const dir = mkdtempSync(join(tmpdir(), 'cfg-noauto-'))
   try {
     writeFileSync(join(dir, 'config.json'), JSON.stringify({
       webPort: 3000, defaultTrust: 'ask', defaultUploadDir: '.',
       telegramToken: '', telegramAllowFrom: [],
     }))
-    const cfg = loadHubConfig(dir)
+    const cfg = loadOperantConfig(dir)
     expect(cfg.autopilot).toBeUndefined()
   } finally {
     rmSync(dir, { recursive: true, force: true })
@@ -166,15 +166,15 @@ test('loadHubConfig without autopilot key returns undefined for autopilot', () =
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `bun test tests/config.test.ts -t "autopilot"`
-Expected: FAIL — `autopilot` field not returned by `loadHubConfig`.
+Expected: FAIL — `autopilot` field not returned by `loadOperantConfig`.
 
-- [ ] **Step 3: Update `loadHubConfig` to pass through autopilot**
+- [ ] **Step 3: Update `loadOperantConfig` to pass through autopilot**
 
-In `src/config.ts`, modify `loadHubConfig` to include `autopilot`:
+In `src/config.ts`, modify `loadOperantConfig` to include `autopilot`:
 
 ```ts
-export function loadHubConfig(dir: string = HUB_DIR): HubConfig {
-  const raw = readJson<Partial<HubConfig>>(join(dir, 'config.json'))
+export function loadOperantConfig(dir: string = OPERANT_DIR): OperantConfig {
+  const raw = readJson<Partial<OperantConfig>>(join(dir, 'config.json'))
   if (!raw) return defaultConfig()
   return {
     webPort: raw.webPort ?? 3000,
@@ -203,7 +203,7 @@ Append to `src/config.ts`:
 import { DEFAULT_AUTOPILOT_DEFAULTS } from './types'
 import type { AutopilotDefaults } from './types'
 
-export function resolveAutopilotDefaults(config: HubConfig): AutopilotDefaults {
+export function resolveAutopilotDefaults(config: OperantConfig): AutopilotDefaults {
   const override = config.autopilot ?? {}
   return {
     vetoWindowMs: override.vetoWindowMs ?? DEFAULT_AUTOPILOT_DEFAULTS.vetoWindowMs,
@@ -220,7 +220,7 @@ Append to `tests/config.test.ts`:
 
 ```ts
 test('resolveAutopilotDefaults merges user overrides with built-in defaults', () => {
-  const cfg: HubConfig = {
+  const cfg: OperantConfig = {
     webPort: 3000, defaultTrust: 'ask', defaultUploadDir: '.',
     telegramToken: '', telegramAllowFrom: [],
     autopilot: { vetoWindowMs: 1000 },
@@ -234,8 +234,8 @@ test('resolveAutopilotDefaults merges user overrides with built-in defaults', ()
 
 Update imports at top of test file:
 ```ts
-import { loadHubConfig, saveHubConfig, resolveAutopilotDefaults } from '../src/config'
-import type { HubConfig } from '../src/types'
+import { loadOperantConfig, saveOperantConfig, resolveAutopilotDefaults } from '../src/config'
+import type { OperantConfig } from '../src/types'
 ```
 
 - [ ] **Step 7: Run tests**
@@ -247,7 +247,7 @@ Expected: PASS all.
 
 ```bash
 git add src/config.ts tests/config.test.ts
-git commit -m "feat(config): load autopilot defaults from hub config"
+git commit -m "feat(config): load autopilot defaults from operant config"
 ```
 
 ---
@@ -849,7 +849,7 @@ describe('AutopilotRunner.runBtw', () => {
       pollIntervalMs: 10,
       btwTimeoutMs: 2000,
     })
-    const result = await runner.runBtw('hub-x', 'wrapped question text')
+    const result = await runner.runBtw('operant-x', 'wrapped question text')
     expect(result.status).toBe('answered')
     if (result.status === 'answered') {
       expect(result.answer).toContain('Bun')
@@ -866,7 +866,7 @@ describe('AutopilotRunner.runBtw', () => {
       pollIntervalMs: 5,
       btwTimeoutMs: 50,
     })
-    const result = await runner.runBtw('hub-x', 'q')
+    const result = await runner.runBtw('operant-x', 'q')
     expect(result.status).toBe('timeout')
     // dismiss anyway to leave the session usable
     expect(sm.escapes).toBe(1)
@@ -883,7 +883,7 @@ describe('AutopilotRunner.runBtw', () => {
       pollIntervalMs: 5,
       btwTimeoutMs: 500,
     })
-    const result = await runner.runBtw('hub-x', 'q')
+    const result = await runner.runBtw('operant-x', 'q')
     expect(result.status).toBe('parse_error')
     expect(sm.escapes).toBe(1)
   })
@@ -895,7 +895,7 @@ describe('AutopilotRunner.runBtw', () => {
       pollIntervalMs: 5,
       btwTimeoutMs: 500,
     })
-    const result = await runner.runBtw('hub-x', 'wrapped q', {
+    const result = await runner.runBtw('operant-x', 'wrapped q', {
       rawQuestion: 'Should I DELETE the whole backup?',
       riskKeywords: ['delete'],
     })
@@ -917,7 +917,7 @@ describe('AutopilotRunner.runBtw', () => {
       pollIntervalMs: 5,
       btwTimeoutMs: 500,
     })
-    const result = await runner.runBtw('hub-x', 'q')
+    const result = await runner.runBtw('operant-x', 'q')
     expect(result.status).toBe('escalate')
     if (result.status === 'escalate') expect(result.reason).toContain('production')
   })
@@ -1073,7 +1073,7 @@ In the existing `socketServer.on('tool_call', (path, name, args) => {...})`, mod
     const ap = registry.getAutopilot(path)
     if (ap?.enabled) {
       const sessionName = session.name
-      const tmuxName = `hub-${sessionName}`
+      const tmuxName = `operant-${sessionName}`
       const prefs = loadProjectPreferences(registry.folderPath(path))
       const wrapped = wrapQuestion(text, prefs)
       const riskKeywords = ap.riskKeywords ?? autopilotDefaults.riskKeywords
@@ -1102,7 +1102,7 @@ In the existing `socketServer.on('tool_call', (path, name, args) => {...})`, mod
           webFrontend?.deliverToUser(sessionName, `🟡 Autopilot failed (${result.status}); please answer directly.`)
         }
       }).catch(err => {
-        process.stderr.write(`hub: autopilot error for ${sessionName}: ${err}\n`)
+        process.stderr.write(`operant: autopilot error for ${sessionName}: ${err}\n`)
       })
     }
 ```
@@ -1140,7 +1140,7 @@ test('integration shape: wrapQuestion → runBtw → answered returns a route-ab
 `
   const sm = new FakeScreenManager(['', pane])
   const runner = new AutopilotRunner({ screenManager: sm as any, pollIntervalMs: 5, btwTimeoutMs: 500 })
-  const result = await runner.runBtw('hub-x', wrapped, {
+  const result = await runner.runBtw('operant-x', wrapped, {
     rawQuestion: 'Pick Node or Bun?',
     riskKeywords: ['production'],
   })
@@ -1220,7 +1220,7 @@ Find the existing command-switch block in `src/cli.ts` (patterns like `case 'lis
         console.error('Usage: autopilot <name> on|off')
         process.exit(1)
       }
-      const res = await fetch(`${HUB_URL}/api/autopilot`, {
+      const res = await fetch(`${OPERANT_URL}/api/autopilot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, enabled: mode === 'on' }),
@@ -1369,7 +1369,7 @@ In the `<style>` block:
 
 - [ ] **Step 5: Manual test**
 
-Start the daemon in a test tmux session (`tmux new-session -d -s hub-daemon-test "bun run src/daemon.ts"`), open `http://localhost:<port>`, spawn a session, click the Autopilot toggle. Verify:
+Start the daemon in a test tmux session (`tmux new-session -d -s operant-daemon-test "bun run src/daemon.ts"`), open `http://localhost:<port>`, spawn a session, click the Autopilot toggle. Verify:
 - Button toggles state visually
 - `curl http://localhost:<port>/api/sessions` (or the actual session-list endpoint) shows `autopilot.enabled: true`
 - Badge 🤖 appears after toggling on
@@ -1664,7 +1664,7 @@ Ensure the WebFrontend pushes a `{ type: 'autopilot:draft', ...}` message via it
 
 - [ ] **Step 5: Manual test end-to-end**
 
-1. Start daemon: `tmux new-session -d -s hub-daemon-test "bun run src/daemon.ts"`
+1. Start daemon: `tmux new-session -d -s operant-daemon-test "bun run src/daemon.ts"`
 2. Open web UI, spawn a session
 3. Toggle Autopilot: ON
 4. In the spawned Claude session, type a prompt that asks a question (e.g. "Should I use Bun or Node?")
@@ -1716,7 +1716,7 @@ In each frontend's autopilot-on handler (web, telegram, cli), run the probe befo
 ```ts
 // Pseudocode — adapt per frontend
 if (enabled) {
-  const probeResult = await autopilotRunner.probe(`hub-${name}`)
+  const probeResult = await autopilotRunner.probe(`operant-${name}`)
   if (!probeResult.ok) {
     // Refuse to enable; tell the user
     return respondWithError(`Autopilot unavailable on this Claude Code build: ${probeResult.reason}`)
@@ -1739,14 +1739,14 @@ test('probe returns ok when /btw answers "2"', async () => {
 `
   const sm = new FakeScreenManager(['', pane])
   const runner = new AutopilotRunner({ screenManager: sm as any, pollIntervalMs: 5, btwTimeoutMs: 500 })
-  const r = await runner.probe('hub-x')
+  const r = await runner.probe('operant-x')
   expect(r.ok).toBe(true)
 })
 
 test('probe returns not-ok when /btw never settles', async () => {
   const sm = new FakeScreenManager(['', '', '', ''])
   const runner = new AutopilotRunner({ screenManager: sm as any, pollIntervalMs: 5, btwTimeoutMs: 50 })
-  const r = await runner.probe('hub-x')
+  const r = await runner.probe('operant-x')
   expect(r.ok).toBe(false)
 })
 ```
@@ -1861,7 +1861,7 @@ git commit -m "docs(autopilot): CLAUDE.md + README + starter skill"
 | Veto window (on by default, configurable) | Task 13 |
 | Per-session `vetoWindowMs`, `btwTimeoutMs`, `maxDurationMinutes` | Tasks 1, 3 (types + persistence); Task 13 uses vetoWindowMs |
 | `autopilot.riskOverride` opt-out | Task 1 (types) + Task 7 (runner) |
-| Hub-level defaults in config.json | Tasks 1, 2 |
+| Operant-level defaults in config.json | Tasks 1, 2 |
 | Trust mode auto-approve while on | Not explicitly in any task — **gap, needs addition** |
 | `maxDurationMinutes` checkpoint | Not explicitly in any task — **gap, needs addition** |
 
@@ -1971,7 +1971,7 @@ Expected: PASS all (parser, risk, runner, session-registry, config, screen-manag
 
 In a test tmux session:
 ```bash
-tmux new-session -d -s hub-test "bun run src/daemon.ts"
+tmux new-session -d -s operant-test "bun run src/daemon.ts"
 ```
 
 1. Open web UI, spawn a session in a test folder

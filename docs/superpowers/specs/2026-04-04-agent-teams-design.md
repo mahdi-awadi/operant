@@ -2,7 +2,7 @@
 
 ## Overview
 
-Add agent teams support to Claude Code Hub. Multiple Claude sessions in the same folder form a team: first = lead, additional = teammates. Hub spawns, monitors, and displays teams via web UI and Telegram. Claude's built-in agent teams protocol handles coordination.
+Add agent teams support to Claude Code Operant. Multiple Claude sessions in the same folder form a team: first = lead, additional = teammates. Operant spawns, monitors, and displays teams via web UI and Telegram. Claude's built-in agent teams protocol handles coordination.
 
 ## Session Model Change
 
@@ -26,7 +26,7 @@ Project Path: [/home/awafi   ]
 ```
 
 When checked:
-- Hub spawns N tmux sessions: `hub-awafi`, `hub-awafi-2`, `hub-awafi-3`
+- Operant spawns N tmux sessions: `operant-awafi`, `operant-awafi-2`, `operant-awafi-3`
 - Each auto-confirmed via `tmux send-keys Enter`
 - All launched with `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`
 - First session becomes lead, rest become teammates
@@ -94,12 +94,12 @@ CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
 
 Set via the tmux spawn command:
 ```bash
-CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 claude --dangerously-load-development-channels server:hub
+CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 claude --dangerously-load-development-channels server:operant
 ```
 
 ## Task File Monitoring
 
-Hub watches Claude's agent team files:
+Operant watches Claude's agent team files:
 
 ```
 ~/.claude/tasks/           → task lists (JSON files)
@@ -117,9 +117,9 @@ Task JSON fields read:
 - `owner`: assigned teammate
 - `blockedBy`: dependency IDs
 
-## Hub vs Claude Responsibilities
+## Operant vs Claude Responsibilities
 
-| Responsibility | Hub | Claude Agent Teams |
+| Responsibility | Operant | Claude Agent Teams |
 |---|---|---|
 | Spawn lead + teammates | ✅ | ❌ |
 | Auto-confirm dev warning | ✅ | ❌ |
@@ -131,7 +131,7 @@ Task JSON fields read:
 | Show progress in web/Telegram | ✅ | ❌ |
 | Add/remove teammates | ✅ | ❌ |
 
-Hub = **launcher and monitor**. Claude = **coordinator and executor**.
+Operant = **launcher and monitor**. Claude = **coordinator and executor**.
 
 ## Implementation Scope
 

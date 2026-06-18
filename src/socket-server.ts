@@ -95,11 +95,11 @@ export class SocketServer extends EventEmitter {
           }
 
           const profileInfo = this.onLookupProfile?.(folder)
-          // Prefer the tmux session suffix (e.g. `hub-team-test-2` → `team-test-2`)
+          // Prefer the tmux session suffix (e.g. `operant-team-test-2` → `team-test-2`)
           // for the session's display name. Falls back to the folder basename
           // (handled in registry) when the shim doesn't supply tmuxName. This
           // keeps registry name == tmux name regardless of registration order.
-          const tmuxDerivedName = msg.tmuxName?.replace(/^hub-/, '')
+          const tmuxDerivedName = msg.tmuxName?.replace(/^operant-/, '')
           this.registry.register(sessionKey, {
             name: tmuxDerivedName,
             teamIndex: nextIndex,

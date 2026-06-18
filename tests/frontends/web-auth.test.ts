@@ -34,7 +34,7 @@ function buildTelegramAuthBody(userId: string, authDate: number, token = TOKEN):
 }
 
 function authCookie(userId = ALLOWED): string {
-  return `hub_session=${signSession(userId, TOKEN)}`
+  return `operant_session=${signSession(userId, TOKEN)}`
 }
 
 describe('signSession / verifySession', () => {
@@ -148,7 +148,7 @@ describe('POST /api/auth/telegram', () => {
     })
     expect(res.status).toBe(200)
     const setCookie = res.headers.get('set-cookie') ?? ''
-    expect(setCookie).toContain('hub_session=')
+    expect(setCookie).toContain('operant_session=')
     expect(setCookie).toContain('HttpOnly')
     expect(setCookie).toContain('SameSite=Strict')
     expect(setCookie).toContain('Max-Age=86400')
@@ -304,7 +304,7 @@ describe('GET /api/browse', () => {
   let tmpRoot: string
 
   beforeEach(async () => {
-    tmpRoot = mkdtempSync(join(tmpdir(), 'hub-browse-'))
+    tmpRoot = mkdtempSync(join(tmpdir(), 'operant-browse-'))
     mkdirSync(join(tmpRoot, 'alpha'))
     mkdirSync(join(tmpRoot, 'beta'))
     mkdirSync(join(tmpRoot, '.hidden'))
@@ -412,14 +412,14 @@ describe('API auth middleware', () => {
 
   test('GET /api/sessions with tampered cookie → 401', async () => {
     const res = await fetch(`http://localhost:${web.port}/api/sessions`, {
-      headers: { Cookie: 'hub_session=garbage.token' },
+      headers: { Cookie: 'operant_session=garbage.token' },
     })
     expect(res.status).toBe(401)
   })
 
   test('cookie for non-allowlisted user → 401', async () => {
     // Forge a valid-signature cookie for OTHER (who is not in allowFrom).
-    const cookie = `hub_session=${signSession(OTHER, TOKEN)}`
+    const cookie = `operant_session=${signSession(OTHER, TOKEN)}`
     const res = await fetch(`http://localhost:${web.port}/api/sessions`, {
       headers: { Cookie: cookie },
     })

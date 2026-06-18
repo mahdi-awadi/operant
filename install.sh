@@ -18,7 +18,7 @@ NC='\033[0m'
 # Config
 REPO="mahdi-awadi/operant"
 INSTALL_DIR="${OPERANT_DIR:-$HOME/.operant}"
-CONFIG_DIR="${CLAUDE_PLUGIN_DATA:-$HOME/.claude/channels/hub}"
+CONFIG_DIR="${CLAUDE_PLUGIN_DATA:-$HOME/.claude/channels/operant}"
 CLAUDE_CONFIG="$HOME/.claude.json"
 
 log() { echo -e "${BLUE}==>${NC} ${BOLD}$*${NC}"; }
@@ -135,7 +135,7 @@ if [ ! -f "$CLAUDE_CONFIG" ]; then
   cat << EOF
   {
     "mcpServers": {
-      "hub": {
+      "operant": {
         "command": "bun",
         "args": ["run", "$INSTALL_DIR/src/shim.ts"]
       }
@@ -146,16 +146,16 @@ elif [ "$HAVE_JQ" = "1" ]; then
   # Idempotent update using jq
   TMP=$(mktemp)
   jq --arg path "$INSTALL_DIR/src/shim.ts" \
-    '.mcpServers = (.mcpServers // {}) | .mcpServers.hub = {"command": "bun", "args": ["run", $path]}' \
+    '.mcpServers = (.mcpServers // {}) | .mcpServers.operant = {"command": "bun", "args": ["run", $path]}' \
     "$CLAUDE_CONFIG" > "$TMP"
   mv "$TMP" "$CLAUDE_CONFIG"
-  ok "Added hub MCP server to $CLAUDE_CONFIG"
+  ok "Added operant MCP server to $CLAUDE_CONFIG"
 else
   warn "Install jq to automatically update $CLAUDE_CONFIG"
   echo "  Or add this manually to the mcpServers section:"
   echo ""
   cat << EOF
-  "hub": {
+  "operant": {
     "command": "bun",
     "args": ["run", "$INSTALL_DIR/src/shim.ts"]
   }
@@ -174,12 +174,12 @@ INSTALL_DIR="$INSTALL_DIR"
 
 case "\${1:-}" in
   start)
-    tmux kill-session -t hub-daemon 2>/dev/null || true
-    tmux new-session -d -s hub-daemon "bun run \$INSTALL_DIR/src/daemon.ts"
-    echo "Operant daemon started (tmux session: hub-daemon)"
+    tmux kill-session -t operant-daemon 2>/dev/null || true
+    tmux new-session -d -s operant-daemon "bun run \$INSTALL_DIR/src/daemon.ts"
+    echo "Operant daemon started (tmux session: operant-daemon)"
     ;;
   stop)
-    tmux kill-session -t hub-daemon 2>/dev/null && echo "Stopped" || echo "Not running"
+    tmux kill-session -t operant-daemon 2>/dev/null && echo "Stopped" || echo "Not running"
     ;;
   restart)
     "\$0" stop
@@ -187,26 +187,26 @@ case "\${1:-}" in
     "\$0" start
     ;;
   status)
-    if tmux has-session -t hub-daemon 2>/dev/null; then
-      echo "Running (tmux session: hub-daemon)"
-      tmux list-sessions | grep hub-
+    if tmux has-session -t operant-daemon 2>/dev/null; then
+      echo "Running (tmux session: operant-daemon)"
+      tmux list-sessions | grep operant-
     else
       echo "Not running"
     fi
     ;;
   attach)
-    tmux attach -t hub-daemon
+    tmux attach -t operant-daemon
     ;;
   logs)
-    tmux capture-pane -t hub-daemon -p
+    tmux capture-pane -t operant-daemon -p
     ;;
   update)
     cd "\$INSTALL_DIR" && git pull && bun install --no-summary
     echo "Updated. Run 'operant restart' to apply."
     ;;
   *)
-    # Pass through to the hub CLI tool
-    HUB_URL="\${HUB_URL:-http://localhost:3000}" bun run "\$INSTALL_DIR/src/cli.ts" "\$@"
+    # Pass through to the operant CLI tool
+    OPERANT_URL="\${OPERANT_URL:-http://localhost:3000}" bun run "\$INSTALL_DIR/src/cli.ts" "\$@"
     ;;
 esac
 EOF
@@ -235,7 +235,7 @@ echo "  2. Start the daemon:"
 echo "     ${BLUE}operant start${NC}"
 echo ""
 echo "  3. Connect Claude Code (from any project):"
-echo "     ${BLUE}claude --dangerously-load-development-channels server:hub${NC}"
+echo "     ${BLUE}claude --dangerously-load-development-channels server:operant${NC}"
 echo ""
 echo "  4. Open the web dashboard:"
 echo "     ${BLUE}http://localhost:3000${NC}"

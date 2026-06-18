@@ -20,7 +20,7 @@ yarn-error.log*
 *.pid
 *.seed
 *.pid.lock
-hub.sock
+operant.sock
 
 # OS
 .DS_Store

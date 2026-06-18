@@ -28,7 +28,7 @@ What actually happens.
 
 ## Logs
 ```
-Paste relevant daemon logs from: tmux attach -t hub-daemon
+Paste relevant daemon logs from: tmux attach -t operant-daemon
 ```
 
 ## Additional Context

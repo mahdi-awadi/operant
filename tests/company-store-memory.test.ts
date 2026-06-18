@@ -1,12 +1,12 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { openHubDb } from '../src/hub-db'
+import { openOperantDb } from '../src/operant-db'
 import { CompanyStore } from '../src/company/store'
 import { mkdtempSync, rmSync, readFileSync, existsSync } from 'fs'; import { tmpdir } from 'os'; import { join } from 'path'
 
 describe('CompanyStore memory', () => {
   let dir: string, close: () => void, store: CompanyStore, mirror: string
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'co-mem-')); const h = openHubDb(dir); close = h.close
+    dir = mkdtempSync(join(tmpdir(), 'co-mem-')); const h = openOperantDb(dir); close = h.close
     store = new CompanyStore(h.db); mirror = join(dir, 'memory'); store.setMemoryMirrorDir(mirror)
   })
   afterEach(() => { close(); rmSync(dir, { recursive: true, force: true }) })

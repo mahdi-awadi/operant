@@ -4,7 +4,7 @@
 
 **Goal:** Turn operant from a window-switcher into a one-person AI company by adding a shared "company brain" (SQLite) plus one working department (the Secretary), so future departments plug in by writing YAML.
 
-**Architecture:** A new `src/company/*` module set on top of operant. The daemon owns one SQLite store (`hub.sqlite`) holding org/tasks/memory/approvals — the single writer. Departments are Claude Code sessions spawned in their own desk folder with a per-seat skill/MCP loadout; they read/write the shared store via `company_*` MCP tools registered in the existing shim and executed by the daemon. The org is declared as YAML in `/home/company/`. The native `/goal` command is the per-department wake prompt; the daemon's scheduler is the company clock. All external/irreversible actions route to Mahdi's Telegram via the existing permission-relay path.
+**Architecture:** A new `src/company/*` module set on top of operant. The daemon owns one SQLite store (`operant.sqlite`) holding org/tasks/memory/approvals — the single writer. Departments are Claude Code sessions spawned in their own desk folder with a per-seat skill/MCP loadout; they read/write the shared store via `company_*` MCP tools registered in the existing shim and executed by the daemon. The org is declared as YAML in `/home/company/`. The native `/goal` command is the per-department wake prompt; the daemon's scheduler is the company clock. All external/irreversible actions route to Mahdi's Telegram via the existing permission-relay path.
 
 **Tech Stack:** Bun + TypeScript, `bun:sqlite`, `@modelcontextprotocol/sdk` ^1.0.0, `grammy` ^1.21, `bun:test`, `yaml` ^2 (new dep). Spec: `docs/superpowers/specs/2026-06-17-company-engine-design.md`.
 
@@ -12,8 +12,8 @@
 
 - Runtime is **Bun**; tests are **`bun:test`** in `/home/operant/tests/<name>.test.ts`. Run all with `bun test`, one file with `bun test tests/FILE.test.ts`.
 - Typecheck must pass: `bunx tsc --noEmit`.
-- **No API key, no proxy.** Nothing in this plan calls the Anthropic API directly; agents run via the official `claude` CLI (`--dangerously-load-development-channels server:hub`). `ANTHROPIC_API_KEY` stays unset.
-- **The daemon is the only writer of company state.** Departments never open `hub.sqlite` directly; they call `company_*` tools the daemon executes.
+- **No API key, no proxy.** Nothing in this plan calls the Anthropic API directly; agents run via the official `claude` CLI (`--dangerously-load-development-channels server:operant`). `ANTHROPIC_API_KEY` stays unset.
+- **The daemon is the only writer of company state.** Departments never open `operant.sqlite` directly; they call `company_*` tools the daemon executes.
 - SQLite access pattern: `db.prepare(sql).run(...) | .get(...) | .all(...)` (bun:sqlite). Use `?` placeholders.
 - Company config repo lives at `/home/company/` (git). Department desks at `/home/company/desks/<seat>/`. Human-readable memory mirror at `/home/company/memory/<scope>.md`. The Dev department (later) runs inside the real project repo, not a desk.
 - Atomic JSON writes already exist (`writeJson` in `config.ts`); reuse `bun:sqlite` transactions for multi-row atomicity.
@@ -33,18 +33,18 @@ git add package.json bun.lock && git commit -m "chore: add yaml dep for company 
 
 **Files:**
 - Create: `src/company/schema.ts`
-- Modify: `src/hub-db.ts` (apply company statements in the migration loop)
+- Modify: `src/operant-db.ts` (apply company statements in the migration loop)
 - Test: `tests/company-schema.test.ts`
 
 **Interfaces:**
-- Produces: `export const COMPANY_SCHEMA_STATEMENTS: string[]` — appended to the existing `SCHEMA_STATEMENTS` loop in `openHubDb()`.
+- Produces: `export const COMPANY_SCHEMA_STATEMENTS: string[]` — appended to the existing `SCHEMA_STATEMENTS` loop in `openOperantDb()`.
 
 - [ ] **Step 1: Write the failing test**
 
 ```typescript
 // tests/company-schema.test.ts
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { openHubDb } from '../src/hub-db'
+import { openOperantDb } from '../src/operant-db'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -55,7 +55,7 @@ describe('company schema', () => {
   afterEach(() => { rmSync(dir, { recursive: true, force: true }) })
 
   test('creates all company tables', () => {
-    const { db, close } = openHubDb(dir)
+    const { db, close } = openOperantDb(dir)
     try {
       const names = db.prepare(`SELECT name FROM sqlite_master WHERE type='table'`).all().map((r: any) => r.name)
       for (const t of ['departments', 'tasks', 'handoffs', 'memory', 'approvals', 'compute_ledger', 'activity_log']) {
@@ -77,7 +77,7 @@ Expected: FAIL — tables not found (`expect(names).toContain('departments')`).
 
 ```typescript
 // src/company/schema.ts
-// SQLite DDL for the shared "company brain". Appended to hub-db's migration loop.
+// SQLite DDL for the shared "company brain". Appended to operant-db's migration loop.
 export const COMPANY_SCHEMA_STATEMENTS: string[] = [
   `CREATE TABLE IF NOT EXISTS departments (
     id TEXT PRIMARY KEY,
@@ -174,9 +174,9 @@ export const COMPANY_SCHEMA_STATEMENTS: string[] = [
 ]
 ```
 
-- [ ] **Step 4: Wire it into `src/hub-db.ts`**
+- [ ] **Step 4: Wire it into `src/operant-db.ts`**
 
-At the top of `src/hub-db.ts`, add the import:
+At the top of `src/operant-db.ts`, add the import:
 ```typescript
 import { COMPANY_SCHEMA_STATEMENTS } from './company/schema'
 ```
@@ -195,7 +195,7 @@ Expected: PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/company/schema.ts src/hub-db.ts tests/company-schema.test.ts
+git add src/company/schema.ts src/operant-db.ts tests/company-schema.test.ts
 git commit -m "feat(company): add company-brain SQLite schema"
 ```
 
@@ -220,7 +220,7 @@ git commit -m "feat(company): add company-brain SQLite schema"
 ```typescript
 // tests/company-store-departments.test.ts
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { openHubDb } from '../src/hub-db'
+import { openOperantDb } from '../src/operant-db'
 import { CompanyStore } from '../src/company/store'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
@@ -230,7 +230,7 @@ describe('CompanyStore departments', () => {
   let dir: string, close: () => void, store: CompanyStore
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'co-store-'))
-    const h = openHubDb(dir); close = h.close
+    const h = openOperantDb(dir); close = h.close
     store = new CompanyStore(h.db)
   })
   afterEach(() => { close(); rmSync(dir, { recursive: true, force: true }) })
@@ -239,7 +239,7 @@ describe('CompanyStore departments', () => {
     store.upsertDepartment({
       id: 'secretary', title: 'Chief of Staff', folder: '/home/company/desks/secretary',
       reports_to: 'mahdi', manages: ['dev'], profile_name: 'careful',
-      skills: ['brainstorming'], mcps: ['hub'], schedule_cron: '0 7 * * *',
+      skills: ['brainstorming'], mcps: ['operant'], schedule_cron: '0 7 * * *',
       budget_minutes_week: 240, approval_policy: 'ask', autonomy_level: 1,
       status: 'idle', active: true,
     })
@@ -360,7 +360,7 @@ git commit -m "feat(company): CompanyStore departments CRUD"
 ```typescript
 // tests/company-store-tasks.test.ts
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { openHubDb } from '../src/hub-db'
+import { openOperantDb } from '../src/operant-db'
 import { CompanyStore } from '../src/company/store'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
@@ -370,7 +370,7 @@ describe('CompanyStore tasks', () => {
   let dir: string, close: () => void, store: CompanyStore
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'co-tasks-'))
-    const h = openHubDb(dir); close = h.close
+    const h = openOperantDb(dir); close = h.close
     store = new CompanyStore(h.db)
   })
   afterEach(() => { close(); rmSync(dir, { recursive: true, force: true }) })
@@ -492,13 +492,13 @@ git commit -m "feat(company): tasks CRUD + atomic claim"
 ```typescript
 // tests/company-store-handoffs.test.ts
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { openHubDb } from '../src/hub-db'
+import { openOperantDb } from '../src/operant-db'
 import { CompanyStore } from '../src/company/store'
 import { mkdtempSync, rmSync } from 'fs'; import { tmpdir } from 'os'; import { join } from 'path'
 
 describe('CompanyStore handoffs + activity', () => {
   let dir: string, close: () => void, store: CompanyStore
-  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'co-h-')); const h = openHubDb(dir); close = h.close; store = new CompanyStore(h.db) })
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'co-h-')); const h = openOperantDb(dir); close = h.close; store = new CompanyStore(h.db) })
   afterEach(() => { close(); rmSync(dir, { recursive: true, force: true }) })
 
   test('handoff is recorded and listed by target dept', () => {
@@ -560,14 +560,14 @@ git commit -m "feat(company): handoffs + activity log"
 ```typescript
 // tests/company-store-memory.test.ts
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { openHubDb } from '../src/hub-db'
+import { openOperantDb } from '../src/operant-db'
 import { CompanyStore } from '../src/company/store'
 import { mkdtempSync, rmSync, readFileSync, existsSync } from 'fs'; import { tmpdir } from 'os'; import { join } from 'path'
 
 describe('CompanyStore memory', () => {
   let dir: string, close: () => void, store: CompanyStore, mirror: string
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'co-mem-')); const h = openHubDb(dir); close = h.close
+    dir = mkdtempSync(join(tmpdir(), 'co-mem-')); const h = openOperantDb(dir); close = h.close
     store = new CompanyStore(h.db); mirror = join(dir, 'memory'); store.setMemoryMirrorDir(mirror)
   })
   afterEach(() => { close(); rmSync(dir, { recursive: true, force: true }) })
@@ -653,13 +653,13 @@ git commit -m "feat(company): shared memory (FTS5 + markdown mirror)"
 ```typescript
 // tests/company-store-approvals.test.ts
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { openHubDb } from '../src/hub-db'
+import { openOperantDb } from '../src/operant-db'
 import { CompanyStore } from '../src/company/store'
 import { mkdtempSync, rmSync } from 'fs'; import { tmpdir } from 'os'; import { join } from 'path'
 
 describe('CompanyStore approvals', () => {
   let dir: string, close: () => void, store: CompanyStore
-  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'co-ap-')); const h = openHubDb(dir); close = h.close; store = new CompanyStore(h.db) })
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'co-ap-')); const h = openOperantDb(dir); close = h.close; store = new CompanyStore(h.db) })
   afterEach(() => { close(); rmSync(dir, { recursive: true, force: true }) })
 
   test('create -> pending list -> resolve removes from pending', () => {
@@ -735,7 +735,7 @@ git commit -m "feat(company): approvals store"
 ```typescript
 // tests/company-org-loader.test.ts
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { openHubDb } from '../src/hub-db'
+import { openOperantDb } from '../src/operant-db'
 import { CompanyStore } from '../src/company/store'
 import { loadOrg } from '../src/company/org-loader'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'fs'; import { tmpdir } from 'os'; import { join } from 'path'
@@ -743,7 +743,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'fs'; import { tmp
 describe('loadOrg', () => {
   let dir: string, close: () => void, store: CompanyStore, company: string
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'co-org-')); const h = openHubDb(dir); close = h.close; store = new CompanyStore(h.db)
+    dir = mkdtempSync(join(tmpdir(), 'co-org-')); const h = openOperantDb(dir); close = h.close; store = new CompanyStore(h.db)
     company = join(dir, 'company'); mkdirSync(join(company, 'seats'), { recursive: true })
     writeFileSync(join(company, 'seats', 'secretary.yaml'),
 `id: secretary
@@ -753,7 +753,7 @@ reports_to: mahdi
 manages: [dev]
 profile: careful
 skills: [brainstorming, writing-plans]
-mcps: [hub]
+mcps: [operant]
 schedule_cron: "0 7 * * *"
 budget_minutes_week: 240
 approval_policy: ask
@@ -833,7 +833,7 @@ reports_to: mahdi
 manages: [dev, cto, research, sales, marketing, support, ops]
 profile: careful
 skills: [brainstorming, writing-plans]
-mcps: [hub]
+mcps: [operant]
 schedule_cron: "0 7,13,19 * * *"
 budget_minutes_week: 240
 approval_policy: ask
@@ -867,14 +867,14 @@ git commit -m "feat(company): YAML org loader"
 ```typescript
 // tests/company-tools.test.ts
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { openHubDb } from '../src/hub-db'
+import { openOperantDb } from '../src/operant-db'
 import { CompanyStore } from '../src/company/store'
 import { handleCompanyTool, COMPANY_TOOL_DEFS } from '../src/company/tools'
 import { mkdtempSync, rmSync } from 'fs'; import { tmpdir } from 'os'; import { join } from 'path'
 
 describe('company tools', () => {
   let dir: string, close: () => void, store: CompanyStore
-  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'co-tools-')); const h = openHubDb(dir); close = h.close; store = new CompanyStore(h.db) })
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'co-tools-')); const h = openOperantDb(dir); close = h.close; store = new CompanyStore(h.db) })
   afterEach(() => { close(); rmSync(dir, { recursive: true, force: true }) })
 
   test('defs cover the 8 tools', () => {
@@ -1031,7 +1031,7 @@ git commit -m "feat(company): expose company_* tools via shim"
 ```typescript
 // tests/company-daemon-toolcall.test.ts
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { openHubDb } from '../src/hub-db'
+import { openOperantDb } from '../src/operant-db'
 import { CompanyStore } from '../src/company/store'
 import { deptIdForPath } from '../src/daemon'
 import { mkdtempSync, rmSync } from 'fs'; import { tmpdir } from 'os'; import { join } from 'path'
@@ -1039,7 +1039,7 @@ import { mkdtempSync, rmSync } from 'fs'; import { tmpdir } from 'os'; import { 
 describe('deptIdForPath', () => {
   let dir: string, close: () => void, store: CompanyStore
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'co-dmn-')); const h = openHubDb(dir); close = h.close; store = new CompanyStore(h.db)
+    dir = mkdtempSync(join(tmpdir(), 'co-dmn-')); const h = openOperantDb(dir); close = h.close; store = new CompanyStore(h.db)
     store.upsertDepartment({ id: 'secretary', title: 'COS', folder: '/home/company/desks/secretary', reports_to: 'mahdi', manages: [], profile_name: 'careful', skills: [], mcps: [], schedule_cron: null, budget_minutes_week: 240, approval_policy: 'ask', autonomy_level: 1, status: 'idle', active: true })
   })
   afterEach(() => { close(); rmSync(dir, { recursive: true, force: true }) })
@@ -1070,9 +1070,9 @@ export function deptIdForPath(path: string, store: CompanyStore): string | null 
   return null
 }
 ```
-Inside the daemon bootstrap (where `openHubDb`/the `db` handle is created — the same `db` already used for `hub-db`), instantiate the store, load the org, and set the memory mirror:
+Inside the daemon bootstrap (where `openOperantDb`/the `db` handle is created — the same `db` already used for `operant-db`), instantiate the store, load the org, and set the memory mirror:
 ```typescript
-const companyStore = new CompanyStore(db)            // `db` = the handle from openHubDb(HUB_DIR)
+const companyStore = new CompanyStore(db)            // `db` = the handle from openOperantDb(OPERANT_DIR)
 companyStore.setMemoryMirrorDir('/home/company/memory')
 try { loadOrg('/home/company', companyStore) } catch (e) { console.error('org load failed', e) }
 ```
@@ -1120,7 +1120,7 @@ git commit -m "feat(company): daemon executes company_* tools + forwards approva
 
 **Interfaces:**
 - Consumes: `Department`.
-- Produces: `export function writeLoadout(dept: Department): void` — ensures `dept.folder` exists and writes `<folder>/.claude/settings.local.json` (enabling only the seat's skills) and `<folder>/.mcp.json` (only the seat's MCP servers, least privilege). MVP writes the files; the `hub` channel is loaded by the spawn flag, so `mcps` here are *extra* servers (empty list ⇒ `.mcp.json` with no servers).
+- Produces: `export function writeLoadout(dept: Department): void` — ensures `dept.folder` exists and writes `<folder>/.claude/settings.local.json` (enabling only the seat's skills) and `<folder>/.mcp.json` (only the seat's MCP servers, least privilege). MVP writes the files; the `operant` channel is loaded by the spawn flag, so `mcps` here are *extra* servers (empty list ⇒ `.mcp.json` with no servers).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1156,7 +1156,7 @@ import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import type { Department } from './store'
 
-// Known extra MCP servers a seat may request (least privilege; hub is always present via the spawn flag).
+// Known extra MCP servers a seat may request (least privilege; operant is always present via the spawn flag).
 const MCP_REGISTRY: Record<string, { command: string; args: string[] }> = {
   // Example: 'web-search': { command: 'npx', args: ['-y', 'some-web-search-mcp'] },
   // Populated as departments need them; empty for the Secretary MVP.
@@ -1167,10 +1167,10 @@ export function writeLoadout(dept: Department): void {
   mkdirSync(claudeDir, { recursive: true })
   // Skills: only the seat's skills are enabled.
   writeFileSync(join(claudeDir, 'settings.local.json'), JSON.stringify({ enabledSkills: dept.skills }, null, 2))
-  // MCP: only the seat's requested extra servers (hub comes from the spawn flag).
+  // MCP: only the seat's requested extra servers (operant comes from the spawn flag).
   const mcpServers: Record<string, unknown> = {}
   for (const name of dept.mcps) {
-    if (name === 'hub') continue // provided by --dangerously-load-development-channels server:hub
+    if (name === 'operant') continue // provided by --dangerously-load-development-channels server:operant
     if (MCP_REGISTRY[name]) mcpServers[name] = MCP_REGISTRY[name]
   }
   writeFileSync(join(dept.folder, '.mcp.json'), JSON.stringify({ mcpServers, enableAllProjectMcpServers: false }, null, 2))
@@ -1559,7 +1559,7 @@ Keep briefs short and concrete.
 
 - [ ] **Step 2: Ensure boot wiring**
 
-Confirm `daemon.ts` (from Tasks 10 & 13) on startup: opens `hub.sqlite`, constructs `CompanyStore`, sets the memory mirror dir to `/home/company/memory`, calls `loadOrg('/home/company', companyStore)`, passes `companyStore` to `TelegramFrontend`, and starts the orchestrator interval. Add a guard that creates `/home/company/desks/secretary` if missing (so the first spawn has a cwd):
+Confirm `daemon.ts` (from Tasks 10 & 13) on startup: opens `operant.sqlite`, constructs `CompanyStore`, sets the memory mirror dir to `/home/company/memory`, calls `loadOrg('/home/company', companyStore)`, passes `companyStore` to `TelegramFrontend`, and starts the orchestrator interval. Add a guard that creates `/home/company/desks/secretary` if missing (so the first spawn has a cwd):
 ```typescript
 import { mkdirSync } from 'fs'
 mkdirSync('/home/company/desks/secretary', { recursive: true })
@@ -1577,7 +1577,7 @@ Expected: all company tests pass alongside the existing suite; no regressions. T
 ANTHROPIC_API_KEY= claude /status          # shows subscription, not API
 # 2. (re)start the daemon
 sudo systemctl restart operant && sudo systemctl status operant
-# 3. from Telegram, message the hub:
+# 3. from Telegram, message the operant:
 #    "Track the eticket OTA partner follow-up."
 # 4. /board  -> shows a task for the secretary
 # 5. wait for the secretary's scheduled wake (or temporarily set schedule_cron to the next minute and reload),

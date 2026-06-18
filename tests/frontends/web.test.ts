@@ -7,7 +7,7 @@ const TOKEN = 'test-bot-token'
 const ALLOWED_USER = '123'
 
 function authCookie(userId = ALLOWED_USER): string {
-  return `hub_session=${signSession(userId, TOKEN)}`
+  return `operant_session=${signSession(userId, TOKEN)}`
 }
 
 describe('WebFrontend', () => {
@@ -101,14 +101,14 @@ describe('WebFrontend', () => {
     const data = await res.json() as any
     expect(data.name).toBe('frontend')
     expect(data.lines).toBe(120)
-    expect(data.pane).toContain('pane for hub-frontend')
+    expect(data.pane).toContain('pane for operant-frontend')
     expect(data.pane).toContain('120 lines')
   })
 
   test('GET /api/peek/:name returns 404 when tmux session is missing', async () => {
     await web.stop()
     const stubScreen = {
-      capturePaneWithScrollback: async () => { throw new Error('No tmux session "hub-frontend"') },
+      capturePaneWithScrollback: async () => { throw new Error('No tmux session "operant-frontend"') },
       getManagedByPath: () => undefined,
       isManaged: () => false,
     }

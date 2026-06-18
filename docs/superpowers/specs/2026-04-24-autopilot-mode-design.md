@@ -229,7 +229,7 @@ A question is escalated to the human user if any of:
 
 ## Configuration
 
-### Hub-level defaults in `~/.claude/channels/hub/config.json`
+### Operant-level defaults in `~/.claude/channels/operant/config.json`
 
 ```json
 {
@@ -272,7 +272,7 @@ Freeform `./autopilot.md` in the project root; optional `~/.claude/autopilot.md`
 - **Feature flag** — `/btw` is gated behind `tengu_marble_whisper2` in Claude Code. If the flag is off for the user's Claude Code install, autopilot should detect (fire a test `/btw 1+1` on enable and expect `2` in the overlay within 15s) and refuse to enable with a clear error.
 - **Multiple sessions per project** — each session has its own autopilot toggle. Team-lead + teammates can run autopilot independently.
 - **Session-lifecycle edge cases** — if the session is killed/respawned mid-/btw, the daemon cancels the pending proxy call. If autopilot is toggled off mid-call, the overlay is dismissed with Esc and the pending answer is dropped.
-- **Agent-team teammates** — these are filtered out of the hub registry today (`shim.ts` checks `--agent-id` in parent process cmdline). Autopilot only applies to user-spawned sessions; teammates are unaffected.
+- **Agent-team teammates** — these are filtered out of the operant registry today (`shim.ts` checks `--agent-id` in parent process cmdline). Autopilot only applies to user-spawned sessions; teammates are unaffected.
 - **Terminal session with no tmux** — if the main session is not running inside tmux (future case), autopilot is unavailable for that session. Web UI disables the toggle with a tooltip.
 - **The captured answer goes back as a user turn, not a /btw** — main Claude sees it as if the user typed it. This is fine: the wrapped question already shaped the proxy to answer as the user would.
 
@@ -294,7 +294,7 @@ Freeform `./autopilot.md` in the project root; optional `~/.claude/autopilot.md`
 
 ## Appendix A — Test transcript (2026-04-24)
 
-Verification of the `tmux send-keys` + `/btw` + `capture-pane` pipeline using Claude Code 2.1.119, a fresh tmux session in `/tmp/btw-test`, not connected to the hub.
+Verification of the `tmux send-keys` + `/btw` + `capture-pane` pipeline using Claude Code 2.1.119, a fresh tmux session in `/tmp/btw-test`, not connected to the operant.
 
 ### Test 1 — plain /btw, no conversation context
 

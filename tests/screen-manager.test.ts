@@ -16,7 +16,7 @@ describe('ScreenManager', () => {
   })
 
   test('isSessionRunning returns false for non-existent session', async () => {
-    const running = await manager.isSessionRunning('hub-nonexistent-12345')
+    const running = await manager.isSessionRunning('operant-nonexistent-12345')
     expect(running).toBe(false)
   })
 
@@ -45,7 +45,7 @@ describe('ScreenManager', () => {
 
   test('gracefulKill falls back to hard kill when session ignores /exit', async () => {
     const name = 'test-fallback'
-    const sessionName = `hub-${name}`
+    const sessionName = `operant-${name}`
 
     // Start a fake tmux session that ignores Ctrl+C and /exit commands.
     // Uses bash with trap to ignore SIGINT, and runs an infinite loop.
@@ -178,7 +178,7 @@ test('capturePaneWithScrollback includes content from scrollback history', async
 
 test('capturePaneWithScrollback throws when session does not exist', async () => {
   const sm = new ScreenManager()
-  await expect(sm.capturePaneWithScrollback('hub-no-such-' + Date.now(), 80))
+  await expect(sm.capturePaneWithScrollback('operant-no-such-' + Date.now(), 80))
     .rejects.toThrow(/No tmux session/)
 })
 
@@ -202,23 +202,23 @@ test('capturePaneWithScrollback clamps line count', async () => {
 describe('buildClaudeCmd', () => {
   test('no resume → bare claude', () => {
     const cmd = buildClaudeCmd({ team: false })
-    expect(cmd).toBe('claude --dangerously-load-development-channels server:hub')
+    expect(cmd).toBe('claude --dangerously-load-development-channels server:operant')
   })
 
   test('resume=continue → claude --continue', () => {
     const cmd = buildClaudeCmd({ team: false, resume: { mode: 'continue' } })
-    expect(cmd).toBe('claude --continue --dangerously-load-development-channels server:hub')
+    expect(cmd).toBe('claude --continue --dangerously-load-development-channels server:operant')
   })
 
   test('resume=session → claude --resume <id>', () => {
     const cmd = buildClaudeCmd({ team: false, resume: { mode: 'session', id: 'aaaa1111-2222-3333-4444-555555555555' } })
-    expect(cmd).toBe('claude --resume aaaa1111-2222-3333-4444-555555555555 --dangerously-load-development-channels server:hub')
+    expect(cmd).toBe('claude --resume aaaa1111-2222-3333-4444-555555555555 --dangerously-load-development-channels server:operant')
   })
 
   test('team mode preserves CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS prefix', () => {
     const cmd = buildClaudeCmd({ team: true })
     expect(cmd).toContain('CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1')
-    expect(cmd).toContain('claude --dangerously-load-development-channels server:hub')
+    expect(cmd).toContain('claude --dangerously-load-development-channels server:operant')
   })
 
   test('rejects a resume session with an invalid id', () => {

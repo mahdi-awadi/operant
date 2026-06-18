@@ -410,23 +410,23 @@ describe('isValidSessionId', () => {
 describe('buildClaudeCmd', () => {
   test('no resume → bare claude', () => {
     const cmd = buildClaudeCmd({ team: false })
-    expect(cmd).toBe('claude --dangerously-load-development-channels server:hub')
+    expect(cmd).toBe('claude --dangerously-load-development-channels server:operant')
   })
 
   test('resume=continue → claude --continue', () => {
     const cmd = buildClaudeCmd({ team: false, resume: { mode: 'continue' } })
-    expect(cmd).toBe('claude --continue --dangerously-load-development-channels server:hub')
+    expect(cmd).toBe('claude --continue --dangerously-load-development-channels server:operant')
   })
 
   test('resume=session → claude --resume <id>', () => {
     const cmd = buildClaudeCmd({ team: false, resume: { mode: 'session', id: 'aaaa1111-2222-3333-4444-555555555555' } })
-    expect(cmd).toBe('claude --resume aaaa1111-2222-3333-4444-555555555555 --dangerously-load-development-channels server:hub')
+    expect(cmd).toBe('claude --resume aaaa1111-2222-3333-4444-555555555555 --dangerously-load-development-channels server:operant')
   })
 
   test('team mode preserves CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS prefix', () => {
     const cmd = buildClaudeCmd({ team: true })
     expect(cmd).toContain('CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1')
-    expect(cmd).toContain('claude --dangerously-load-development-channels server:hub')
+    expect(cmd).toContain('claude --dangerously-load-development-channels server:operant')
   })
 
   test('rejects a resume session with an invalid id', () => {
@@ -451,7 +451,7 @@ Near the top, after the existing `CLAUDE_CMD` / `CLAUDE_TEAM_CMD` constants, rep
 ```ts
 // Replace the two const CLAUDE_CMD / CLAUDE_TEAM_CMD lines with:
 
-const CHANNELS_FLAG = '--dangerously-load-development-channels server:hub'
+const CHANNELS_FLAG = '--dangerously-load-development-channels server:operant'
 const TEAM_ENV = 'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1'
 
 export type ResumeSpec =
@@ -491,7 +491,7 @@ async spawn(
   profileName?: string,
   resume?: ResumeSpec,
 ): Promise<void> {
-  const sessionName = `hub-${name}`
+  const sessionName = `operant-${name}`
   ensureProjectDir(projectPath)
 
   try { await $`tmux kill-session -t ${sessionName}`.quiet() } catch {}
@@ -637,7 +637,7 @@ Inside the request router (around line 216 where other `/api/sessions` routes li
       })
       return Response.json({ sessions })
     } catch (err) {
-      process.stderr.write(`hub: /api/sessions/${name}/prior error: ${err}\n`)
+      process.stderr.write(`operant: /api/sessions/${name}/prior error: ${err}\n`)
       return Response.json({ sessions: [], error: 'read-failed' }, { status: 200 })
     }
   }
@@ -793,7 +793,7 @@ private async handleSpawn(req: Request): Promise<Response> {
     if (size > 1) {
       if (resumeSpec) return new Response('Resume not supported with teamSize > 1', { status: 400 })
       this.deps.screenManager.spawnTeam(name, path, size, instructions).catch(err => {
-        process.stderr.write(`hub: spawnTeam error: ${err}\n`)
+        process.stderr.write(`operant: spawnTeam error: ${err}\n`)
       })
     } else {
       await this.deps.screenManager.spawn(name, path, instructions, undefined, resumeSpec)
@@ -1146,12 +1146,12 @@ git commit -m "feat(web-client): restart popover with resume picker"
 - [ ] **Step 1: Start the daemon**
 
 ```bash
-tmux kill-session -t hub-daemon 2>/dev/null
-tmux new-session -d -s hub-daemon "bun run src/daemon.ts"
+tmux kill-session -t operant-daemon 2>/dev/null
+tmux new-session -d -s operant-daemon "bun run src/daemon.ts"
 sleep 2
-tmux capture-pane -t hub-daemon -p | tail -10
+tmux capture-pane -t operant-daemon -p | tail -10
 ```
-Expected: see `hub: listening on http://localhost:<port>` without errors.
+Expected: see `operant: listening on http://localhost:<port>` without errors.
 
 - [ ] **Step 2: Spawn a test session, exchange messages, then kill it**
 
@@ -1160,10 +1160,10 @@ In a separate terminal:
 ```bash
 mkdir -p /tmp/restart-test
 cd /tmp/restart-test
-claude --dangerously-load-development-channels server:hub
+claude --dangerously-load-development-channels server:operant
 ```
 
-In the Claude TUI send: "hello, please respond with the word 'alpha'". Wait for reply. Exit with `/exit` or Ctrl+C twice so the session is disconnected in the hub.
+In the Claude TUI send: "hello, please respond with the word 'alpha'". Wait for reply. Exit with `/exit` or Ctrl+C twice so the session is disconnected in the operant.
 
 - [ ] **Step 3: Open the web dashboard**
 

@@ -37,7 +37,7 @@ describe('AutopilotRunner.runBtw', () => {
       pollIntervalMs: 10,
       btwTimeoutMs: 2000,
     })
-    const result = await runner.runBtw('hub-x', 'wrapped question text')
+    const result = await runner.runBtw('operant-x', 'wrapped question text')
     expect(result.status).toBe('answered')
     if (result.status === 'answered') {
       expect(result.answer).toContain('Bun')
@@ -56,7 +56,7 @@ describe('AutopilotRunner.runBtw', () => {
       pollIntervalMs: 5,
       btwTimeoutMs: 50,
     })
-    const result = await runner.runBtw('hub-x', 'q')
+    const result = await runner.runBtw('operant-x', 'q')
     expect(result.status).toBe('timeout')
     // dismiss anyway to leave the session usable
     expect(sm.escapes).toBe(1)
@@ -73,7 +73,7 @@ describe('AutopilotRunner.runBtw', () => {
       pollIntervalMs: 5,
       btwTimeoutMs: 500,
     })
-    const result = await runner.runBtw('hub-x', 'q')
+    const result = await runner.runBtw('operant-x', 'q')
     expect(result.status).toBe('parse_error')
     expect(sm.escapes).toBe(1)
   })
@@ -85,7 +85,7 @@ describe('AutopilotRunner.runBtw', () => {
       pollIntervalMs: 5,
       btwTimeoutMs: 500,
     })
-    const result = await runner.runBtw('hub-x', 'wrapped q', {
+    const result = await runner.runBtw('operant-x', 'wrapped q', {
       rawQuestion: 'Should I DELETE the whole backup?',
       riskKeywords: ['delete'],
     })
@@ -107,7 +107,7 @@ describe('AutopilotRunner.runBtw', () => {
       pollIntervalMs: 5,
       btwTimeoutMs: 500,
     })
-    const result = await runner.runBtw('hub-x', 'q')
+    const result = await runner.runBtw('operant-x', 'q')
     expect(result.status).toBe('escalate')
     if (result.status === 'escalate') expect(result.reason).toContain('production')
   })
@@ -123,14 +123,14 @@ describe('AutopilotRunner.probe', () => {
 `
     const sm = new FakeScreenManager(['', pane])
     const runner = new AutopilotRunner({ screenManager: sm as any, pollIntervalMs: 5, btwTimeoutMs: 500 })
-    const r = await runner.probe('hub-x')
+    const r = await runner.probe('operant-x')
     expect(r.ok).toBe(true)
   })
 
   test('probe returns not-ok when /btw never settles', async () => {
     const sm = new FakeScreenManager(['', '', '', ''])
     const runner = new AutopilotRunner({ screenManager: sm as any, pollIntervalMs: 5 })
-    const r = await runner.probe('hub-x', 50)
+    const r = await runner.probe('operant-x', 50)
     expect(r.ok).toBe(false)
   })
 
@@ -143,7 +143,7 @@ describe('AutopilotRunner.probe', () => {
 `
     const sm = new FakeScreenManager(['', pane])
     const runner = new AutopilotRunner({ screenManager: sm as any, pollIntervalMs: 5, btwTimeoutMs: 500 })
-    const r = await runner.probe('hub-x')
+    const r = await runner.probe('operant-x')
     expect(r.ok).toBe(false)
     expect(r.reason).toContain('banana')
   })
@@ -152,7 +152,7 @@ describe('AutopilotRunner.probe', () => {
     const sm = new FakeScreenManager([])
     const runner = new AutopilotRunner({ screenManager: sm as any, pollIntervalMs: 5 })
     const start = Date.now()
-    await runner.probe('hub-x', 80)
+    await runner.probe('operant-x', 80)
     const elapsed = Date.now() - start
     expect(elapsed).toBeLessThan(300) // well under 15s
   })
@@ -166,7 +166,7 @@ describe('AutopilotRunner.probe', () => {
 `
     const sm = new FakeScreenManager(['', pane])
     const runner = new AutopilotRunner({ screenManager: sm as any, pollIntervalMs: 5, btwTimeoutMs: 500 })
-    const r = await runner.probe('hub-x', 500)
+    const r = await runner.probe('operant-x', 500)
     expect(r.ok).toBe(true)
     expect(sm.sentKeys[0]?.text).toMatch(/^\/btw /)
     expect(sm.sentKeys[0]?.withEnter).toBe(false)
@@ -177,7 +177,7 @@ describe('AutopilotRunner.probe', () => {
   test('probe timeout error mentions the actual configured timeout, not a hardcoded value', async () => {
     const sm = new FakeScreenManager([])
     const runner = new AutopilotRunner({ screenManager: sm as any, pollIntervalMs: 5 })
-    const r = await runner.probe('hub-x', 2_000)
+    const r = await runner.probe('operant-x', 2_000)
     expect(r.ok).toBe(false)
     expect(r.reason).toContain('2s')
     expect(r.reason).not.toContain('15s')
@@ -186,7 +186,7 @@ describe('AutopilotRunner.probe', () => {
   test('probe error reasons no longer mention "feature flag may be off"', async () => {
     const sm = new FakeScreenManager([])
     const runner = new AutopilotRunner({ screenManager: sm as any, pollIntervalMs: 5 })
-    const r = await runner.probe('hub-x', 50)
+    const r = await runner.probe('operant-x', 50)
     expect(r.ok).toBe(false)
     expect(r.reason ?? '').not.toMatch(/feature flag may be off/i)
   })
@@ -212,7 +212,7 @@ describe('AutopilotRunner.quickProbe', () => {
   ? for shortcuts
 `
     const runner = new AutopilotRunner({ screenManager: new StaticScreenManager(idle) as any })
-    const r = await runner.quickProbe('hub-x')
+    const r = await runner.quickProbe('operant-x')
     expect(r.ok).toBe(true)
   })
 
@@ -223,30 +223,30 @@ describe('AutopilotRunner.quickProbe', () => {
   esc to interrupt                        ◉ xhigh
 `
     const runner = new AutopilotRunner({ screenManager: new StaticScreenManager(busy) as any })
-    const r = await runner.quickProbe('hub-x')
+    const r = await runner.quickProbe('operant-x')
     expect(r.ok).toBe(true)
   })
 
   test('returns not-ok when pane is empty (tmux session not running)', async () => {
     const runner = new AutopilotRunner({ screenManager: new StaticScreenManager('') as any })
-    const r = await runner.quickProbe('hub-missing')
+    const r = await runner.quickProbe('operant-missing')
     expect(r.ok).toBe(false)
     expect(r.reason).toMatch(/not found|not running/i)
   })
 
   test('returns not-ok when pane is at a permission prompt (1. Yes / 2. … / 3. No)', async () => {
     const blocked = `
-  hub - reply(text: "...") (MCP)
+  operant - reply(text: "...") (MCP)
 
   Do you want to proceed?
   ❯ 1. Yes
-    2. Yes, and don't ask again for hub - reply commands in /home/sap
+    2. Yes, and don't ask again for operant - reply commands in /home/sap
     3. No
 
   Esc to cancel · Tab to amend
 `
     const runner = new AutopilotRunner({ screenManager: new StaticScreenManager(blocked) as any })
-    const r = await runner.quickProbe('hub-x')
+    const r = await runner.quickProbe('operant-x')
     expect(r.ok).toBe(false)
     expect(r.reason).toMatch(/permission prompt/i)
   })

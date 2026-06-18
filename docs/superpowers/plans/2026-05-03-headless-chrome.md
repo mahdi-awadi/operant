@@ -17,8 +17,8 @@
 | File | Action | Responsibility |
 |---|---|---|
 | `src/browser-controller.ts` | Create (~250 lines) | Owns Chrome lifecycle: spawn, readiness poll, crash backoff, escalation, clean shutdown |
-| `src/types.ts` | Modify (+3 lines) | Add `chromeEnabled?: boolean`, `chromePort?: number`, `chromeExecutablePath?: string` to `HubConfig` |
-| `src/config.ts` | Modify (+5 lines) | Pass through the three new fields in `loadHubConfig` |
+| `src/types.ts` | Modify (+3 lines) | Add `chromeEnabled?: boolean`, `chromePort?: number`, `chromeExecutablePath?: string` to `OperantConfig` |
+| `src/config.ts` | Modify (+5 lines) | Pass through the three new fields in `loadOperantConfig` |
 | `src/daemon.ts` | Modify (~12 lines) | Construct `BrowserController`, start it post-config, await `stop()` in shutdown |
 | `package.json` | Modify | Add `"playwright"` to `dependencies` |
 | `tests/browser-controller.test.ts` | Create (~350 lines) | Unit tests with stubbed `Bun.spawn` + `fetch` |
@@ -262,7 +262,7 @@ async start(): Promise<void> {
   this.startedAt = Date.now()
   await this.waitUntilUp(10_000)
   this.emit('started')
-  process.stderr.write(`hub: chrome started (pid=${this.proc.pid}, port=${this.deps.port})\n`)
+  process.stderr.write(`operant: chrome started (pid=${this.proc.pid}, port=${this.deps.port})\n`)
 }
 
 async waitUntilUp(timeoutMs: number): Promise<void> {
@@ -467,7 +467,7 @@ async stop(): Promise<void> {
   await proc.exited.catch(() => {})
   clearTimeout(killTimer)
   this.emit('stopped')
-  process.stderr.write('hub: chrome stopped\n')
+  process.stderr.write('operant: chrome stopped\n')
 }
 ```
 
@@ -596,19 +596,19 @@ private handleExit(code: number | null, signal: string | null): void {
   if (Date.now() - this.startedAt > 60_000) this.crashCount = 0
 
   this.crashCount++
-  process.stderr.write(`hub: chrome exited (code=${code} signal=${signal}) — crash ${this.crashCount}\n`)
+  process.stderr.write(`operant: chrome exited (code=${code} signal=${signal}) — crash ${this.crashCount}\n`)
 
   if (this.crashCount > 5) {
-    process.stderr.write('hub: chrome escalated after 5 crashes\n')
+    process.stderr.write('operant: chrome escalated after 5 crashes\n')
     this.emit('chrome:escalated')
     return
   }
 
   const delay = Math.min(2 ** (this.crashCount - 1), 30) * 1000
-  process.stderr.write(`hub: chrome restarting in ${delay / 1000}s\n`)
+  process.stderr.write(`operant: chrome restarting in ${delay / 1000}s\n`)
   this.restartTimer = setTimeout(() => {
     this.restartTimer = null
-    this.start().catch(err => process.stderr.write(`hub: chrome restart failed: ${err}\n`))
+    this.start().catch(err => process.stderr.write(`operant: chrome restart failed: ${err}\n`))
   }, delay)
 }
 ```
@@ -706,15 +706,15 @@ git commit -m "feat(chrome): clear stale SingletonLock at start"
 Append to `/home/operant/tests/config.test.ts`:
 
 ```ts
-test('loadHubConfig honors chromeEnabled, chromePort, chromeExecutablePath defaults', () => {
-  const cfg = loadHubConfigFromObject({})
+test('loadOperantConfig honors chromeEnabled, chromePort, chromeExecutablePath defaults', () => {
+  const cfg = loadOperantConfigFromObject({})
   expect(cfg.chromeEnabled).toBeUndefined()      // default applied at daemon level
   expect(cfg.chromePort).toBeUndefined()
   expect(cfg.chromeExecutablePath).toBeUndefined()
 })
 
-test('loadHubConfig passes through chrome config when present', () => {
-  const cfg = loadHubConfigFromObject({
+test('loadOperantConfig passes through chrome config when present', () => {
+  const cfg = loadOperantConfigFromObject({
     chromeEnabled: false,
     chromePort: 9300,
     chromeExecutablePath: '/usr/bin/chromium',
@@ -731,10 +731,10 @@ Run: expect FAIL — fields not on the type.
 
 - [ ] **Step 2: Add config fields**
 
-In `/home/operant/src/types.ts`, extend `HubConfig`:
+In `/home/operant/src/types.ts`, extend `OperantConfig`:
 
 ```ts
-export type HubConfig = {
+export type OperantConfig = {
   // ...existing fields...
   chromeEnabled?: boolean
   chromePort?: number
@@ -742,7 +742,7 @@ export type HubConfig = {
 }
 ```
 
-In `/home/operant/src/config.ts`, in the `loadHubConfig` (or equivalent) result object, pass through the fields:
+In `/home/operant/src/config.ts`, in the `loadOperantConfig` (or equivalent) result object, pass through the fields:
 
 ```ts
 chromeEnabled: raw.chromeEnabled,
@@ -799,14 +799,14 @@ let browserController: BrowserController | null = null
 if (config.chromeEnabled !== false) {
   const exec = await findChromiumPath(config.chromeExecutablePath)
   if (!exec) {
-    process.stderr.write('hub: chrome disabled — chromium binary not found (run "bunx playwright install chromium")\n')
+    process.stderr.write('operant: chrome disabled — chromium binary not found (run "bunx playwright install chromium")\n')
   } else {
     browserController = new BrowserController({
       port: config.chromePort ?? 9222,
-      profileDir: join(HUB_DIR, 'chrome-profile'),
+      profileDir: join(OPERANT_DIR, 'chrome-profile'),
       executablePath: exec,
     })
-    browserController.start().catch(err => process.stderr.write(`hub: chrome failed to start: ${err}\n`))
+    browserController.start().catch(err => process.stderr.write(`operant: chrome failed to start: ${err}\n`))
   }
 }
 ```
@@ -817,7 +817,7 @@ In the existing `shutdown()` function, add (right after the other frontend stops
 
 ```ts
 if (browserController) {
-  await browserController.stop().catch(err => process.stderr.write(`hub: chrome stop error: ${err}\n`))
+  await browserController.stop().catch(err => process.stderr.write(`operant: chrome stop error: ${err}\n`))
 }
 ```
 
@@ -867,7 +867,7 @@ bunx playwright install chromium
 # Add chrome-devtools-mcp to your ~/.claude.json mcpServers:
 {
   "mcpServers": {
-    "hub": { "command": "bun", "args": ["run", "/path/to/operant/src/shim.ts"] },
+    "operant": { "command": "bun", "args": ["run", "/path/to/operant/src/shim.ts"] },
     "chrome": {
       "command": "npx",
       "args": ["-y", "chrome-devtools-mcp", "--browserURL", "http://127.0.0.1:9222"]
@@ -879,13 +879,13 @@ bunx playwright install chromium
 When the daemon starts, you'll see:
 
 ```
-hub: chrome started (pid=…, port=9222)
+operant: chrome started (pid=…, port=9222)
 ```
 
 **Disable it** by setting `chromeEnabled: false` in
-`~/.claude/channels/hub/config.json`. **Override the port** with
+`~/.claude/channels/operant/config.json`. **Override the port** with
 `chromePort` or the binary path with `chromeExecutablePath`. The
-persistent profile lives at `~/.claude/channels/hub/chrome-profile/`
+persistent profile lives at `~/.claude/channels/operant/chrome-profile/`
 (cookies and logins survive restarts; share carefully across
 sessions).
 ```
@@ -1017,13 +1017,13 @@ bunx playwright install chromium
 - [ ] **Step 2: Restart the daemon and confirm Chrome auto-starts**
 
 ```bash
-tmux kill-session -t hub-daemon 2>/dev/null
-tmux new-session -d -s hub-daemon "bun run src/daemon.ts"
+tmux kill-session -t operant-daemon 2>/dev/null
+tmux new-session -d -s operant-daemon "bun run src/daemon.ts"
 sleep 3
-tmux capture-pane -t hub-daemon -p | tail -10
+tmux capture-pane -t operant-daemon -p | tail -10
 ```
 
-Expected: log line `hub: chrome started (pid=…, port=9222)`.
+Expected: log line `operant: chrome started (pid=…, port=9222)`.
 
 - [ ] **Step 3: Probe the CDP endpoint**
 
@@ -1039,7 +1039,7 @@ Expected output: `"HeadlessChrome/<version>"`.
 # Find the chrome PID from the daemon log line, then:
 kill <chrome-pid>
 sleep 2
-tmux capture-pane -t hub-daemon -p | tail -5
+tmux capture-pane -t operant-daemon -p | tail -5
 ```
 
 Expected: log shows `chrome exited` and `chrome restarting in 1s`, then a new `chrome started` line.
@@ -1047,7 +1047,7 @@ Expected: log shows `chrome exited` and `chrome restarting in 1s`, then a new `c
 - [ ] **Step 5: Clean shutdown**
 
 ```bash
-tmux kill-session -t hub-daemon
+tmux kill-session -t operant-daemon
 ps -ef | grep -i chromium | grep -v grep
 ```
 
@@ -1055,7 +1055,7 @@ Expected: no orphan chromium process.
 
 - [ ] **Step 6: Add chrome-devtools-mcp to ~/.claude.json**
 
-(One-time per developer; documented in README.) Restart a Claude session that uses `--channels server:hub`. Verify `chrome.navigate` and `chrome.screenshot` are listed in the available tools and that calling them works against a public URL.
+(One-time per developer; documented in README.) Restart a Claude session that uses `--channels server:operant`. Verify `chrome.navigate` and `chrome.screenshot` are listed in the available tools and that calling them works against a public URL.
 
 - [ ] **Step 7: Update PR description with the checked-off list**
 

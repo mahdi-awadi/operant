@@ -1,6 +1,6 @@
 // src/personalities.ts
-// DAO over the personalities + project_personalities tables in hub.sqlite.
-// Schema is owned by src/hub-db.ts; this module only does CRUD + seeding.
+// DAO over the personalities + project_personalities tables in operant.sqlite.
+// Schema is owned by src/operant-db.ts; this module only does CRUD + seeding.
 //
 // On construction we upsert the five built-in personalities (matched by
 // name). User-created personalities are never touched. Editing a built-in's

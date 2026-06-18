@@ -1,7 +1,7 @@
 // src/daemon.ts
 import { join } from 'path'
 import { readFileSync, statSync, existsSync, mkdirSync } from 'fs'
-import { loadHubConfig, loadSessions, saveSessions, loadProfilesForHub, saveProfilesForHub, HUB_DIR, resolveAutopilotDefaults } from './config'
+import { loadOperantConfig, loadSessions, saveSessions, loadProfilesForOperant, saveProfilesForOperant, OPERANT_DIR, resolveAutopilotDefaults } from './config'
 import { SessionRegistry } from './session-registry'
 import { SocketServer } from './socket-server'
 import { PermissionEngine } from './permission-engine'
@@ -19,7 +19,7 @@ import { wrapQuestion, isTrivialReply } from './autopilot-risk'
 import { VetoController } from './veto-controller'
 import { EscalationController } from './escalation-controller'
 import { ErrorLog } from './error-log'
-import { openHubDb } from './hub-db'
+import { openOperantDb } from './operant-db'
 import { CompanyStore } from './company/store'
 import { handleCompanyTool } from './company/tools'
 import { loadOrg } from './company/org-loader'
@@ -104,21 +104,21 @@ function readFileSafely(filePath: string): string | null {
   }
 }
 
-const config = loadHubConfig()
+const config = loadOperantConfig()
 const savedSessions = loadSessions()
 
-let profiles: Profile[] = loadProfilesForHub()
-process.stderr.write(`hub: loaded ${profiles.length} profiles\n`)
+let profiles: Profile[] = loadProfilesForOperant()
+process.stderr.write(`operant: loaded ${profiles.length} profiles\n`)
 
 export function getProfiles(): Profile[] {
   return profiles
 }
 
 export function reloadProfiles(): void {
-  profiles = loadProfilesForHub()
+  profiles = loadProfilesForOperant()
 }
 
-const SOCKET_PATH = process.env.HUB_SOCKET ?? join(HUB_DIR, 'hub.sock')
+const SOCKET_PATH = process.env.OPERANT_SOCKET ?? join(OPERANT_DIR, 'operant.sock')
 
 const SHIM_COMMAND = `bun run ${join(import.meta.dir, 'shim.ts')}`
 
@@ -152,12 +152,12 @@ const vetoController = new VetoController()
 const escalationController = new EscalationController()
 // Single SQLite file backing errors + personalities + assignments. Migrates
 // the legacy errors.sqlite on first boot if present (renamed to .bak).
-const hubDb = openHubDb(HUB_DIR)
-const errorLog = new ErrorLog(hubDb.db)
-const personalities = new Personalities(hubDb.db)
-const decisions = new Decisions(hubDb.db)
-const messages = new Messages(hubDb.db)
-const companyStore = new CompanyStore(hubDb.db)
+const operantDb = openOperantDb(OPERANT_DIR)
+const errorLog = new ErrorLog(operantDb.db)
+const personalities = new Personalities(operantDb.db)
+const decisions = new Decisions(operantDb.db)
+const messages = new Messages(operantDb.db)
+const companyStore = new CompanyStore(operantDb.db)
 companyStore.setMemoryMirrorDir('/home/company/memory')
 try { loadOrg('/home/company', companyStore) } catch (e) { console.error('org load failed', e) }
 mkdirSync('/home/company/desks/secretary', { recursive: true })
@@ -215,14 +215,14 @@ let browserController: BrowserController | null = null
 if (config.chromeEnabled !== false) {
   const exec = await findChromiumPath(config.chromeExecutablePath)
   if (!exec) {
-    process.stderr.write('hub: chrome disabled — chromium binary not found (run "bunx playwright install chromium")\n')
+    process.stderr.write('operant: chrome disabled — chromium binary not found (run "bunx playwright install chromium")\n')
   } else {
     browserController = new BrowserController({
       port: config.chromePort ?? 9222,
-      profileDir: join(HUB_DIR, 'chrome-profile'),
+      profileDir: join(OPERANT_DIR, 'chrome-profile'),
       executablePath: exec,
     })
-    browserController.start().catch(err => process.stderr.write(`hub: chrome failed to start: ${err}\n`))
+    browserController.start().catch(err => process.stderr.write(`operant: chrome failed to start: ${err}\n`))
   }
 }
 
@@ -266,14 +266,14 @@ const router = new MessageRouter(
 
 // Wire socket server events
 socketServer.on('session:connected', (path: string) => {
-  process.stderr.write(`hub: session connected: ${path}\n`)
+  process.stderr.write(`operant: session connected: ${path}\n`)
   saveSessions(registry.toSaveFormat())
   webFrontend?.refreshSessions()
 })
 
 socketServer.on('session:disconnected', (path: string) => {
   const session = registry.get(path)
-  process.stderr.write(`hub: session disconnected: ${path}\n`)
+  process.stderr.write(`operant: session disconnected: ${path}\n`)
   saveSessions(registry.toSaveFormat())
   webFrontend?.refreshSessions()
 
@@ -379,7 +379,7 @@ socketServer.on('tool_call', async (path: string, name: string, args: Record<str
       // wedged in this loop on 2026-04-27 (errors.sqlite #20-#21). Bail
       // before doing any work — no decision row, no toast, no escalation.
       if (isTrivialReply(text)) {
-        process.stderr.write(`hub: autopilot ${session.name} skip — trivial reply ${JSON.stringify(text.slice(0, 40))}\n`)
+        process.stderr.write(`operant: autopilot ${session.name} skip — trivial reply ${JSON.stringify(text.slice(0, 40))}\n`)
         return
       }
       // Duration cap removed — autopilot runs as long as the user keeps it on.
@@ -387,7 +387,7 @@ socketServer.on('tool_call', async (path: string, name: string, args: Record<str
       // back control; we don't pull the rug at an arbitrary time threshold.
       const sessionName = session.name
       const managed = screenManager.getManagedByPath(registry.folderPath(path))
-      const tmuxName = managed?.sessionName ?? `hub-${sessionName}`
+      const tmuxName = managed?.sessionName ?? `operant-${sessionName}`
       const prefs = loadProjectPreferences(registry.folderPath(path))
       // If this session has a personality assigned, splice its system_prompt
       // into the wrap. Falls back to the default constraint block otherwise.
@@ -403,7 +403,7 @@ socketServer.on('tool_call', async (path: string, name: string, args: Record<str
         riskOverride: ap.riskOverride,
       }).then(result => {
         const elapsed = Date.now() - apT0
-        process.stderr.write(`hub: autopilot ${sessionName} ${elapsed}ms status=${result.status}${result.status === 'answered' ? ` length=${result.answer.length}` : ''}\n`)
+        process.stderr.write(`operant: autopilot ${sessionName} ${elapsed}ms status=${result.status}${result.status === 'answered' ? ` length=${result.answer.length}` : ''}\n`)
         // Log every non-answered outcome to SQLite so the user can see WHY
         // /btw didn't deliver — captured pane is the most useful field.
         if (result.status !== 'answered') {
@@ -423,7 +423,7 @@ socketServer.on('tool_call', async (path: string, name: string, args: Record<str
               durationMs: elapsed,
             })
           } catch (err) {
-            process.stderr.write(`hub: error-log record failed for ${sessionName}: ${err}\n`)
+            process.stderr.write(`operant: error-log record failed for ${sessionName}: ${err}\n`)
           }
         }
         if (result.status === 'answered') {
@@ -442,7 +442,7 @@ socketServer.on('tool_call', async (path: string, name: string, args: Record<str
               durationMs: elapsed,
             })
           } catch (err) {
-            process.stderr.write(`hub: decisions.record failed for ${sessionName}: ${err}\n`)
+            process.stderr.write(`operant: decisions.record failed for ${sessionName}: ${err}\n`)
           }
           const vetoMs = ap.vetoWindowMs ?? autopilotDefaults.vetoWindowMs
           if (vetoMs > 0) {
@@ -487,7 +487,7 @@ socketServer.on('tool_call', async (path: string, name: string, args: Record<str
           webFrontend?.deliverAutopilotEscalation?.(path, sessionName, text, `autopilot /btw failed (${result.status})`, kind)
         }
       }).catch(err => {
-        process.stderr.write(`hub: autopilot error for ${sessionName}: ${err}\n`)
+        process.stderr.write(`operant: autopilot error for ${sessionName}: ${err}\n`)
       })
     }
   } else if (name === 'edit_message') {
@@ -564,7 +564,7 @@ socketServer.on('tool_call', async (path: string, name: string, args: Record<str
 })
 
 socketServer.on('permission_request', (path: string, msg: any) => {
-  process.stderr.write(`hub: permission_request from ${path}: ${msg.toolName} (${msg.requestId})\n`)
+  process.stderr.write(`operant: permission_request from ${path}: ${msg.toolName} (${msg.requestId})\n`)
   const response = permissions.handle(path, {
     requestId: msg.requestId,
     toolName: msg.toolName,
@@ -584,7 +584,7 @@ socketServer.on('permission_request', (path: string, msg: any) => {
 // Start everything
 async function start(): Promise<void> {
   await socketServer.start()
-  process.stderr.write(`hub: socket server listening on ${SOCKET_PATH}\n`)
+  process.stderr.write(`operant: socket server listening on ${SOCKET_PATH}\n`)
 
   let telegramBotUsername = config.telegramBotUsername ?? ''
   if (!telegramBotUsername && config.telegramToken) {
@@ -595,7 +595,7 @@ async function start(): Promise<void> {
     } catch {}
   }
   if (telegramBotUsername) {
-    process.stderr.write(`hub: telegram login widget bot = @${telegramBotUsername}\n`)
+    process.stderr.write(`operant: telegram login widget bot = @${telegramBotUsername}\n`)
   }
 
   webFrontend = new WebFrontend({
@@ -621,7 +621,7 @@ async function start(): Promise<void> {
     companyStore,
   })
   await webFrontend.start()
-  process.stderr.write(`hub: web UI at http://localhost:${webFrontend.port}\n`)
+  process.stderr.write(`operant: web UI at http://localhost:${webFrontend.port}\n`)
 
   if (config.telegramToken) {
     if (config.telegramAllowFrom.length === 0) {
@@ -629,7 +629,7 @@ async function start(): Promise<void> {
       // makes a mis-configured bot publicly reachable by any Telegram user —
       // equivalent to a shell on this machine once /spawn or /send lands.
       process.stderr.write(
-        'hub: telegramToken is set but telegramAllowFrom is empty — refusing to start telegram frontend. ' +
+        'operant: telegramToken is set but telegramAllowFrom is empty — refusing to start telegram frontend. ' +
         'Add your Telegram user id to telegramAllowFrom in config.json.\n',
       )
     } else {
@@ -649,22 +649,22 @@ async function start(): Promise<void> {
         companyStore,
       })
       telegramFrontend.start().catch(err => {
-        process.stderr.write(`hub: telegram failed to start: ${err}\n`)
+        process.stderr.write(`operant: telegram failed to start: ${err}\n`)
       })
     }
   } else {
-    process.stderr.write('hub: no telegram token — skipping telegram frontend\n')
+    process.stderr.write('operant: no telegram token — skipping telegram frontend\n')
   }
 
   // Permission relay works natively through the MCP channel protocol.
   // No tmux polling needed — Claude Code sends permission_request notifications
   // directly to the shim, which forwards them to the daemon.
 
-  process.stderr.write('hub: daemon ready\n')
+  process.stderr.write('operant: daemon ready\n')
 }
 
 async function shutdown(): Promise<void> {
-  process.stderr.write('hub: shutting down...\n')
+  process.stderr.write('operant: shutting down...\n')
   taskMonitor.stopPolling()
   saveSessions(registry.toSaveFormat())
   await screenManager.killAll()
@@ -672,7 +672,7 @@ async function shutdown(): Promise<void> {
   await webFrontend?.stop()
   await telegramFrontend?.stop()
   if (browserController) {
-    await browserController.stop().catch(err => process.stderr.write(`hub: chrome stop error: ${err}\n`))
+    await browserController.stop().catch(err => process.stderr.write(`operant: chrome stop error: ${err}\n`))
   }
   process.exit(0)
 }
@@ -686,13 +686,13 @@ process.stdin.resume()
 
 // Prevent unhandled rejections from crashing the daemon
 process.on('unhandledRejection', err => {
-  process.stderr.write(`hub: unhandled rejection: ${err}\n`)
+  process.stderr.write(`operant: unhandled rejection: ${err}\n`)
 })
 process.on('uncaughtException', err => {
-  process.stderr.write(`hub: uncaught exception: ${err}\n`)
+  process.stderr.write(`operant: uncaught exception: ${err}\n`)
 })
 
 start().catch(err => {
-  process.stderr.write(`hub: failed to start: ${err}\n`)
+  process.stderr.write(`operant: failed to start: ${err}\n`)
   process.exit(1)
 })

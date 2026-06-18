@@ -1,20 +1,20 @@
 // tests/messages.test.ts
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
 import { Messages } from '../src/messages'
-import { openHubDb } from '../src/hub-db'
+import { openOperantDb } from '../src/operant-db'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import type { HubDbHandle } from '../src/hub-db'
+import type { OperantDbHandle } from '../src/operant-db'
 
 describe('Messages', () => {
   let dir: string
-  let handle: HubDbHandle
+  let handle: OperantDbHandle
   let m: Messages
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'hub-messages-test-'))
-    handle = openHubDb(dir)
+    dir = mkdtempSync(join(tmpdir(), 'operant-messages-test-'))
+    handle = openOperantDb(dir)
     m = new Messages(handle.db)
   })
 
