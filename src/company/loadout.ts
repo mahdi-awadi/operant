@@ -5,8 +5,9 @@ import type { Department } from './store'
 // Known extra MCP servers a seat may request (least privilege; hub is always present via the spawn flag).
 // Add entries here as their launch commands are confirmed (gitnexus, github, etc. pending).
 const MCP_REGISTRY: Record<string, { command: string; args: string[] }> = {
-  'chrome': { command: 'npx', args: ['-y', 'chrome-devtools-mcp', '--browserURL', 'http://127.0.0.1:9222'] },
-  // Other servers (gitnexus, github, slack, etc.) get added here when their launch commands are known.
+  'chrome': { command: 'npx', args: ['-y', 'chrome-devtools-mcp', '--browserUrl', 'http://127.0.0.1:9222'] },
+  'gitnexus': { command: '/usr/bin/gitnexus', args: ['mcp'] },
+  // Other servers (github, slack, etc.) get added here when their launch commands are known.
 }
 
 export function writeLoadout(dept: Department): void {
